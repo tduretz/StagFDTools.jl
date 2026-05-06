@@ -32,6 +32,17 @@ Base.@kwdef struct DruckerAniso <: AbstractPlasticity
     sinψ::Vector{Float64} = Float64[]
 end
 
+Base.@kwdef struct Tensile <: AbstractPlasticity
+    σT::Vector{Float64} = Float64[]
+    C::Vector{Float64} = Float64[]
+    ϕ::Vector{Float64} = Float64[]
+    ψ::Vector{Float64} = Float64[]
+    ηvp::Vector{Float64} = Float64[]
+    cosϕ::Vector{Float64} = Float64[]
+    sinϕ::Vector{Float64} = Float64[]
+    sinψ::Vector{Float64} = Float64[]
+end
+
 Base.@kwdef struct Golchin2021 <: AbstractPlasticity
     C::Vector{Float64} = Float64[]
     ϕ::Vector{Float64} = Float64[]
@@ -47,7 +58,6 @@ Base.@kwdef struct Golchin2021 <: AbstractPlasticity
     b::Vector{Float64} = Float64[]
     c::Vector{Float64} = Float64[]
     σT::Vector{Float64} = Float64[]
-    ηvp::Vector{Float64} = Float64[]
 end
 
 Base.@kwdef struct Kiss2023 <: AbstractPlasticity
