@@ -264,7 +264,7 @@ end
 
 
 # Return mapping --------------------------------------------
-return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::Nothing, phases) = τII, P, 0.0
+return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager, phases)
     return AnalyticalDPReturnMapping(τII, P, ηvep, comp, β, Δt,
@@ -394,53 +394,53 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function LocalRheology_div(ε̇, Dkk, P0, materials, phases, Δ)
+# function LocalRheology_div(ε̇, Dkk, P0, materials, phases, Δ)
 
-    eps0 = 0.0 * 1e-17
+#     eps0 = 0.0 * 1e-17
 
-    error()
+#     error()
 
-    # Effective strain rate & pressure
-    ε̇II = sqrt.((ε̇[1]^2 + ε̇[2]^2 + (-ε̇[1] - ε̇[2])^2) / 2 + ε̇[3]^2) + eps0
-    Dkk = ε̇[4]
+#     # Effective strain rate & pressure
+#     ε̇II = sqrt.((ε̇[1]^2 + ε̇[2]^2 + (-ε̇[1] - ε̇[2])^2) / 2 + ε̇[3]^2) + eps0
+#     Dkk = ε̇[4]
 
-    # Parameters
-    ϵ = 1e-10 # tolerance
-    n = materials.n[phases]
-    η0 = materials.η0[phases]
-    B = materials.B[phases]
-    G = materials.G[phases]
-    β = materials.β[phases]
-    comp = materials.compressible
+#     # Parameters
+#     ϵ = 1e-10 # tolerance
+#     n = materials.n[phases]
+#     η0 = materials.η0[phases]
+#     B = materials.B[phases]
+#     G = materials.G[phases]
+#     β = materials.β[phases]
+#     comp = materials.compressible
 
-    # Initial guess
-    η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
-    ηvep = inv(1 / η + 1 / (G * Δ.t))
-    τII = 2 * ηvep * ε̇II
-    P = P0 - comp * Δ.t / β * Dkk
+#     # Initial guess
+#     η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
+#     ηvep = inv(1 / η + 1 / (G * Δ.t))
+#     τII = 2 * ηvep * ε̇II
+#     P = P0 - comp * Δ.t / β * Dkk
 
-    # Visco-elastic powerlaw
-    for it = 1:20
-        r = ε̇II - StrainRateTrial(τII, G, Δ.t, B, n)
-        # @show abs(r)
-        (abs(r) < ϵ) && break
-        ∂ε̇II∂τII = ad_derivative(StrainRateTrial, τII, G, Δ.t, B, n)
-        ∂τII∂ε̇II = inv(∂ε̇II∂τII)
-        τII += ∂τII∂ε̇II * r
-    end
-    isnan(τII) && error()
+#     # Visco-elastic powerlaw
+#     for it = 1:20
+#         r = ε̇II - StrainRateTrial(τII, G, Δ.t, B, n)
+#         # @show abs(r)
+#         (abs(r) < ϵ) && break
+#         ∂ε̇II∂τII = ad_derivative(StrainRateTrial, τII, G, Δ.t, B, n)
+#         ∂τII∂ε̇II = inv(∂ε̇II∂τII)
+#         τII += ∂τII∂ε̇II * r
+#     end
+#     isnan(τII) && error()
 
-    # ηvep for analytical solution
-    ηvep = τII / 2 / ε̇II
+#     # ηvep for analytical solution
+#     ηvep = τII / 2 / ε̇II
 
-    # Viscoplastic return mapping
-    τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases)
+#     # Viscoplastic return mapping
+#     τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases)
 
-    # Effective viscosity
-    ηvep = τII / (2 * ε̇II)
+#     # Effective viscosity
+#     ηvep = τII / (2 * ε̇II)
 
-    return ηvep, λ̇, P, τII
-end
+#     return ηvep, λ̇, P, τII
+# end
 
 # Stress Vector ----------------------------------------------
 function StressVector!(ε̇, Dkk, P0, materials, phases::Integer, Δ)

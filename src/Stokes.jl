@@ -1081,7 +1081,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0
         # Tangent operator used for Newton Linearisation
         phases_ratios_center = phase_ratios.c[i-1, j-1]
         stress_state, τ_vec, jac = ad_value_and_jacobian_first(StressVector!, ε̇vec, Dkk[1], Pt0[i, j], materials, phases_ratios_center, Δ)
-        _, η_local, λ̇_local, _ = stress_state
+        _, η_local, λ̇_local, τII_local = stress_state
 
         @views 𝐷_ctl.c[i, j] .= jac
 
@@ -1092,6 +1092,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0
         # Update stress
         τ.xx[i, j] = τ_vec[1]
         τ.yy[i, j] = τ_vec[2]
+        τ.II[i, j] = τII_local
         ε̇.xx[i, j] = ε̇xx[1]
         ε̇.yy[i, j] = ε̇yy[1]
         λ̇.c[i, j] = λ̇_local
