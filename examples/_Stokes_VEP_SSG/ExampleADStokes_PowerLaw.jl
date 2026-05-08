@@ -1,4 +1,4 @@
-using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, Plots, LinearAlgebra, SparseArrays, Printf
+using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf
 import Statistics:mean
 using DifferentiationInterface
 using TimerOutputs
@@ -10,30 +10,16 @@ using TimerOutputs
 
     # Boundary loading type
     config = :free_slip
-    config = :EW_Neumann
+    # config = :EW_Neumann
     D_BC   = @SMatrix( [  1. 0.;
                           0  -1 ])
 
     # Material parameters
-    materials = ( 
-        compressible = false,
-        plasticity   = :none,
-        g    = [0      0     0   ],
-        ρ    = [0.0    0.0   0.0 ],
-        n    = [3.0    3.0   1.0 ],
-        η0   = [1e2    1e-1  1e2 ], 
-        G    = [1e20   1e20  1e20],
-        C    = [1e10   1e10  1e10],
-        ϕ    = [30.    30.   30. ],
-        ηvp  = [0.5    0.5   0.5 ],
-        β    = [1e-2   1e-2  1e-2],
-        ψ    = [3.     3.    3.  ],
-        B    = [0.     0.    0.  ],
-        cosϕ = [0.0    0.0   0.0 ],
-        sinϕ = [0.0    0.0   0.0 ],
-        sinψ = [0.0    0.0   0.0 ],
-    ) 
-    materials.B   .= (2*materials.η0).^(-materials.n)
+    materials_properties     = initialize_materials( 3 )
+    materials_properties.η0 .= [1e2,    1e-1,  1e2 ]  
+    materials_properties.n  .= [3.0,    3.0,   1.0 ]
+    materials_properties.G  .= [1e20,   1e20,  1e20]
+    materials                = preprocess_materials( materials_properties )
 
     # Time steps
     Δt0   = 0.5
@@ -160,7 +146,7 @@ using TimerOutputs
 
     #--------------------------------------------#
 
-    anim = @animate for it=1:nt
+    for it=1:nt
 
         @printf("Step %04d\n", it)
         fill!(err.x, 0e0)
@@ -173,14 +159,17 @@ using TimerOutputs
         τ0.xy .= τ.xy
         Pt0   .= Pt
 
-        for iter=1:niter
+        iter = 0
+
+        while iter<niter
 
             @printf("Iteration %04d\n", iter)
+            iter +=1
 
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-   TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
                 @show extrema(λ̇.c)
                 @show extrema(λ̇.v)
                 ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 
@@ -217,16 +206,14 @@ using TimerOutputs
             # Direct-iterative solver
             fu   = @views -r[1:size(𝐊,1)]
             fp   = @views -r[size(𝐊,1)+1:end]
-            u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu,  ηb=1e3, niter_l=10, ϵ_l=1e-11)
+            u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu,  ηb=1e5, niter_l=10, ϵ_l=1e-11)
             @views dx[1:size(𝐊,1)]     .= u
             @views dx[size(𝐊,1)+1:end] .= p
 
             #--------------------------------------------#
             # Line search & solution update
             @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, ξ, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-
             UpdateSolution!(V, Pt, α[imin]*dx, number, type, nc)
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
 
         end
 
@@ -234,34 +221,34 @@ using TimerOutputs
         Pt .+= ΔPt.c
 
         #--------------------------------------------#
+        fig = Figure(size=(900,700), fontsize=14)
 
-        τxyc = av2D(τ.xy)
-        τII  = sqrt.( 0.5.*(τ.xx[inx_c,iny_c].^2 + τ.yy[inx_c,iny_c].^2 + (-τ.xx[inx_c,iny_c]-τ.yy[inx_c,iny_c]).^2) .+ τxyc[inx_c,iny_c].^2 )
-        ε̇xyc = av2D(ε̇.xy)
-        ε̇II  = sqrt.( 0.5.*(ε̇.xx[inx_c,iny_c].^2 + ε̇.yy[inx_c,iny_c].^2 + (-ε̇.xx[inx_c,iny_c]-ε̇.yy[inx_c,iny_c]).^2) .+ ε̇xyc[inx_c,iny_c].^2 )
-        
-        p2 = Plots.heatmap(xv, yc, R.x[inx_Vx,iny_Vx]', aspect_ratio=1, xlim=extrema(xv), title="Vx")
-        # p2 = Plots.heatmap(xv, yv,  log10.(η.v[inx_v,iny_v])', aspect_ratio=1, xlim=extrema(xv), title="ηv")
-        p3 = Plots.heatmap(xc, yc,  log10.(ε̇II)', aspect_ratio=1, xlim=extrema(xc), title="ε̇II", c=:coolwarm, clim=(-0.4, 0.4))
-        p4 = Plots.heatmap(xc, yc,  τ.xx[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="τxx", c=:turbo)
-        p1 = Plots.plot(xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error", legend=:topright)
-        p1 = Plots.scatter!(1:niter, log10.(err.x[1:niter]), label="Vx")
-        p1 = Plots.scatter!(1:niter, log10.(err.y[1:niter]), label="Vy")
-        p1 = Plots.scatter!(1:niter, log10.(err.p[1:niter]), label="Pt")
-        display(Plots.plot(p1, p2, p3, p4, layout=(2,2)))
+        ax1 = Axis(fig[1,1], xlabel="Iterations @ step $(it)", ylabel="log₁₀ error", title="Convergence")
+        scatter!(ax1, 1:iter, log10.(err.x[1:iter]), markersize=6, label="Vx")
+        scatter!(ax1, 1:iter, log10.(err.y[1:iter]), markersize=6, label="Vy")
+        axislegend(ax1, position=:rt)
+
+        ax2 = Axis(fig[1,2], title="Vx", aspect=DataAspect())
+        heatmap!(ax2, xv, yc, V.x[inx_Vx,iny_Vx]')
+        xlims!(ax2, extrema(xv))
+
+        ax3 = Axis(fig[2,1], title="ε̇II", aspect=DataAspect())
+        hm3 = heatmap!(ax3, xc, yc, log10.(ε̇.II[inx_c,iny_c])'; colormap=:coolwarm, colorrange=(-0.4,0.4))
+        xlims!(ax3, extrema(xc))
+        Colorbar(fig[2,1, Right()], hm3, width=12)
+
+        ax4 = Axis(fig[2,2], title="τxx", aspect=DataAspect())
+        hm4 = heatmap!(ax4, xc, yc, τ.xx[inx_c,iny_c]'; colormap=:turbo)
+        xlims!(ax4, extrema(xc))
+        Colorbar(fig[2,2, Right()], hm4, width=12)
+
+        display(fig)
 
     end
-    # Plots.gif(anim, "./results/PowerLaw.gif", fps = 5)
-
-    printxy(number.Vx)
-    printxy(type.Vx)
-    #  printxy(type.Vy)
-
     display(to)
-    
 end
 
 
 let
-    main((x = 10, y = 10))
+    main((x = 100, y = 100))
 end
