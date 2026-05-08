@@ -92,7 +92,7 @@ function PhaseRatios!(phase_ratios, phase_weights, m, mphase, xce, yce, xve, yve
     end
 end
 
-function compute_grid_fields!(G, β, ρ, materials, phase_ratios, nc, size_c, size_v, nphases)
+function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
     sum = (c=ones(size_c...), v=ones(size_v...))
 
     for I in CartesianIndices(β.c)
@@ -100,6 +100,7 @@ function compute_grid_fields!(G, β, ρ, materials, phase_ratios, nc, size_c, si
         β.c[i, j] = 0.0
         G.c[i, j] = 0.0
         ρ.c[i, j] = 0.0
+        ξ.c[i, j] = 0.0
         sum.c[i, j] = 0.0
         for p = 1:nphases # loop on phases
             if i > 1 && j > 1 && i < nc.x + 2 && j < nc.y + 2
@@ -107,6 +108,7 @@ function compute_grid_fields!(G, β, ρ, materials, phase_ratios, nc, size_c, si
                 β.c[i, j] += phase_ratio * materials.β[p]
                 G.c[i, j] += phase_ratio * materials.G[p]
                 ρ.c[i, j] += phase_ratio * materials.ρ[p]
+                ξ.c[i, j] += phase_ratio * materials.ρ[p]
                 sum.c[i, j] += phase_ratio
             end
         end
@@ -115,6 +117,10 @@ function compute_grid_fields!(G, β, ρ, materials, phase_ratios, nc, size_c, si
     G.c[:, [1 end]] .= G.c[:, [2 end - 1]]
     β.c[[1 end], :] .= β.c[[2 end - 1], :]
     β.c[:, [1 end]] .= β.c[:, [2 end - 1]]
+    ρ.c[[1 end], :] .= ρ.c[[2 end - 1], :]
+    ρ.c[:, [1 end]] .= ρ.c[:, [2 end - 1]]
+    ξ.c[[1 end], :] .= ξ.c[[2 end - 1], :]
+    ξ.c[:, [1 end]] .= ξ.c[:, [2 end - 1]]
 
     for I in CartesianIndices(G.v)
         i, j = I[1], I[2]
