@@ -163,39 +163,45 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, 𝐷, phases, materia
     Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
 
     # Interp Vy -> Vx, Vx - > Vy
-    V̄y = SMatrix{3, 3}( av2D(Vy) )
-    V̄x = SMatrix{2, 2}( av2D(Vx) )
+    V̄y = av2D(Vy)
+    V̄x = av2D(Vx)
 
     # More averages
-    Pt_v   = SVector{2}( av(Pt)    )
+    Pt_v   = SVector( av(Pt)    )
     τ0xx_c = SVector{2}(τ0.xx[i,2]  for i=1:2) 
     τ0yy_c = SVector{2}(τ0.yy[i,2]  for i=1:2) 
-    τ0xy_c = SVector{2}( av(τ0.xy) )
-    τ0xx_v = SVector{2}( av(τ0.xx) )
-    τ0yy_v = SVector{2}( av(τ0.yy) )
+    τ0xy_c = SVector( av(τ0.xy) )
+    τ0xx_v = SVector( av(τ0.xx) )
+    τ0yy_v = SVector( av(τ0.yy) )
     τ0xy_v = SVector{2}(τ0.xy[2,i]  for i=1:2) 
 
     # Velocity gradient - centroids
-    Dxx_c = SVector{2}( (∂x(Vx) * invΔx)[i,2] for i=1:2 )
-    Dxy_c = SVector{2}( (∂y(V̄x) * invΔy)[i]   for i=1:2 )
-    Dyy_c = SVector{2}( (∂y(Vy) * invΔy)[i,3] for i=2:3 )
-    Dyx_c = SVector{2}( (∂x(V̄y) * invΔx)[i,2] for i=1:2 ) 
+    ∂Vx∂x = ∂x(Vx) .* invΔx
+    Dxx_c = SVector{2}( ∂Vx∂x[i,2] for i=1:2 )
+    ∂V̄x∂y = (∂y(V̄x) * invΔy)
+    Dxy_c = SVector{2}( ∂V̄x∂y[i]   for i=1:2 )
+    ∂Vy∂y = ∂y(Vy) * invΔy
+    Dyy_c = SVector{2}( ∂Vy∂y[i,3] for i=2:3 )
+    ∂V̄y∂x = ∂x(V̄y) * invΔx
+    Dyx_c = SVector{2}( ∂V̄y∂x[i,2] for i=1:2 ) 
 
     # Velocity gradient - vertices
-    Dxx_v = SVector{2}( (∂x(V̄x) * invΔx)[i]   for i=1:2 ) 
-    Dxy_v = SVector{2}( (∂y(Vx) * invΔy)[2,i] for i=1:2 )  
-    Dyy_v = SVector{2}( (∂y(V̄y) * invΔy)[2,i] for i=1:2 )  
-    Dyx_v = SVector{2}( (∂x(Vy) * invΔx)[2,i] for i=2:3 )   
-
+    ∂V̄x∂x = ∂x(V̄x) * invΔx
+    Dxx_v = SVector{2}( ∂V̄x∂x[i]   for i=1:2 ) 
+    ∂Vx∂y = ∂y(Vx) * invΔy
+    Dxy_v = SVector{2}( ∂Vx∂y[2,i] for i=1:2 )  
+    ∂V̄y∂y = ∂y(V̄y) * invΔy
+    Dyy_v = SVector{2}( ∂V̄y∂y[2,i] for i=1:2 )  
+    ∂Vy∂x = ∂x(Vy) * invΔx
+    Dyx_v = SVector{2}( ∂Vy∂x[2,i] for i=2:3 )   
     # Deviatoric strain rate
     ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
     ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v)
-
-    # # Effective visco-elastic strain rate
+    # Effective visco-elastic strain rate
     Gc      = SVector{2}( materials.G[phases.c[i]] for i=1:2)
     Gv      = SVector{2}( materials.G[phases.v[i]] for i=1:2)
-    _2GΔt_c = SVector{2}( @. inv(2 * Gc * Δ.t))
-    _2GΔt_v = SVector{2}( @. inv(2 * Gv * Δ.t))
+    _2GΔt_c = @. inv(2 * Gc * Δ.t)
+    _2GΔt_v = @. inv(2 * Gv * Δ.t)
     ϵ̇xx_c, ϵ̇yy_c, ϵ̇xy_c = effective_strain_rate(ε̇xx_c, ε̇yy_c, ε̇xy_c, τ0xx_c, τ0yy_c, τ0xy_c, _2GΔt_c)
     ϵ̇xx_v, ϵ̇yy_v, ϵ̇xy_v = effective_strain_rate(ε̇xx_v, ε̇yy_v, ε̇xy_v, τ0xx_v, τ0yy_v, τ0xy_v, _2GΔt_v)
 
@@ -214,7 +220,7 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, 𝐷, phases, materia
     # Residual
     fx  = ( σxx[2]  - σxx[1] ) * invΔx
     fx += ( τxy[2]  - τxy[1] ) * invΔy
-    fx *= -1* Δ.x * Δ.y
+    fx *= -Δ.x * Δ.y
 
     return fx
 end
@@ -228,29 +234,37 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, 𝐷, phases, materia
     Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
 
     # Interp Vy -> Vx, Vx - > Vy
-    V̄y = SMatrix{2, 2}( av2D(Vy) )   # 2, 2
-    V̄x = SMatrix{3, 3}( av2D(Vx) )   # 3, 3
+    V̄y = av2D(Vy)   # 2, 2
+    V̄x = av2D(Vx)   # 3, 3
 
     # # More averages
-    Pt_v   = SVector{2}( av(Pt)    )
+    Pt_v   = SVector( av(Pt)    )
     τ0xx_c = SVector{2}( τ0.xx[2,i] for i=1:2)
     τ0yy_c = SVector{2}( τ0.yy[2,i] for i=1:2)
-    τ0xy_c = SVector{2}( av(τ0.xy) )
-    τ0xx_v = SVector{2}( av(τ0.xx) )
-    τ0yy_v = SVector{2}( av(τ0.yy) )
+    τ0xy_c = SVector( av(τ0.xy) )
+    τ0xx_v = SVector( av(τ0.xx) )
+    τ0yy_v = SVector( av(τ0.yy) )
     τ0xy_v = SVector{2}( τ0.xy[i,2] for i=1:2)
 
     # Velocity gradient - centroids
-    Dxx_c = SVector{2}( (∂x(Vx) * invΔx)[2,i] for i=2:3 )
-    Dxy_c = SVector{2}( (∂y(V̄x) * invΔy)[2,i] for i=1:2 )
-    Dyy_c = SVector{2}( (∂y(Vy) * invΔy)[2,i] for i=1:2 )
-    Dyx_c = SVector{2}( (∂x(V̄y) * invΔx)[i]   for i=1:2 )            
+    ∂Vx∂x = ∂x(Vx) * invΔx
+    Dxx_c = SVector{2}( ∂Vx∂x[2,i] for i=2:3 )
+    ∂V̄x∂y = ∂y(V̄x) * invΔy
+    Dxy_c = SVector{2}( ∂V̄x∂y[2,i] for i=1:2 )
+    ∂Vy∂y = ∂y(Vy) * invΔy
+    Dyy_c = SVector{2}( ∂Vy∂y[2,i] for i=1:2 )
+    ∂V̄y∂x = ∂x(V̄y) * invΔx
+    Dyx_c = SVector{2}( ∂V̄y∂x[i]   for i=1:2 )            
 
     # Velocity gradient - vertices
-    Dxx_v = SVector{2}( (∂x(V̄x) * invΔx)[i,2] for i=1:2 ) 
-    Dxy_v = SVector{2}( (∂y(Vx) * invΔy)[i,2] for i=2:3 )  
-    Dyy_v = SVector{2}( (∂y(V̄y) * invΔy)[i]         for i=1:2 )  
-    Dyx_v = SVector{2}( (∂x(Vy) * invΔx)[i,2] for i=1:2 ) 
+    ∂V̄x∂x = ∂x(V̄x) * invΔx
+    Dxx_v = SVector{2}( ∂V̄x∂x[i,2] for i=1:2 ) 
+    ∂Vx∂y = ∂y(Vx) * invΔy
+    Dxy_v = SVector{2}( ∂Vx∂y[i,2] for i=2:3 )  
+    ∂V̄y∂y = ∂y(V̄y) * invΔy
+    Dyy_v = SVector{2}( ∂V̄y∂y[i]   for i=1:2 )  
+    ∂Vy∂x = ∂x(Vy) * invΔx
+    Dyx_v = SVector{2}( ∂Vy∂x[i,2] for i=1:2 ) 
 
     # Deviatoric strain rate
     ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
@@ -259,8 +273,8 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, 𝐷, phases, materia
     # # Effective visco-elastic strain rate
     Gc      = SVector{2}( materials.G[phases.c[i]] for i=1:2)
     Gv      = SVector{2}( materials.G[phases.v[i]] for i=1:2)
-    _2GΔt_c = SVector{2}( @. inv(2 * Gc * Δ.t))
-    _2GΔt_v = SVector{2}( @. inv(2 * Gv * Δ.t))
+    _2GΔt_c = @. inv(2 * Gc * Δ.t)
+    _2GΔt_v = @. inv(2 * Gv * Δ.t)
     ϵ̇xx_c, ϵ̇yy_c, ϵ̇xy_c = effective_strain_rate(ε̇xx_c, ε̇yy_c, ε̇xy_c, τ0xx_c, τ0yy_c, τ0xy_c, _2GΔt_c)
     ϵ̇xx_v, ϵ̇yy_v, ϵ̇xy_v = effective_strain_rate(ε̇xx_v, ε̇yy_v, ε̇xy_v, τ0xx_v, τ0yy_v, τ0xy_v, _2GΔt_v)
 
@@ -277,14 +291,13 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, 𝐷, phases, materia
     )  
 
     # Gravity
-    ρ    = SVector{2}( materials.ρ[phases.c[i]] for i=1:2)
-    ρg   = materials.g[2] * 0.5*(ρ[1] + ρ[2])
+    ρg   = materials.g[2] * 0.5*(materials.ρ[phases.c[1]] + materials.ρ[phases.c[2]] )
 
     # Residual
     fy  = ( σyy[2]  -  σyy[1] ) * invΔy
     fy += ( τxy[2]  -  τxy[1] ) * invΔx
     fy += ρg
-    fy *= -1 * Δ.x * Δ.y
+    fy *= -Δ.x * Δ.y
     
     return fy
 end
@@ -338,15 +351,6 @@ end
 
 function AssembleMomentum2D_x!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, num, pattern, type, BC, nc, Δ) 
 
-    ∂R∂Vx = @MMatrix zeros(3,3)
-    ∂R∂Vy = @MMatrix zeros(4,4)
-    ∂R∂Pt = @MMatrix zeros(2,3)
-                
-    Vx_loc = @MMatrix zeros(3,3)
-    Vy_loc = @MMatrix zeros(4,4)
-    P_loc  = @MMatrix zeros(2,3)
-    ΔP_loc = @MMatrix zeros(2,1)
-
     shift    = (x=1, y=2)
     for j in 1+shift.y:nc.y+shift.y, i in 1+shift.x:nc.x+shift.x+1
         
@@ -360,10 +364,10 @@ function AssembleMomentum2D_x!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, n
             phc_loc    = SMatrix{2,1}( phases.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
             phv_loc    = SMatrix{1,2}( phases.v[ii,jj] for ii in i-0:i-0, jj in j-1:j-0) 
             
-            Vx_loc    .= SMatrix{3,3}(      V.x[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
-            Vy_loc    .= SMatrix{4,4}(      V.y[ii,jj] for ii in i-1:i+2, jj in j-2:j+1)
-            P_loc     .= SMatrix{2,3}(        P[ii,jj] for ii in i-1:i,   jj in j-2:j  )
-            ΔP_loc    .= SMatrix{2,1}(       ΔP.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
+            Vx_loc     = SMatrix{3,3}(      V.x[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+            Vy_loc     = SMatrix{4,4}(      V.y[ii,jj] for ii in i-1:i+2, jj in j-2:j+1)
+            P_loc      = SMatrix{2,3}(        P[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            ΔP_loc     = SMatrix{2,1}(       ΔP.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
 
             τxx0       = SMatrix{2,3}(    τ0.xx[ii,jj] for ii in i-1:i,   jj in j-2:j  )
             τyy0       = SMatrix{2,3}(    τ0.yy[ii,jj] for ii in i-1:i,   jj in j-2:j  )
@@ -377,13 +381,9 @@ function AssembleMomentum2D_x!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, n
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-            fill!(∂R∂Vx, 0e0)
-            fill!(∂R∂Vy, 0e0)
-            fill!(∂R∂Pt, 0e0)
-            ∂Vx, ∂Vy, ∂Pt = ad_partial_gradients(SMomentum_x_Generic, (Vx_loc, Vy_loc, P_loc), ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ)
-            ∂R∂Vx .= ∂Vx
-            ∂R∂Vy .= ∂Vy
-            ∂R∂Pt .= ∂Pt
+            ∂R∂Vx = gradient(x -> SMomentum_x_Generic(x     , Vy_loc, P_loc, ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
+            ∂R∂Vy = gradient(x -> SMomentum_x_Generic(Vx_loc, x     , P_loc, ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
+            ∂R∂Pt = gradient(x -> SMomentum_x_Generic(Vx_loc, Vy_loc, x    , ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
             # Vx --- Vx
             Local = SMatrix{3,3}(num.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1) .* pattern[1][1]
             for jj in axes(Local,2), ii in axes(Local,1)
@@ -442,17 +442,8 @@ function ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, n
 end
 
 function AssembleMomentum2D_y!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, num, pattern, type, BC, nc, Δ) 
-    
-    ∂R∂Vy = @MMatrix zeros(3,3)
-    ∂R∂Vx = @MMatrix zeros(4,4)
-    ∂R∂Pt = @MMatrix zeros(3,2)
-    
-    Vx_loc = @MMatrix zeros(4,4)
-    Vy_loc = @MMatrix zeros(3,3)
-    P_loc  = @MMatrix zeros(3,2)
-    ΔP_loc = @MMatrix zeros(1,2)
        
-    shift    = (x=2, y=1)
+    shift = (x=2, y=1)
     K21 = K[2][1]
     K22 = K[2][2]
     K23 = K[2][3]
@@ -461,16 +452,16 @@ function AssembleMomentum2D_y!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, n
 
         if type.Vy[i,j] === :in
 
-            Vx_loc    .= @inline SMatrix{4,4}(@inbounds       V.x[ii,jj] for ii in i-2:i+1, jj in j-1:j+2)
-            Vy_loc    .= @inline SMatrix{3,3}(@inbounds       V.y[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+            Vx_loc     = @inline SMatrix{4,4}(@inbounds       V.x[ii,jj] for ii in i-2:i+1, jj in j-1:j+2)
+            Vy_loc     = @inline SMatrix{3,3}(@inbounds       V.y[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             bcx_loc    = @inline SMatrix{4,4}(@inbounds     BC.Vx[ii,jj] for ii in i-2:i+1, jj in j-1:j+2)
             bcy_loc    = @inline SMatrix{3,3}(@inbounds     BC.Vy[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             typex_loc  = @inline SMatrix{4,4}(@inbounds   type.Vx[ii,jj] for ii in i-2:i+1, jj in j-1:j+2)
             typey_loc  = @inline SMatrix{3,3}(@inbounds   type.Vy[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             phc_loc    = @inline SMatrix{1,2}(@inbounds  phases.c[ii,jj] for ii in i-1:i-1, jj in j-1:j  )
             phv_loc    = @inline SMatrix{2,1}(@inbounds  phases.v[ii,jj] for ii in i-1:i-0, jj in j-0:j-0) 
-            P_loc     .= @inline SMatrix{3,2}(@inbounds         P[ii,jj] for ii in i-2:i,   jj in j-1:j  )
-            ΔP_loc    .= @inline SMatrix{1,2}(@inbounds        ΔP.c[ii,jj] for ii in i-1:i-1, jj in j-1:j  )
+            P_loc      = @inline SMatrix{3,2}(@inbounds         P[ii,jj] for ii in i-2:i,   jj in j-1:j  )
+            ΔP_loc     = @inline SMatrix{1,2}(@inbounds        ΔP.c[ii,jj] for ii in i-1:i-1, jj in j-1:j  )
             τxx0       = @inline SMatrix{3,2}(@inbounds     τ0.xx[ii,jj] for ii in i-2:i,   jj in j-1:j  )
             τyy0       = @inline SMatrix{3,2}(@inbounds     τ0.yy[ii,jj] for ii in i-2:i,   jj in j-1:j  )
             τxy0       = @inline SMatrix{2,3}(@inbounds     τ0.xy[ii,jj] for ii in i-1:i,   jj in j-1:j+1)
@@ -482,13 +473,11 @@ function AssembleMomentum2D_y!(K, V, P, P0, ΔP, τ0, 𝐷, phases, materials, n
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-            fill!(∂R∂Vx, 0.0)
-            fill!(∂R∂Vy, 0.0)
-            fill!(∂R∂Pt, 0.0)
-            ∂Vx, ∂Vy, ∂Pt = ad_partial_gradients(SMomentum_y_Generic, (Vx_loc, Vy_loc, P_loc), ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ)
-            ∂R∂Vx .= ∂Vx
-            ∂R∂Vy .= ∂Vy
-            ∂R∂Pt .= ∂Pt
+
+            ∂R∂Vx = gradient(x -> SMomentum_y_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
+            ∂R∂Vy = gradient(x -> SMomentum_y_Generic(Vx_loc, x     , P_loc, ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
+            ∂R∂Pt = gradient(x -> SMomentum_y_Generic(Vx_loc, Vy_loc, x    , ΔP_loc, τ0_loc, D, ph_loc, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
+
             
             num_Vy = @inbounds num.Vy[i,j]
             bounds_Vy = num_Vy > 0
