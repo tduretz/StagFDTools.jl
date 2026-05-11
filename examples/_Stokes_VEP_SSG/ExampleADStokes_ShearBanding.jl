@@ -1,4 +1,4 @@
-using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, Plots, LinearAlgebra, SparseArrays, Printf
+using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf
 import Statistics:mean
 using DifferentiationInterface
 using TimerOutputs
@@ -14,40 +14,31 @@ using TimerOutputs
                           0  1 ])
 
     # Material parameters
-    materials = ( 
-        g     = [0.0   0.0],
-        compressible = true,
-        plasticity   = :DruckerPrager,
-        ρ    = [1.0    1.0  ],
-        n    = [1.0    1.0  ],
-        η0   = [1e2    1e-1 ], 
-        G    = [1e1    1e1  ],
-        C    = [150    150  ],
-        ϕ    = [30.    30.  ],
-        ηvp  = [0.5    0.5  ],
-        β    = [1e-2   1e-2 ],
-        ψ    = [3.0    3.0  ],
-        B    = [0.0    0.0  ],
-        cosϕ = [0.0    0.0  ],
-        sinϕ = [0.0    0.0  ],
-        sinψ = [0.0    0.0  ],
-    )
-    # For power law
-    materials.B   .= (2*materials.η0).^(-materials.n)
-
-    # For plasticity
-    @. materials.cosϕ  = cosd(materials.ϕ)
-    @. materials.sinϕ  = sind(materials.ϕ)
-    @. materials.sinψ  = sind(materials.ψ)
+    materials_properties      = initialize_materials( 2, compressible = true, plasticity = :DruckerPrager )
+    materials_properties.ρ   .= [1.0 ,   1.0  ]
+    materials_properties.n   .= [1.0 ,   1.0  ]
+    materials_properties.η0  .= [1e2 ,   1e-1 ]
+    materials_properties.ξ0  .= [1e50,   1e50 ]
+    materials_properties.G   .= [1e1 ,   1e1  ]
+    materials_properties.C   .= [150 ,   150  ]
+    materials_properties.ϕ   .= [30. ,   30.  ]
+    materials_properties.ηvp .= [0.5 ,   0.5  ]
+    materials_properties.β   .= [1e-2,   1e-2 ]
+    materials_properties.ψ   .= [3.0 ,   3.0  ]
+    materials                 = preprocess_materials( materials_properties )
 
     # Time steps
     Δt0   = 0.5
     nt    = 40
 
     # Newton solver
-    niter = 20
-    ϵ_nl  = 1e-8
-    α     = LinRange(0.05, 1.0, 10)
+    niter   = 20     # max. number of non-linear iters
+    γ       = 1e5    # penalty viscosity
+    ϵ_l     = 1e-11  # linear solver tolerance
+    ϵ_nl    = 1e-8   # non-linear solver tolerance
+    inexact = false  # inexact Newton
+    solver  = :PH    # :GCR or :PH
+    α       = LinRange(0.05, 1.0, 6)
 
     # Grid bounds
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -89,12 +80,18 @@ using TimerOutputs
         Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt)), 
         Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt))
     )
-    𝐊  = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
-    𝐐  = ExtendableSparseMatrix(nVx + nVy, nPt)
-    𝐐ᵀ = ExtendableSparseMatrix(nPt, nVx + nVy)
-    𝐏  = ExtendableSparseMatrix(nPt, nPt)
-    dx = zeros(nVx + nVy + nPt)
-    r  = zeros(nVx + nVy + nPt)
+    M_PC = Fields(
+        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt)), 
+        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt)), 
+        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt))
+    )
+    𝐊    = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
+    𝐊_PC = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
+    𝐐    = ExtendableSparseMatrix(nVx + nVy, nPt)
+    𝐐ᵀ   = ExtendableSparseMatrix(nPt, nVx + nVy)
+    𝐏    = ExtendableSparseMatrix(nPt, nPt)
+    dx   = zeros(nVx + nVy + nPt)
+    r    = zeros(nVx + nVy + nPt)
 
     #--------------------------------------------#
     # Intialise field
@@ -161,9 +158,8 @@ using TimerOutputs
 
     #--------------------------------------------#
 
-    anim = @animate for it=1:nt
+    for it=1:nt #anim = @animate 
 
-        @printf("Step %04d\n", it)
         fill!(err.x, 0e0)
         fill!(err.y, 0e0)
         fill!(err.p, 0e0)
@@ -174,16 +170,19 @@ using TimerOutputs
         τ0.xy .= τ.xy
         Pt0   .= Pt
 
-        for iter=1:niter
+        @printf("Time step %04d (nthreads = %03d)\n", it, Threads.nthreads())
+        iter, ϵ0, ϵ = 0, 0.0, 0.0
+        niter = 10
 
+        @time while iter<niter
+
+            iter +=1
             @printf("Iteration %04d\n", iter)
 
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-   TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
-                @show extrema(λ̇.c)
-                @show extrema(λ̇.v)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
                 ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 
                 ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
                 ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
@@ -192,7 +191,9 @@ using TimerOutputs
             err.x[iter] = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             err.y[iter] = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
             err.p[iter] = @views norm(R.p[inx_c,iny_c])/sqrt(nPt)
-            max(err.x[iter], err.y[iter]) < ϵ_nl ? break : nothing
+            ϵ =  max(err.x[iter], err.y[iter])
+            (iter == 1) && (ϵ0 = ϵ)
+            ϵ < ϵ_nl ? break : nothing
 
             #--------------------------------------------#
             # Set global residual vector
@@ -201,9 +202,14 @@ using TimerOutputs
             #--------------------------------------------#
             # Assembly
             @timeit to "Assembly" begin
+                # Jacobian
                 AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
                 AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
                 AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+                # Preconditioner
+                AssembleContinuity2D!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_x!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
             end
 
             #--------------------------------------------# 
@@ -215,19 +221,19 @@ using TimerOutputs
             
             #--------------------------------------------#
      
+            # Inexact Newton-Raphson
+            ϵ_l = inexact ? linear_tol(ϵ, ϵ0, iter; α=50) : ϵ_l
+            @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e\n", ϵ, ϵ/ϵ0, ϵ_l)
+
             # Direct-iterative solver
-            fu   = @views -r[1:size(𝐊,1)]
-            fp   = @views -r[size(𝐊,1)+1:end]
-            u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu,  ηb=1e3, niter_l=10, ϵ_l=1e-11)
-            @views dx[1:size(𝐊,1)]     .= u
-            @views dx[size(𝐊,1)+1:end] .= p
+            @timeit to "Linear solve" begin
+                mechanical_solver!( dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC; solver=solver, ηb=γ, ϵ_l=ϵ_l, niter_l=10, restart=20) 
+            end
 
             #--------------------------------------------#
             # Line search & solution update
             @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, ξ, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-
             UpdateSolution!(V, Pt, α[imin]*dx, number, type, nc)
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
 
         end
 
@@ -235,26 +241,33 @@ using TimerOutputs
         Pt .+= ΔPt.c
 
         #--------------------------------------------#
+        fig = Figure(size=(900,700), fontsize=14)
 
-        τxyc = av2D(τ.xy)
-        τII  = sqrt.( 0.5.*(τ.xx[inx_c,iny_c].^2 + τ.yy[inx_c,iny_c].^2 + (-τ.xx[inx_c,iny_c]-τ.yy[inx_c,iny_c]).^2) .+ τxyc[inx_c,iny_c].^2 )
-        ε̇xyc = av2D(ε̇.xy)
-        ε̇II  = sqrt.( 0.5.*(ε̇.xx[inx_c,iny_c].^2 + ε̇.yy[inx_c,iny_c].^2 + (-ε̇.xx[inx_c,iny_c]-ε̇.yy[inx_c,iny_c]).^2) .+ ε̇xyc[inx_c,iny_c].^2 )
-        
-        p1 = heatmap(xv, yc, V.x[inx_Vx,iny_Vx]', aspect_ratio=1, xlim=extrema(xc), title="Vx")
-        p2 = heatmap(xc, yc,  Pt[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Pt")
-        p3 = heatmap(xc, yc,  log10.(ε̇II)', aspect_ratio=1, xlim=extrema(xc), title="ε̇II", c=:coolwarm)
-        p4 = heatmap(xc, yc,  τII', aspect_ratio=1, xlim=extrema(xc), title="τII", c=:turbo)
-        p1 = plot(xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error", legend=:topright)
-        p1 = scatter!(1:niter, log10.(err.x[1:niter]), label="Vx")
-        p1 = scatter!(1:niter, log10.(err.y[1:niter]), label="Vy")
-        p1 = scatter!(1:niter, log10.(err.p[1:niter]), label="Pt")
-        display(plot(p1, p2, p3, p4, layout=(2,2)))
+        ax1 = Axis(fig[1,1], xlabel="Iterations @ step $(it)", ylabel="log₁₀ error", title="Convergence")
+        scatter!(ax1, 1:iter, log10.(err.x[1:iter]), markersize=6, label="Vx")
+        scatter!(ax1, 1:iter, log10.(err.y[1:iter]), markersize=6, label="Vy")
+        axislegend(ax1, position=:rt)
+
+        ax2 = Axis(fig[1,2], title="Vx", aspect=DataAspect())
+        heatmap!(ax2, xv, yc, V.x[inx_Vx,iny_Vx]')
+        xlims!(ax2, extrema(xv))
+
+        ax3 = Axis(fig[2,1], title="ε̇II", aspect=DataAspect())
+        hm3 = heatmap!(ax3, xc, yc, log10.(ε̇.II[inx_c,iny_c])'; colormap=:coolwarm, colorrange=(-0.4,0.4))
+        xlims!(ax3, extrema(xc))
+        Colorbar(fig[2,1, Right()], hm3, width=12)
+
+        ax4 = Axis(fig[2,2], title="τxx", aspect=DataAspect())
+        hm4 = heatmap!(ax4, xc, yc, τ.xx[inx_c,iny_c]'; colormap=:turbo)
+        xlims!(ax4, extrema(xc))
+        Colorbar(fig[2,2, Right()], hm4, width=12)
+
+        display(fig)
 
         @show (3/materials.β[1] - 2*materials.G[1])/(2*(3/materials.β[1] + 2*materials.G[1]))
 
     end
-    gif(anim, "./results/ShearBanding.gif", fps = 5)
+    # gif(anim, "./results/ShearBanding.gif", fps = 5)
 
     display(to)
     
