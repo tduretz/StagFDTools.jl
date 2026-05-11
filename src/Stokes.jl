@@ -901,15 +901,11 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        try
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
-            ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
-            rvec[i] = @views norm(R.x[inx_Vx, iny_Vx]) / length(R.x[inx_Vx, iny_Vx]) + norm(R.y[inx_Vy, iny_Vy]) / length(R.y[inx_Vy, iny_Vy]) + 0 * norm(R.p[inx_c, iny_c]) / length(R.p[inx_c, iny_c])
-        catch
-            rvec[i] = Inf
-        end
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+        ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
+        rvec[i] = @views norm(R.x[inx_Vx, iny_Vx]) / length(R.x[inx_Vx, iny_Vx]) + norm(R.y[inx_Vy, iny_Vy]) / length(R.y[inx_Vy, iny_Vy]) + 0 * norm(R.p[inx_c, iny_c]) / length(R.p[inx_c, iny_c])
     end
     imin = argmin(rvec)
     V.x .= Vi.x

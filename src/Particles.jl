@@ -108,7 +108,7 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c
                 β.c[i, j] += phase_ratio * materials.β[p]
                 G.c[i, j] += phase_ratio * materials.G[p]
                 ρ.c[i, j] += phase_ratio * materials.ρ[p]
-                ξ.c[i, j] += phase_ratio * materials.ρ[p]
+                ξ.c[i, j] += phase_ratio * materials.ξ0[p]
                 sum.c[i, j] += phase_ratio
             end
         end

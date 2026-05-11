@@ -249,7 +249,7 @@ function AnalyticalDPReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ
 end
 
 function TensileReturnMapping(τII, P, ηve, comp, β, Δt, σT, ηvp)
-    λ̇ = zero(T)
+    λ̇ = zero(τII)
     F = τII - σT - P - λ̇ * ηvp
     if F > 1e-10
         λ̇ = F / (ηve + ηvp + comp * Δt / β)
@@ -338,7 +338,10 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     ε̇II = sqrt((ε̇[1]^2 + ε̇[2]^2 + (-ε̇[1] - ε̇[2])^2) / 2 + ε̇[3]^2) + eps0
     P_trial = ε̇[4]
 
-    η_average, λ̇_average, P_average, τ_average = 0.0, 0.0, 0.0, 0.0
+    η_average = zero(ε̇II)
+    λ̇_average = zero(ε̇II)
+    P_average  = zero(ε̇II)
+    τ_average  = zero(ε̇II)
 
     for phases = 1:nphases
 
