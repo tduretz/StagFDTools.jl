@@ -547,31 +547,16 @@ end
 
 function AssembleContinuity2D!(K, V, P, Pt0, ΔP, τ0, 𝐷, phases, materials, num, pattern, type, BC, nc, Δ) 
                 
-    ∂R∂Vx = @MMatrix zeros(2,3)
-    ∂R∂Vy = @MMatrix zeros(3,2)
-    ∂R∂P  = @MMatrix zeros(1,1)
-    
-    Vx_loc= @MMatrix zeros(2,3)
-    Vy_loc= @MMatrix zeros(3,2)
-    P_loc = @MMatrix zeros(1,1)
-
     Threads.@threads for j in 2:size(P, 2)-1
         for i in 2:size(P, 1)-1
-            Vx_loc    .= SMatrix{2,3}(      V.x[ii,jj] for ii in i:i+1, jj in j:j+2)
-            Vy_loc    .= SMatrix{3,2}(      V.y[ii,jj] for ii in i:i+2, jj in j:j+1)
-            P_loc     .= SMatrix{1,1}(        P[ii,jj] for ii in i:i,   jj in j:j  )
+            Vx_loc     = SMatrix{2,3}(      V.x[ii,jj] for ii in i:i+1, jj in j:j+2)
+            Vy_loc     = SMatrix{3,2}(      V.y[ii,jj] for ii in i:i+2, jj in j:j+1)
+            P_loc      = SMatrix{1,1}(        P[ii,jj] for ii in i:i,   jj in j:j  )
             bcv_loc    = (;)
             type_loc   = (;)
             D          = (;)
             
-            fill!(∂R∂Vx, 0e0)
-            fill!(∂R∂Vy, 0e0)
-            fill!(∂R∂P , 0e0)
-            ∂Vx, ∂Vy, ∂P = ad_partial_gradients(Continuity, (Vx_loc, Vy_loc, P_loc), Pt0[i,j], D, phases.c[i,j], materials, type_loc, bcv_loc, Δ)
-            ∂R∂Vx .= ∂Vx
-            ∂R∂Vy .= ∂Vy
-            ∂R∂P  .= ∂P
-
+            ∂R∂Vx, ∂R∂Vy, ∂R∂P = ad_partial_gradients(Continuity, (Vx_loc, Vy_loc, P_loc), Pt0[i,j], D, phases.c[i,j], materials, type_loc, bcv_loc, Δ)
             # Pt --- Vx
             Local = SMatrix{2,3}(num.Vx[ii,jj] for ii in i:i+1, jj in j:j+2)# .* pattern[3][1]        
             for jj in axes(Local,2), ii in axes(Local,1)
