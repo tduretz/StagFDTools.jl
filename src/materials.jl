@@ -233,9 +233,9 @@ function preprocess!(k::Kiss2023)
     @. k.cosϕ = cosd(k.ϕ)
     @. k.sinϕ = sind(k.ϕ)
     @. k.sinψ = sind(k.ψ)
-    @. k.P1 = -(k.σT - k.δσT)                                         # p at the intersection of cutoff and Mode-1
-    @. k.τ1 = k.δσT                                                           # τII at the intersection of cutoff and Mode-1
-    @. k.P2 = -(k.σT - k.C * cosd(k.ϕ)) / (1.0 - sind(k.ϕ)) # p at the intersection of Drucker-Prager and Mode-1
+    @. k.P1 = -(k.σT - k.δσT)
+    @. k.τ1 = k.δσT
+    @. k.P2 = -(k.σT - k.C * cosd(k.ϕ)) / (1.0 - sind(k.ϕ))
     @. k.τ2 = k.P2 + k.σT
 end
 
