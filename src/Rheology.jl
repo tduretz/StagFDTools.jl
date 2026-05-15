@@ -3,6 +3,8 @@ struct DruckerPrager1 <: AbstractYield end
 struct Hyperbolic     <: AbstractYield end
 struct GolchinMCC     <: AbstractYield end
 export DruckerPrager1, Hyperbolic, GolchinMCC
+using ForwardDiff
+
 
 function line(p, K, dt, η_ve, ψ, p1, t1)
     p2 = p1 + K*dt*sind(ψ)  # introduce sinϕ ?
@@ -201,16 +203,16 @@ function NonLinearReturnMapping(τII, P, ε̇_eff, Dkk, P0, ηve, β, Δt, plast
         δx    = - J \ R
         nR    = abs(R[3])
 
-        x .= x0 .+  1*δx
+        # x .= x0 .+  1*δx
 
         # α = bt_line_search(δx, J.derivs[1], x0, J.val, trial, plastic, model)
         # x .= x0 .+  α*δx
 
-        # for ils in eachindex(αvec)
-        #     x .= x0 .+  αvec[ils]δx
-        #     R = RheologyResidual(x, trial, plastic, model)           
-        #     Fvec[ils] = norm(R) 
-        # end
+        for ils in eachindex(αvec)
+            x .= x0 .+  αvec[ils]δx
+            R = RheologyResidual(x, trial, plastic, model)           
+            Fvec[ils] = norm(ForwardDiff.value.(R)) 
+        end
         # ibest = argmin(Fvec)
         # x .= x0 .+  αvec[ibest]*δx
 

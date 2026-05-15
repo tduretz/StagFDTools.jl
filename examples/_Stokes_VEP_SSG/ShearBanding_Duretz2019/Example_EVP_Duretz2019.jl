@@ -122,7 +122,7 @@ end
         g    = [0.0,    0.0 ],
         ρ    = [0.0,    0.0 ],
         n    = [1.0,    1.0  ],
-        η0   = [2e50,    2e50 ]./sc.t./sc.σ, 
+        η0   = [2e50,   2e50 ]./sc.t./sc.σ, 
         ξ0   = [1e60,   1e60   ]./sc.σ/sc.t,
         G    = [1.0,    0.25  ]./sc.σ,
         C    = [1.74e-4,    1.74e-4 ]./sc.σ,
@@ -145,14 +145,14 @@ end
 
     # Time steps and bulk strain intervals
     Δt0    = 1e5/sc.t
-    nt     = 40
+    nt     = 1 #40
     if flag.strain_int
         ε_bulk = LinRange(1e-4,3e-4,5)
         d = 1
     end
 
     # Newton solver
-    niter = 2
+    niter = 1 #2
     ϵ_nl  = 1e-10
     α     = LinRange(0.05, 1.0, 10)
 
@@ -302,57 +302,56 @@ end
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
-                @show extrema(λ̇.c[inx_c,iny_c])
-                @show extrema(λ̇.v[inx_v,iny_v])
-                ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 
-                ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-                ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
+                @info "Tangent operator allocations:"
+                @time TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
+                # @show extrema(λ̇.c[inx_c,iny_c])
+                # @show extrema(λ̇.v[inx_v,iny_v])
+                @time ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 
+                @time ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
+                @time ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
             end
 
-            err.x[iter] = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
-            err.y[iter] = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
-            err.p[iter] = @views norm(R.p[inx_c,iny_c])/sqrt(nPt)
+            # err.x[iter] = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
+            # err.y[iter] = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
+            # err.p[iter] = @views norm(R.p[inx_c,iny_c])/sqrt(nPt)
 
-            @show  max(err.x[iter], err.y[iter], err.p[iter])
+            # @show  max(err.x[iter], err.y[iter], err.p[iter])
 
-            max(err.x[iter], err.y[iter]) < ϵ_nl ? break : nothing
+            # max(err.x[iter], err.y[iter]) < ϵ_nl ? break : nothing
 
-            #--------------------------------------------#
-            # Set global residual vector
-            SetRHS!(r, R, number, type, nc)
+            # #--------------------------------------------#
+            # # Set global residual vector
+            # SetRHS!(r, R, number, type, nc)
 
-            #--------------------------------------------#
-            # Assembly
-            @timeit to "Assembly" begin
-                AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            end
+            # #--------------------------------------------#
+            # # Assembly
+            # @timeit to "Assembly" begin
+            #     AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+            #     AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+            #     AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+            # end
 
-            #--------------------------------------------# 
-            # Stokes operator as block matrices
-            𝐊  .= [M.Vx.Vx M.Vx.Vy; M.Vy.Vx M.Vy.Vy]
-            𝐐  .= [M.Vx.Pt; M.Vy.Pt]
-            𝐐ᵀ .= [M.Pt.Vx M.Pt.Vy]
-            𝐏  .= M.Pt.Pt
+            # #--------------------------------------------# 
+            # # Stokes operator as block matrices
+            # 𝐊  .= [M.Vx.Vx M.Vx.Vy; M.Vy.Vx M.Vy.Vy]
+            # 𝐐  .= [M.Vx.Pt; M.Vy.Pt]
+            # 𝐐ᵀ .= [M.Pt.Vx M.Pt.Vy]
+            # 𝐏  .= M.Pt.Pt
             
-            #--------------------------------------------#
+            # #--------------------------------------------#
      
-            # Direct-iterative solver
-            fu   = @views -r[1:size(𝐊,1)]
-            fp   = @views -r[size(𝐊,1)+1:end]
-            u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu,  ηb=1e3, niter_l=10, ϵ_l=1e-11)
-            @views dx[1:size(𝐊,1)]     .= u
-            @views dx[size(𝐊,1)+1:end] .= p
+            # # Direct-iterative solver
+            # fu   = @views -r[1:size(𝐊,1)]
+            # fp   = @views -r[size(𝐊,1)+1:end]
+            # u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu,  ηb=1e3, niter_l=10, ϵ_l=1e-11)
+            # @views dx[1:size(𝐊,1)]     .= u
+            # @views dx[size(𝐊,1)+1:end] .= p
 
-            #--------------------------------------------#
-            # Line search & solution update
-            @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, ξ, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
+            # #--------------------------------------------#
+            # # Line search & solution update
+            # @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, ξ, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
 
-            UpdateSolution!(V, Pt, α[imin]*dx, number, type, nc)
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
-
+            # UpdateSolution!(V, Pt, α[imin]*dx, number, type, nc)
         end
 
         # Update pressure
