@@ -118,7 +118,7 @@ end
     # Material parameters
     materials = ( 
         compressible = true,
-        plasticity   = :DruckerPrager,
+        plasticity   = :DruckerPrager1,
         g    = [0.0,    0.0 ],
         ρ    = [0.0,    0.0 ],
         n    = [1.0,    1.0  ],
