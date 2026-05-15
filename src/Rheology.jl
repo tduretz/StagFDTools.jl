@@ -9,7 +9,7 @@ end
 # Yield and Potential Functions ----------------------------------
 yield_DruckerPrager(τ, P, C, cosΨ, sinΨ) = τ - C * cosΨ - P * sinΨ
 
-function Yield(x, p, model::DruckerPrager)
+function Yield(x, p, model::DruckerPrager1)
     (; C, cosϕ, sinϕ, cosψ, sinψ, ηvp) = p
     ϵ = -1e-13
     τ, P, λ̇ = x[1], x[2], x[3]
@@ -17,7 +17,7 @@ function Yield(x, p, model::DruckerPrager)
     return (F - λ̇ * ηvp) * (F > ϵ) + (F < ϵ) * λ̇ * ηvp
 end
 
-function Potential(x, p, model::DruckerPrager)
+function Potential(x, p, model::DruckerPrager1)
     (; C, cosϕ, sinϕ, cosψ, sinψ, ηvp) = p
     ϵ = -1e-13
     τ, P, λ̇ = x[1], x[2], x[3]
@@ -242,7 +242,7 @@ function Kiss2023ReturnMapping(τ, P, η_ve, comp, β, Δt, C, φ, ψ, ηvp, σ_
     return τc, Pc, λ̇
 end
 
-function AnalyticalDPReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ, sinψ, ηvp)
+function AnalyticalReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ, sinψ, ηvp)
     λ̇ = zero(τII)
     F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
     if F > 1e-10
@@ -273,9 +273,19 @@ end
 # Return mapping --------------------------------------------
 return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
 
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
+    return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
+        pl.C[phases], pl.cosϕ[phases], 0.0, 0.0, pl.ηvp[phases])
+end
+
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager, phases)
-    return AnalyticalDPReturnMapping(τII, P, ηvep, comp, β, Δt,
+    return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
         pl.C[phases], pl.cosϕ[phases], pl.sinϕ[phases], pl.sinψ[phases], pl.ηvp[phases])
+end
+
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager1, phases)
+    p = (C=pl.C[phases], cosϕ=pl.cosϕ[phases], sinϕ=pl.sinϕ[phases], sinψ=pl.sinψ[phases], cosψ=pl.cosψ[phases], ηvp=pl.ηvp[phases])
+    return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, DruckerPrager1())
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerHyperbolic, phases)

@@ -1,6 +1,22 @@
 abstract type AbstractPlasticity end
 
+Base.@kwdef struct VonMises <: AbstractPlasticity
+    C::Vector{Float64} = Float64[]
+    cosϕ::Vector{Float64} = Float64[]
+    ηvp::Vector{Float64} = Float64[]
+end
 Base.@kwdef struct DruckerPrager <: AbstractPlasticity
+    C::Vector{Float64} = Float64[]
+    ϕ::Vector{Float64} = Float64[]
+    ψ::Vector{Float64} = Float64[]
+    ηvp::Vector{Float64} = Float64[]
+    cosϕ::Vector{Float64} = Float64[]
+    sinϕ::Vector{Float64} = Float64[]
+    sinψ::Vector{Float64} = Float64[]
+    cosψ::Vector{Float64} = Float64[]
+end
+
+Base.@kwdef struct DruckerPrager1 <: AbstractPlasticity
     C::Vector{Float64} = Float64[]
     ϕ::Vector{Float64} = Float64[]
     ψ::Vector{Float64} = Float64[]
@@ -96,7 +112,24 @@ end
 
 struct NoPlasticity <: AbstractPlasticity end
 
+initilize(::Type{VonMises}, n::Integer) = VonMises(
+    C=1e50 * ones(n),
+    cosϕ=ones(n),
+    ηvp=ones(n)
+)
+
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
+    C=1e50 * ones(n),
+    ϕ=ones(n),
+    ψ=ones(n),
+    ηvp=ones(n),
+    cosϕ=ones(n),
+    sinϕ=ones(n),
+    sinψ=ones(n),
+    cosψ=ones(n)
+)
+
+initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
     C=1e50 * ones(n),
     ϕ=ones(n),
     ψ=ones(n),
@@ -199,6 +232,13 @@ function initialize_materials(nphases::Integer;
 end
 
 function preprocess!(dp::DruckerPrager)
+    @. dp.cosϕ = cosd(dp.ϕ)
+    @. dp.sinϕ = sind(dp.ϕ)
+    @. dp.sinψ = sind(dp.ψ)
+    @. dp.cosψ = cosd(dp.ψ)
+end
+
+function preprocess!(dp::DruckerPrager1)
     @. dp.cosϕ = cosd(dp.ϕ)
     @. dp.sinϕ = sind(dp.ϕ)
     @. dp.sinψ = sind(dp.ψ)
