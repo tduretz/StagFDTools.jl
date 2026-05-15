@@ -14,32 +14,30 @@ using TimerOutputs
                           0  1 ])
 
     # Material parameters
-    nphases = 2
-    materials = initialize_materials(nphases; plasticity=DruckerPrager,compressible=true)
-    materials.g .= [0. , 0.]
-    materials.ρ   .= [1.0 ,   1.0  ]
-    materials.n   .= [1.0 ,   1.0  ]
-    materials.η0  .= [1e2 ,   1e-1 ]
-    materials.ξ0  .= [1e50,   1e50 ]
-    materials.G   .= [1e1 ,   1e1  ]
-    materials.plasticity.C   .= [150 ,   150  ]
-    materials.plasticity.ϕ   .= [30. ,   30.  ]
-    materials.plasticity.ηvp .= [0.5 ,   0.5  ]
-    materials.β   .= [1e-2,   1e-2 ]
-    materials.plasticity.ψ   .= [3.0 ,   3.0  ]
-    preprocess!(materials)
+    materials_properties      = initialize_materials( 2, compressible = true, plasticity = :DruckerPrager )
+    materials_properties.ρ   .= [1.0 ,   1.0  ]
+    materials_properties.n   .= [1.0 ,   1.0  ]
+    materials_properties.η0  .= [1e0 ,   1e0  ]
+    materials_properties.ξ0  .= [1e50,   1e50]
+    materials_properties.G   .= [1e0 ,   0.5  ]
+    materials_properties.C   .= [1.6/cosd(30) ,   1.6/cosd(30)]
+    materials_properties.ϕ   .= [30. ,   30.  ]
+    materials_properties.ηvp .= [8e-3,   8e-3  ]
+    materials_properties.β   .= [1/4,    1/4 ]
+    materials_properties.ψ   .= [0.0 ,   0.0  ]
+    materials                 = preprocess_materials( materials_properties )
 
     # Time steps
-    Δt0   = 0.5
-    nt    = 40
+    Δt0   = 0.175/4
+    nt    = 15*4
 
     # Newton solver
     niter    = 20     # max. number of non-linear iters
     γ        = 1e5    # penalty viscosity
     ϵ_l      = 1e-11  # linear solver tolerance
-    ϵ_nl     = 1e-8   # non-linear solver tolerance
+    ϵ_nl     = 1e-9   # non-linear solver tolerance
     inexact  = false  # inexact Newton
-    Pic2Newt = 1.3    # more than 1.0 - always Newton
+    Pic2Newt = 1e10   # more than 1.0 - always Newton
     solver   = :GCR   # :GCR or :PH
     α        = LinRange(0.05, 1.0, 6)
 
@@ -111,9 +109,6 @@ using TimerOutputs
     η       = (c  =  ones(size_c...), v  =  ones(size_v...) )
     ξ       = (c  =  ones(size_c...), v  =  ones(size_v...) )
     λ̇       = (c  = zeros(size_c...), v  = zeros(size_v...) )
-    G       = (c  = zeros(size_c...), v  = zeros(size_v...))
-    β       = (c  = zeros(size_c...), v  = zeros(size_v...))
-    ρ       = (c  = zeros(size_c...), v  = zeros(size_v...))
     ε̇       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...) )
     τ0      = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...) )
     τ       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...) )
@@ -139,7 +134,7 @@ using TimerOutputs
     # Initial velocity & pressure field
     @views V.x[inx_Vx,iny_Vx] .= D_BC[1,1]*xv .+ D_BC[1,2]*yc' 
     @views V.y[inx_Vy,iny_Vy] .= D_BC[2,1]*xc .+ D_BC[2,2]*yv'
-    @views Pt[inx_c, iny_c ]  .= 10.                 
+    @views Pt[inx_c, iny_c ]  .= 0.0                 
     UpdateSolution!(V, Pt, dx, number, type, nc)
 
     # Boundary condition values
@@ -158,7 +153,6 @@ using TimerOutputs
     # Set material geometry 
     @views phases.c[inx_c, iny_c][(xc.^2 .+ (yc').^2) .<= 0.1^2] .= 2
     @views phases.v[inx_v, iny_v][(xv.^2 .+ (yv').^2) .<= 0.1^2] .= 2
-    phase_ratios = InitialisePhaseRatios(phases, nphases)
     # @views phases.v[[2,end-1], :] .= 3  # Use linear material along Neumann boundaries
     # @views phases.v[:, [2,end-1]] .= 3  # Use linear material along Neumann boundaries
     # @views phases.c[[2,end-1], :] .= 3  # Use linear material along Neumann boundaries
@@ -168,7 +162,8 @@ using TimerOutputs
 
     rvec = zeros(length(α))
     err  = (x = zeros(niter), y = zeros(niter), p = zeros(niter))
-    to   = TimerOutput()
+    probes = (τII = zeros(nt), t = zeros(nt))
+    to = TimerOutput()
 
     #--------------------------------------------#
 
@@ -186,12 +181,8 @@ using TimerOutputs
 
         @printf("Time step %04d (nthreads = %03d)\n", it, Threads.nthreads())
         iter, ϵ0, ϵ = 0, 0.0, 0.0
-        niter = 10
 
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
-
-        # @time 
-        while iter<niter
+        @time while iter<niter
 
             iter +=1
             @printf("Iteration %04d\n", iter)
@@ -199,10 +190,10 @@ using TimerOutputs
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
-            ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ) 
-            ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
+                ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 
+                ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
+                ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
             end
 
             err.x[iter] = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
@@ -210,7 +201,6 @@ using TimerOutputs
             err.p[iter] = @views norm(R.p[inx_c,iny_c])/sqrt(nPt)
             ϵ =  max(err.x[iter], err.y[iter])
             (iter == 1) && (ϵ0 = ϵ)
-            ϵ < ϵ_nl ? break : nothing
 
             #--------------------------------------------#
             # Set global residual vector
@@ -220,14 +210,15 @@ using TimerOutputs
             # Assembly
             @timeit to "Assembly" begin
                 # Jacobian
-                AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, β, ξ, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, ρ, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
                 # Preconditioner
-                AssembleContinuity2D!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, β, ξ, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_x!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, ρ, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_x!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(M_PC, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, pattern, type, BC, nc, Δ)
             end
+
             #--------------------------------------------# 
             # Stokes operator as block matrices
             𝐊  .= [M.Vx.Vx M.Vx.Vy; M.Vy.Vx M.Vy.Vy]
@@ -245,6 +236,7 @@ using TimerOutputs
             ϵ_l = inexact ? linear_tol(ϵ, ϵ0, iter; α=50) : ϵ_l
             Newton = (ϵ/ϵ0 < Pic2Newt) ? true : false 
             @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e --- Newton = %01d\n", ϵ, ϵ/ϵ0, ϵ_l, Newton)
+            ϵ < ϵ_nl ? break : nothing
 
             # Direct-iterative solver
             @timeit to "Linear solve" begin
@@ -257,14 +249,17 @@ using TimerOutputs
 
             #--------------------------------------------#
             # Line search & solution update
-            # @timeit to "Line search" 
-            imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+            @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, ξ, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
             UpdateSolution!(V, Pt, α[imin]*dx, number, type, nc)
 
         end
 
         # Update pressure
         Pt .+= ΔPt.c
+
+        # Probe
+        probes.τII[it] = mean(τ.II) 
+        probes.t[it]   = it*Δ.t 
 
         #--------------------------------------------#
         fig = Figure(size=(900,700), fontsize=14)
@@ -274,19 +269,18 @@ using TimerOutputs
         scatter!(ax1, 1:iter, log10.(err.y[1:iter]), markersize=6, label="Vy")
         axislegend(ax1, position=:rt)
 
-        ax2 = Axis(fig[1,2], title="Vx", aspect=DataAspect())
-        heatmap!(ax2, xv, yc, V.x[inx_Vx,iny_Vx]')
-        xlims!(ax2, extrema(xv))
+        ax2 = Axis(fig[1,2], title="||τII||", aspect=DataAspect())
+        plot!(ax2, probes.t, probes.τII)
 
-        ax3 = Axis(fig[2,1], title="ε̇II", aspect=DataAspect())
-        hm3 = heatmap!(ax3, xc, yc, log10.(ε̇.II[inx_c,iny_c])'; colormap=:coolwarm, colorrange=(-0.4,0.4))
-        xlims!(ax3, extrema(xc))
-        Colorbar(fig[2,1, Right()], hm3, width=12)
-
-        ax4 = Axis(fig[2,2], title="τxx", aspect=DataAspect())
-        hm4 = heatmap!(ax4, xc, yc, τ.xx[inx_c,iny_c]'; colormap=:turbo)
+        ax4 = Axis(fig[2,1], title="τII", aspect=DataAspect())
+        hm4 = heatmap!(ax4, xc, yc, τ.II[inx_c,iny_c]'; colormap=:turbo)
         xlims!(ax4, extrema(xc))
-        Colorbar(fig[2,2, Right()], hm4, width=12)
+        Colorbar(fig[2,1, Right()], hm4, width=12)
+
+        ax3 = Axis(fig[2,2], title="ε̇II", aspect=DataAspect())
+        hm3 = heatmap!(ax3, xc, yc, log10.(ε̇.II[inx_c,iny_c])'; colormap=:coolwarm)
+        xlims!(ax3, extrema(xc))
+        Colorbar(fig[2,2, Right()], hm3, width=12)
 
         display(fig)
 
@@ -300,5 +294,5 @@ using TimerOutputs
 end
 
 let
-    main((x = 100, y = 100))
+    main((x = 401, y = 401))
 end

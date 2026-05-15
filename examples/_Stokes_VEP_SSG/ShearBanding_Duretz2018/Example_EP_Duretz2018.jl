@@ -28,19 +28,22 @@ using TimerOutputs, CairoMakie
         plasticity   = :DruckerPrager,
         # plasticity   = :Hyperbolic,
         #       rock   seed   
-        n    = [1.0    1.0    ],            # Power law exponent
-        η0   = [1e30   1e30   ]./sc.σ/sc.t, # Reference viscosity 
-        G    = [1e10   0.25e10]./sc.σ,      # Shear modulus
-        C    = [3e7    3e7    ]./sc.σ,      # Cohesion
-        σT   = [5e6    5.0e6  5.0e6]./sc.σ,  # Kiss2023 / Tensile / Hyperbolic
-        ϕ    = [30.    30.    ],            # Friction angle
-        ψ    = [10.    10.0   ],            # Dilation angle
-        ηvp  = [1e19   1e19   ].*0.0./sc.σ/sc.t, # Viscoplastic regularisation
-        β    = [5e-11  5e-11  ].*sc.σ,      # Compressibility
-        B    = [0.0    0.0    ],            # (calculated after) power-law creep pre-factor
-        cosϕ = [0.0    0.0    ],            # (calculated after) frictional parameters
-        sinϕ = [0.0    0.0    ],            # (calculated after) frictional parameters
-        sinψ = [0.0    0.0    ],            # (calculated after) frictional parameters
+        g    = [0.0,    0.0 ],
+        ρ    = [0.0,    0.0 ],
+        n    = [1.0,    1.0    ],            # Power law exponent
+        η0   = [1e30,   1e30   ]./sc.σ/sc.t, # Reference viscosity 
+        ξ0   = [1e60,   1e60   ]./sc.σ/sc.t,
+        G    = [1e10,   0.25e10]./sc.σ,      # Shear modulus
+        C    = [3e7,    3e7    ]./sc.σ,      # Cohesion
+        σT   = [5e6,    5.0e6  ]./sc.σ,  # Kiss2023 / Tensile / Hyperbolic
+        ϕ    = [30.,    30.    ],            # Friction angle
+        ψ    = [10.,    10.0   ],            # Dilation angle
+        ηvp  = [1e19,   1e19   ].*0.0./sc.σ/sc.t, # Viscoplastic regularisation
+        β    = [5e-11,  5e-11  ].*sc.σ,      # Compressibility
+        B    = [0.0,    0.0    ],            # (calculated after) power-law creep pre-factor
+        cosϕ = [0.0,    0.0    ],            # (calculated after) frictional parameters
+        sinϕ = [0.0,    0.0    ],            # (calculated after) frictional parameters
+        sinψ = [0.0,    0.0    ],            # (calculated after) frictional parameters
     )
     # For power law
     materials.B   .= (2*materials.η0).^(-materials.n)
@@ -60,7 +63,7 @@ using TimerOutputs, CairoMakie
     nt    = 35
 
     # Newton solver
-    niter = 15
+    niter = 20
     ϵ_nl  = 1e-11
     α     = LinRange(0.05, 1.0, 10)
 
@@ -223,7 +226,7 @@ using TimerOutputs, CairoMakie
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-   TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phases, Δ)
                 @show extrema(λ̇.c[inx_c,iny_c])
                 @show extrema(λ̇.v[inx_v,iny_v])
                 ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ) 

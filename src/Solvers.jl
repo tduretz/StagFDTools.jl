@@ -77,6 +77,8 @@ function KSP_GCR_Stokes!(
 
             for k = 1:restart
 
+                its += 1
+
                 fill!(s, 0.0)
                 @. tmpp = Pinv * fp
 
@@ -117,7 +119,6 @@ function KSP_GCR_Stokes!(
                 copyto!(VV[:,k], v)
                 copyto!(SS[:,k], s)
 
-                its += 1
             end
         end
 
