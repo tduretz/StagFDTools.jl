@@ -4,6 +4,9 @@ Base.@kwdef struct VonMises <: AbstractPlasticity
     C::Vector{Float64} = Float64[]
     cosϕ::Vector{Float64} = Float64[]
     ηvp::Vector{Float64} = Float64[]
+    sinϕ::Vector{Float64} = Float64[]
+    sinψ::Vector{Float64} = Float64[]
+    cosψ::Vector{Float64} = Float64[]
 end
 Base.@kwdef struct DruckerPrager <: AbstractPlasticity
     C::Vector{Float64} = Float64[]
@@ -112,102 +115,106 @@ end
 
 struct NoPlasticity <: AbstractPlasticity end
 
-initilize(::Type{VonMises}, n::Integer) = VonMises(
+initialize(::Type{VonMises}, n::Integer) = VonMises(
     C=1e50 * ones(n),
     cosϕ=ones(n),
-    ηvp=ones(n)
+    ηvp=0. * ones(n),
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n)
 )
 
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n)
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n)
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n)
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n)
 )
 
 initialize(::Type{DruckerHyperbolic}, n::Integer) = DruckerHyperbolic(
-    σT=ones(n),
+    σT=0. * ones(n),
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n),
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n)
 )
 
 initialize(::Type{DruckerAniso}, n::Integer) = DruckerAniso(
     δ=ones(n),
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n)
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n)
 )
 
 initialize(::Type{Golchin2021}, n::Integer) = Golchin2021(
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n),
-    M=ones(n),
-    N=ones(n),
-    Pc=ones(n),
-    a=ones(n),
-    b=ones(n),
-    c=ones(n),
-    σT=ones(n),
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n),
+    M=0. * ones(n),
+    N=0. * ones(n),
+    Pc=0. * ones(n),
+    a=0. * ones(n),
+    b=0. * ones(n),
+    c=0. * ones(n),
+    σT=0. * ones(n),
 )
 
 initialize(::Type{Kiss2023}, n::Integer) = Kiss2023(
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
-    cosψ=ones(n),
-    σT=ones(n),
-    δσT=ones(n),
-    P1=ones(n),
-    τ1=ones(n),
-    P2=ones(n),
-    τ2=ones(n),
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n),
+    σT=0. * ones(n),
+    δσT=0. * ones(n),
+    P1=0. * ones(n),
+    τ1=0. * ones(n),
+    P2=0. * ones(n),
+    τ2=0. * ones(n),
 )
 
 initialize(::Type{Tensile}, n::Integer) = Tensile(
-    σT=ones(n),
+    σT=0. * ones(n),
     C=1e50 * ones(n),
-    ϕ=ones(n),
-    ψ=ones(n),
-    ηvp=ones(n),
+    ϕ=0. * ones(n),
+    ψ=0. * ones(n),
+    ηvp=0. * ones(n),
     cosϕ=ones(n),
-    sinϕ=ones(n),
-    sinψ=ones(n),
+    sinϕ=0. * ones(n),
+    sinψ=0. * ones(n),
+    cosψ=0. * ones(n),
 )
 
 initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
@@ -290,6 +297,8 @@ function preprocess!(mat::Materials)
     @. mat.B = (2 * mat.η0)^(-mat.n)
     preprocess!(mat.plasticity)
 end
+
+preprocess!(::VonMises) = nothing
 
 preprocess!(::NoPlasticity) = nothing
 

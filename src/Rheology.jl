@@ -1,8 +1,8 @@
-abstract type AbstractYield end
-struct DruckerPrager1 <: AbstractYield end
-struct Hyperbolic <: AbstractYield end
-struct GolchinMCC <: AbstractYield end
-export DruckerPrager1, Hyperbolic, GolchinMCC
+# abstract type AbstractYield end
+# struct DruckerPrager1 <: AbstractYield end
+# struct Hyperbolic <: AbstractYield end
+# struct GolchinMCC <: AbstractYield end
+# export DruckerPrager1, Hyperbolic, GolchinMCC
 using ForwardDiff
 
 

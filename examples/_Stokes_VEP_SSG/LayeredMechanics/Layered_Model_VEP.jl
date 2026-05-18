@@ -42,14 +42,14 @@ end
 
     # Material parameters
     nphases = 2
-    materials = initialize_materials(nphases; plasticity=DruckerPrager, compressible=false)
+    materials = initialize_materials(nphases; plasticity=VonMises, compressible=false)
     materials.η0 .= [η1, η2]
     materials.G .= [G1, G2]
     materials.plasticity.C .= [C1, C2]
     preprocess!(materials)
 
     nmpc = (x=4, y=4)
-    noise = true
+    noise = false
 
     # Time steps
     Δt0 = 0.5
@@ -139,6 +139,7 @@ end
     τII = ones(size_c...)
     ε̇II = ones(size_c...)
     τIIev = ones(nt)
+    phases = (c=ones(Int64, size_c...), v=ones(Int64, size_v...))
 
     # Mesh coordinates
     Grid = GenerateGrid(x, y, Δ, nc)
@@ -168,13 +169,14 @@ end
     BC.Vy[2, iny_Vy] .= (type.Vy[2, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * Grid.v.x[1] .+ D_BC[2, 2] * Grid.v.y)
     BC.Vy[end-1, iny_Vy] .= (type.Vy[end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * Grid.v.x[end] .+ D_BC[2, 2] * Grid.v.y)
 
-    # Initialise markers and derive phase ratios from markers
-    m = InitialiseParticleField(nc, nmpc, L, Δ, materials, noise)
-    phase_ratios, phase_weights = InitialisePhaseRatios(m, ε̇)
-    mphase = ones(Int64, m.num...)
-
-    # Assign marker phases from layering geometry (1 or 2)
-    for I in CartesianIndices(mphase)
+    # MARKERS ------------------------------------------------------------
+    # Initialise markers and derive phase ratios from markers #        |
+    m = InitialiseParticleField(nc, nmpc, L, Δ, materials, noise) #    |
+    phase_ratios, phase_weights = InitialisePhaseRatios(m, ε̇) #        |
+    mphase = ones(Int64, m.num...) #                                   |
+    |
+    # Assign marker phases from layering geometry (1 or 2) #           |
+    for I in CartesianIndices(mphase) #                                |
         xm = m.Xm[I]
         ym = m.Ym[I]
         isin = inside(@SVector([xm, ym]), layering)
@@ -184,14 +186,29 @@ end
     # Build extended vertex arrays (with ghost vertices) and accumulate marker contributions
     PhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
 
+    # # NO MARKERS: --------------------------------------------------------
+    # for i in inx_c, j in iny_c   # loop on centroids                     |
+    #     𝐱 = @SVector([Grid.c.x[i-1], Grid.c.y[j-1]]) #                   |
+    #     isin = inside(𝐱, layering) #                                     |
+    #     if isin #                                                        |
+    #         phases.c[i, j] = 2 #                                         |
+    #     end
+    # end
+
+    # for i in inx_v, j in iny_v  # loop on vertices
+    #     𝐱 = @SVector([Grid.v.x[i-1], Grid.v.y[j-1]])
+    #     isin = inside(𝐱, layering)
+    #     if isin
+    #         phases.v[i, j] = 2
+    #     end
+    # end
+    # phase_ratios = InitialisePhaseRatios(phases, nphases)
+
     #--------------------------------------------#
 
     rvec = zeros(length(α))
     err = (x=zeros(niter), y=zeros(niter), p=zeros(niter))
     to = TimerOutput()
-
-    # Compute material properties on grid
-    compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, m.nphases)
 
     #--------------------------------------------#
 
@@ -209,7 +226,7 @@ end
         Pt0 .= Pt
 
         # Compute material properties on grid
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, m.nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
 
         for iter = 1:niter
 
@@ -333,7 +350,7 @@ let
     nt = 40
 
     # Discretise angle of layer 
-    nθ = 50
+    nθ = 30
     θ = LinRange(0, π, nθ)
     τ_cart = zeros(nθ)
     τ_cart_lay = zeros(nθ)
@@ -355,7 +372,7 @@ let
     tmax = 1.0
     G2 = G1 = 1.0
     C2 = C1 = 10.
-    C2 = 4
+    C2 = 4.
     C1 = C2 / 4    # @abacaxi-seco HARDCODED factor 2, to remove
 
     # Run them all
