@@ -163,7 +163,7 @@ using GridGeometryUtils
     end
 
     # Set phase ratios on grid
-    PhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
+    SetPhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
 
     for I in CartesianIndices(phase_ratios.c)
         s = sum(phase_ratios.c[I])

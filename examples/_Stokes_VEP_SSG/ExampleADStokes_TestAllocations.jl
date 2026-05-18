@@ -142,7 +142,7 @@ using ProfileCanvas, BenchmarkTools
 
     #--------------------------------------------#
 
-    compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+    compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
     @info "Benchmark AssembleMomentum2D_x!"
     display( @benchmark AssembleMomentum2D_x!($(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, materials, number, pattern, type, BC, nc, Δ)...) )

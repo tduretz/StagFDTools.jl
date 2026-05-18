@@ -388,10 +388,8 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
         η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
         ηvep = inv(1 / η + 1 / (G * Δ.t))
         τII = 2 * ηvep * ε̇II
-        P = P0 - comp * Δ.t / β * Dkk
+        # P = P0 - comp * Δ.t / β * Dkk
 
-        λ̇ = 0.0
-        F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
 
         # Visco-elastic powerlaw
         for it = 1:20

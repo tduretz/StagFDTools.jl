@@ -95,6 +95,9 @@ using TimerOutputs
     # Intialise field
     L   = (x=1.0, y=1.0)
     Δ   = (x=L.x/nc.x, y=L.y/nc.y, t = Δt0)
+     x = (min=-L.x / 2, max=L.x / 2)
+    y = (min=-L.y, max=0.0)
+    X = GenerateGrid(x, y, Δ, nc)
 
     # Allocations
     R       = (x  = zeros(size_x...), y  = zeros(size_y...), p  = zeros(size_c...))
@@ -135,16 +138,16 @@ using TimerOutputs
     UpdateSolution!(V, Pt, dx, number, type, nc)
 
     # Boundary condition values
-    BC = ( Vx = zeros(size_x...), Vy = zeros(size_y...))
+    BC = (Vx=zeros(size_x...), Vy=zeros(size_y...))
     @views begin
-        BC.Vx[     2, iny_Vx] .= (type.Vx[     1, iny_Vx] .== :Neumann_normal) .* D_BC[1,1]
-        BC.Vx[ end-1, iny_Vx] .= (type.Vx[   end, iny_Vx] .== :Neumann_normal) .* D_BC[1,1]
-        BC.Vx[inx_Vx,      2] .= (type.Vx[inx_Vx,      2] .== :Neumann_tangent) .* D_BC[1,2] .+ (type.Vx[inx_Vx,     2] .== :Dirichlet_tangent) .* (D_BC[1,1]*xv .+ D_BC[1,2]*yv[1]  )
-        BC.Vx[inx_Vx,  end-1] .= (type.Vx[inx_Vx,  end-1] .== :Neumann_tangent) .* D_BC[1,2] .+ (type.Vx[inx_Vx, end-1] .== :Dirichlet_tangent) .* (D_BC[1,1]*xv .+ D_BC[1,2]*yv[end])
-        BC.Vy[inx_Vy,     2 ] .= (type.Vy[inx_Vy,     1 ] .== :Neumann_normal) .* D_BC[2,2]
-        BC.Vy[inx_Vy, end-1 ] .= (type.Vy[inx_Vy,   end ] .== :Neumann_normal) .* D_BC[2,2]
-        BC.Vy[     2, iny_Vy] .= (type.Vy[     2, iny_Vy] .== :Neumann_tangent) .* D_BC[2,1] .+ (type.Vy[    2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2,1]*xv[1]   .+ D_BC[2,2]*yv)
-        BC.Vy[ end-1, iny_Vy] .= (type.Vy[ end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2,1] .+ (type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2,1]*xv[end] .+ D_BC[2,2]*yv)
+        BC.Vx[2, iny_Vx] .= (type.Vx[1, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
+        BC.Vx[end-1, iny_Vx] .= (type.Vx[end, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
+        BC.Vx[inx_Vx, 2] .= (type.Vx[inx_Vx, 2] .== :Neumann_tangent) .* D_BC[1, 2] .+ (type.Vx[inx_Vx, 2] .== :Dirichlet_tangent) .* (D_BC[1, 1] * X.v.x .+ D_BC[1, 2] * X.v.y[1])
+        BC.Vx[inx_Vx, end-1] .= (type.Vx[inx_Vx, end-1] .== :Neumann_tangent) .* D_BC[1, 2] .+ (type.Vx[inx_Vx, end-1] .== :Dirichlet_tangent) .* (D_BC[1, 1] * X.v.x .+ D_BC[1, 2] * X.v.y[end])
+        BC.Vy[inx_Vy, 2] .= (type.Vy[inx_Vy, 1] .== :Neumann_normal) .* D_BC[2, 2]
+        BC.Vy[inx_Vy, end-1] .= (type.Vy[inx_Vy, end] .== :Neumann_normal) .* D_BC[2, 2]
+        BC.Vy[2, iny_Vy] .= (type.Vy[2, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * X.v.x[1] .+ D_BC[2, 2] * X.v.y)
+        BC.Vy[end-1, iny_Vy] .= (type.Vy[end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * X.v.x[end] .+ D_BC[2, 2] * X.v.y)
     end
 
     # Set material geometry and phase ratios
@@ -181,7 +184,7 @@ using TimerOutputs
         τ0.xy .= τ.xy
         Pt0   .= Pt
 
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         @printf("Time step %04d (nthreads = %03d)\n", it, Threads.nthreads())
         iter, ϵ0, ϵ = 0, 0.0, 0.0

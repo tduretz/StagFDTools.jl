@@ -264,21 +264,21 @@ end
     # Markers 
 
     # Initialise marker field
-    m = InitialiseParticleField(nc, nmpc, L, Δ, materials, noise)
-    phase_ratios, phase_weights = InitialisePhaseRatios(m, ε̇)
-    mphase = ones(Int64,m.num...)
+    m = InitialiseParticleField(nc, nmpc, L, Δ, x, y, noise)
+    phase_ratios, phase_weights = InitialisePhaseRatios(nphases, ε̇)
 
     # Set material geometry: circle
     ccord = (x=-L.x/2, y=-L.y/2)
-    mphase[((m.Xm .- ccord.x).^2 .+ (m.Ym .- ccord.y).^2) .<= (25e-4)] .= 2
+    m.phase[((m.Xm .- ccord.x).^2 .+ (m.Ym .- ccord.y).^2) .<= (25e-4)] .= 2
 
     # Set phase ratios
-    PhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
+    SetPhaseRatios!(phase_ratios, phase_weights, m, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ, nphases)
+    
     # check 
     for I in CartesianIndices(phase_ratios.c)
         s = sum(phase_ratios.c[I])
         if !(s ≈ 1.0)
-            @warn "Invalid phase_ratios.center at $I: sum = $s, values = $(phase_ratios.center[I])"
+            @warn "Invalid phase_ratios.c at $I: sum = $s, values = $(phase_ratios.c[I])"
         end
     end
 
@@ -313,7 +313,7 @@ end
         Pt0   .= Pt
 
         # Compute bulk and shear moduli
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, m.nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         for iter=1:niter
 

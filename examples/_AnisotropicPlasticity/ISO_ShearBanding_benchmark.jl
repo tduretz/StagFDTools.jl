@@ -118,7 +118,7 @@ end
 
     # Materials initialization
     nphases = 2
-    materials = initialize_materials(nphases; plasticity=DruckerPrager1,compressible=true)
+    materials = initialize_materials(nphases; plasticity=DruckerPrager,compressible=true)
     # Parameters
     params_bg = (ρ=1.0, n=1.0, η0=2e50, G=1.0, C=1.74e-4, ϕ=30., ηvp=2.5e2, β=0.5, ψ=10., ε̇=5e-11, rad=5e-3)
     params_in = (ρ=1.0, n=1.0, η0=2e50, G=0.25, C=1.74e-4, ϕ=30., ηvp=2.5e2, β=0.5, ψ=10.)
@@ -288,7 +288,7 @@ end
         τ0.xy .= τ.xy
         Pt0   .= Pt
 
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         for iter=1:niter
 

@@ -213,7 +213,7 @@ end
         τ0.xy .= τ.xy
         Pt0   .= Pt
 
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         # Time integration
         for iter=1:niter

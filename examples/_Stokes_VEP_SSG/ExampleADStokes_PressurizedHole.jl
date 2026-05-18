@@ -193,7 +193,7 @@ end
 
         # Update pressure in the hole
         @views Pt[inx_c, iny_c][(xc.^2 .+ (yc').^2) .<= radius^2] .= 1 + 5*time     
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         for iter=1:niter
 

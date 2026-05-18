@@ -184,7 +184,7 @@ end
     end
 
     # Build extended vertex arrays (with ghost vertices) and accumulate marker contributions
-    PhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
+    SetPhaseRatios!(phase_ratios, phase_weights, m, mphase, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ)
 
     # # NO MARKERS: --------------------------------------------------------
     # for i in inx_c, j in iny_c   # loop on centroids                     |
@@ -226,7 +226,7 @@ end
         Pt0 .= Pt
 
         # Compute material properties on grid
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         for iter = 1:niter
 

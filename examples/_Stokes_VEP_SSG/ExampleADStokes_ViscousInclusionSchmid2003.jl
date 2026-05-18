@@ -200,7 +200,7 @@ using ExactFieldSolutions
         Pt0   .= Pt
 
         # Compute bulk and shear moduli
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, size_c, size_v, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
 
         for iter=1:niter
 

@@ -58,7 +58,7 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Particles.jl")
-export InitialiseParticleField, InitialisePhaseRatios, PhaseRatios!, compute_grid_fields!
+export InitialiseParticleField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
