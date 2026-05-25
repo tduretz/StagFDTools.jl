@@ -23,8 +23,8 @@ using TimerOutputs, CairoMakie
     Pbg       = 1e8/sc.σ
 
     # Boundary loading type
-    # config = :EW_stress
-    config = :free_slip
+    config = :EW_stress
+    # config = :free_slip
     D_BC   = @SMatrix( [  ε̇xx  0.;
                           0  -ε̇xx ])
     σ_BC   = @SMatrix( [ -Pbg  0.;
@@ -293,7 +293,7 @@ using TimerOutputs, CairoMakie
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, ξ, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
                 @show extrema(λ̇.c[inx_c,iny_c])
                 @show extrema(λ̇.v[inx_v,iny_v])
                 ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
