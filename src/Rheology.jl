@@ -14,7 +14,7 @@ yield_DruckerPrager(τ, P, C, cosΨ, sinΨ) = τ - C * cosΨ - P * sinΨ
 
 function Yield(x, p, model::DruckerPrager1)
     (; C, cosϕ, sinϕ, cosψ, sinψ, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     F = yield_DruckerPrager(τ, P, p.C, p.cosϕ, p.sinϕ)
     return (F - λ̇ * ηvp) * (F > ϵ) + (F < ϵ) * λ̇ * ηvp
@@ -22,7 +22,7 @@ end
 
 function Potential(x, p, model::DruckerPrager1)
     (; C, cosϕ, sinϕ, cosψ, sinψ, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     Q = yield_DruckerPrager(τ, P, C, cosψ, sinψ)
     return Q
@@ -32,7 +32,7 @@ yield_Hyperbolic(τ, P, C, cosΨ, sinΨ, σT) = sqrt(τ^2 + (C * cosΨ - σT * s
 
 function Yield(x, p, model::DruckerHyperbolic)
     (; C, cosϕ, sinϕ, cosψ, sinψ, σT, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     F = yield_Hyperbolic(τ, P, C, cosϕ, sinϕ, σT)
     return (F - λ̇ * ηvp) * (F >= ϵ) + (F < ϵ) * λ̇ * ηvp
@@ -40,7 +40,7 @@ end
 
 function Potential(x, p, model::DruckerHyperbolic)
     (; C, cosϕ, sinϕ, cosψ, sinψ, σT, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     Q = yield_Hyperbolic(τ, P, C, cosψ, sinψ, σT)
     return Q
@@ -54,7 +54,7 @@ yield_Golchin(τ, P, A, B, C, β, λ̇, ηvp) = B * (P - λ̇ * ηvp - C)^2 / A 
 
 function Yield(x, p, model::Golchin2021)
     (; M, N, Pt, Pc, α, β, γ, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     C = Cf(Pc, Pt, γ)
     B = Bf(P, Pc, Pt, M, C, α)
@@ -66,7 +66,7 @@ end
 
 function Potential(x, p, model::Golchin2021)
     (; M, N, Pt, Pc, α, β, γ, ηvp) = p
-    ϵ = -1e-13
+    ϵ = -1.0e-13
     τ, P, λ̇ = x[1], x[2], x[3]
     C = Cf(Pc, Pt, γ)
     B = Bf(P, Pc, Pt, N, C, α)
@@ -91,14 +91,16 @@ end
 
 function RheologyResidual(x, trial, plastic, model)
     τ_trial, ε̇_eff, P_trial, Dkk, P0, ηve, K, Δt = trial
-    return @SVector([
-        ResidualDeviator(x, τ_trial, ε̇_eff, ηve, plastic, model),
-        ResidualVolume(x, P_trial, Dkk, P0, K, Δt, plastic, model),
-        Yield(x, plastic, model),
-    ])
+    return @SVector(
+        [
+            ResidualDeviator(x, τ_trial, ε̇_eff, ηve, plastic, model),
+            ResidualVolume(x, P_trial, Dkk, P0, K, Δt, plastic, model),
+            Yield(x, plastic, model),
+        ]
+    )
 end
 
-function bt_line_search(Δx, J, x, r, trial, plastic, model; α=1.0, ρ=0.5, c=1.0e-4, α_min=1.0e-8)
+function bt_line_search(Δx, J, x, r, trial, plastic, model; α = 1.0, ρ = 0.5, c = 1.0e-4, α_min = 1.0e-8)
     # Borrowed from RheologicalCalculator
     perturbed_x = @. x + α * Δx
     perturbed_r = RheologyResidual(x, trial, plastic, model)
@@ -119,7 +121,7 @@ end
 # Return mapping functions ------------------------------------
 function NonLinearReturnMapping(τII, P, ε̇_eff, Dkk, P0, ηve, β, Δt, plastic, model)
 
-    tol = 1e-5
+    tol = 1.0e-5
     λ̇ = zero(τII)
     K = 1 / β
     τ_trial = τII
@@ -127,14 +129,14 @@ function NonLinearReturnMapping(τII, P, ε̇_eff, Dkk, P0, ηve, β, Δt, plast
     itermax = 100
 
     T = typeof(τII)
-    x = SVector{3,T}(τII, P, λ̇)
+    x = SVector{3, T}(τII, P, λ̇)
     αvec = @SVector([0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1.0])
-    Fvec = MVector{length(αvec),T}(zeros(T, length(αvec)))
+    Fvec = MVector{length(αvec), T}(zeros(T, length(αvec)))
 
     trial = (τ_trial, ε̇_eff, P_trial, Dkk, P0, ηve, K, Δt)
 
     R = RheologyResidual(x, trial, plastic, model)
-    nR = abs(R[3])#norm(R)
+    nR = abs(R[3]) #norm(R)
     iter, nR0 = 0, nR
     R0 = copy(R)
 
@@ -206,7 +208,7 @@ function Kiss2023ReturnMapping(τ, P, η_ve, comp, β, Δt, C, φ, ψ, ηvp, σ_
     l3 = line(P, K, Δt, η_ve, ψ, pc2, τc2)
     if max(τ - P * sind(φ) - C * cosd(φ), τ - P - σ_T, -P - (σ_T - δσ_T)) > 0.0
         if τ <= τc1
-            # pressure limiter 
+            # pressure limiter
             dqdp = -1.0
             f = -P - (σ_T - δσ_T)
             λ̇ = f / (K * Δt)
@@ -215,7 +217,7 @@ function Kiss2023ReturnMapping(τ, P, η_ve, comp, β, Δt, C, φ, ψ, ηvp, σ_
             f = -Pc - (σ_T - δσ_T)
             domain_pl = 1.0
         elseif τc1 < τ <= l1
-            # corner 1 
+            # corner 1
             τc = τ - η_ve * (τ - τc1) / (η_ve + ηvp)
             Pc = P - K * Δt * (P - pc1) / (K * Δt + ηvp)
             domain_pl = 2.0
@@ -250,12 +252,12 @@ end
 function AnalyticalReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ, sinψ, ηvp)
     λ̇ = zero(τII)
     F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
-    if F > 1e-10
+    if F > 1.0e-10
         λ̇ = F / (ηve + ηvp + comp * Δt / β * sinϕ * sinψ)
         τII -= λ̇ * ηve
         P += comp * λ̇ * sinψ * Δt / β
         F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
-        (F > 1e-10) && error("Failed return mapping")
+        (F > 1.0e-10) && error("Failed return mapping")
     end
     return τII, P, λ̇
 end
@@ -263,12 +265,12 @@ end
 function TensileReturnMapping(τII, P, ηve, comp, β, Δt, σT, ηvp)
     λ̇ = zero(τII)
     F = τII - σT - P - λ̇ * ηvp
-    if F > 1e-10
+    if F > 1.0e-10
         λ̇ = F / (ηve + ηvp + comp * Δt / β)
         τII -= λ̇ * ηve
         P += comp * λ̇ * Δt / β
         F = τII - σT - P - λ̇ * ηvp
-        (F > 1e-10) && error("Failed return mapping")
+        (F > 1.0e-10) && error("Failed return mapping")
         (τII < 0.0) && error("Plasticity without condom")
     end
     return τII, P, λ̇
@@ -279,35 +281,41 @@ end
 return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
-    return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
-        pl.C[phases], pl.cosϕ[phases], 0.0, 0.0, pl.ηvp[phases])
+    return AnalyticalReturnMapping(
+        τII, P, ηvep, comp, β, Δt,
+        pl.C[phases], pl.cosϕ[phases], 0.0, 0.0, pl.ηvp[phases]
+    )
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager, phases)
-    return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
-        pl.C[phases], pl.cosϕ[phases], pl.sinϕ[phases], pl.sinψ[phases], pl.ηvp[phases])
+    return AnalyticalReturnMapping(
+        τII, P, ηvep, comp, β, Δt,
+        pl.C[phases], pl.cosϕ[phases], pl.sinϕ[phases], pl.sinψ[phases], pl.ηvp[phases]
+    )
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager1, phases)
-    p = (C=pl.C[phases], cosϕ=pl.cosϕ[phases], sinϕ=pl.sinϕ[phases], sinψ=pl.sinψ[phases], cosψ=pl.cosψ[phases], ηvp=pl.ηvp[phases])
+    p = (C = pl.C[phases], cosϕ = pl.cosϕ[phases], sinϕ = pl.sinϕ[phases], sinψ = pl.sinψ[phases], cosψ = pl.cosψ[phases], ηvp = pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, DruckerPrager1())
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerHyperbolic, phases)
-    p = (C=pl.C[phases], cosϕ=pl.cosϕ[phases], sinϕ=pl.sinϕ[phases], sinψ=pl.sinψ[phases], cosψ=pl.cosψ[phases], σT=pl.σT[phases], ηvp=pl.ηvp[phases])
+    p = (C = pl.C[phases], cosϕ = pl.cosϕ[phases], sinϕ = pl.sinϕ[phases], sinψ = pl.sinψ[phases], cosψ = pl.cosψ[phases], σT = pl.σT[phases], ηvp = pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, DruckerHyperbolic())
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Golchin2021, phases)
     Pt = -pl.σT[phases]
-    p = (M=pl.M[phases], N=pl.N[phases], Pt, Pc=pl.Pc[phases], α=pl.a[phases], β=pl.b[phases], γ=pl.c[phases], ηvp=pl.ηvp[phases])
+    p = (M = pl.M[phases], N = pl.N[phases], Pt, Pc = pl.Pc[phases], α = pl.a[phases], β = pl.b[phases], γ = pl.c[phases], ηvp = pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, Golchin2021())
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Kiss2023, phases)
-    return Kiss2023ReturnMapping(τII, P, ηvep, comp, β, Δt,
+    return Kiss2023ReturnMapping(
+        τII, P, ηvep, comp, β, Δt,
         pl.C[phases], pl.ϕ[phases], pl.ψ[phases], pl.ηvp[phases],
-        pl.σT[phases], pl.δσT[phases], pl.P1[phases], pl.τ1[phases], pl.P2[phases], pl.τ2[phases])
+        pl.σT[phases], pl.δσT[phases], pl.P1[phases], pl.τ1[phases], pl.P2[phases], pl.τ2[phases]
+    )
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Tensile, phases)
@@ -354,7 +362,7 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
 
     nphases = length(materials.n)
     phase_avg = materials.phase_avg
-    eps0 = 1e-17
+    eps0 = 1.0e-17
 
     # Effective strain rate & pressure
     ε̇II = sqrt((ε̇[1]^2 + ε̇[2]^2 + (-ε̇[1] - ε̇[2])^2) / 2 + ε̇[3]^2) + eps0
@@ -365,13 +373,13 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     P_average = zero(ε̇II)
     τ_average = zero(ε̇II)
 
-    for phases = 1:nphases
+    for phases in 1:nphases
 
         phase_ratios[phases] < eps() && continue
 
         # P = P_trial
         # Parameters
-        ϵ = 1e-10 # tolerance
+        ϵ = 1.0e-10 # tolerance
         n = materials.n[phases]
         η0 = materials.η0[phases]
         B = materials.B[phases]
@@ -380,13 +388,13 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
         comp = materials.compressible
 
         # Initial guess
-        η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
+        η = (η0 .* ε̇II .^ (1 ./ n .- 1.0))[1]
         ηvep = inv(1 / η + 1 / (G * Δ.t))
         τII = 2 * ηvep * ε̇II
         # P = P0 - comp * Δ.t / β * P_trial
 
         # Visco-elastic powerlaw
-        for it = 1:20
+        for it in 1:20
             r = ε̇II - StrainRateTrial(τII, G, Δ.t, B, n)
             # @show abs(r)
             (abs(r) < ϵ) && break
@@ -420,12 +428,15 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇, ε̇kk, P0, materials, phase_ratios, Δ) where {N,T}
+function StressVector!(ε̇, ε̇kk, P0, materials, phase_ratios, Δ) where {N, T}
     η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, materials, phase_ratios, Δ)
-    τ = @SVector([2 * η * ε̇[1],
-        2 * η * ε̇[2],
-        2 * η * ε̇[3],
-        P])
+    τ = @SVector(
+        [
+            2 * η * ε̇[1],
+            2 * η * ε̇[2],
+            2 * η * ε̇[3],
+            P,
+        ]
+    )
     return τ, η, λ̇, τII
 end
-

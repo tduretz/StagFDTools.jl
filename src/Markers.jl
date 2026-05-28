@@ -1,10 +1,10 @@
 function InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
-    num = (x=nmpc.x * (nc.x + 2), y=nmpc.y * (nc.y + 2))
-    Δm = (x=L.x / num.x, y=L.y / num.y)
+    num = (x = nmpc.x * (nc.x + 2), y = nmpc.y * (nc.y + 2))
+    Δm = (x = L.x / num.x, y = L.y / num.y)
     xm = LinRange(x.min - Δ.x + Δm.x / 2, x.max + Δ.x - Δm.x / 2, num.x)
     ym = LinRange(y.min - Δ.y + Δm.y / 2, y.max + Δ.y - Δm.y / 2, num.y)
-    Xm = repeat(xm, outer=num.y)
-    Ym = repeat(ym, inner=num.x)
+    Xm = repeat(xm, outer = num.y)
+    Ym = repeat(ym, inner = num.x)
     mphase = ones(Int64, num.x, num.y)
     mphase = vec(mphase)
 
@@ -12,17 +12,17 @@ function InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
         Xm .+= (rand(length(Xm)) .- 0.5) .* Δm.x
         Ym .+= (rand(length(Ym)) .- 0.5) .* Δm.y
     end
-    return (Xm=Xm, Ym=Ym, xm=xm, ym=ym, Δm=Δm, num=num, phase=mphase)
+    return (Xm = Xm, Ym = Ym, xm = xm, ym = ym, Δm = Δm, num = num, phase = mphase)
 end
 
 function InitialisePhaseRatios(nphases, f)
     phase_ratios = (
-        c=[zeros(nphases) for _ in axes(f.xx, 1), _ in axes(f.xx, 2)],
-        v=[zeros(nphases) for _ in axes(f.xy, 1), _ in axes(f.xy, 2)],
+        c = [zeros(nphases) for _ in axes(f.xx, 1), _ in axes(f.xx, 2)],
+        v = [zeros(nphases) for _ in axes(f.xy, 1), _ in axes(f.xy, 2)],
     )
     phase_weights = (
-        c=[zeros(nphases) for _ in axes(f.xx, 1), _ in axes(f.xx, 2)],
-        v=[zeros(nphases) for _ in axes(f.xy, 1), _ in axes(f.xy, 2)],
+        c = [zeros(nphases) for _ in axes(f.xx, 1), _ in axes(f.xx, 2)],
+        v = [zeros(nphases) for _ in axes(f.xy, 1), _ in axes(f.xy, 2)],
     )
     return phase_ratios, phase_weights
 end
@@ -30,19 +30,19 @@ end
 function InitialisePhaseRatios(phases::NamedTuple, nphases::Int)
     c = [
         let r = zeros(nphases)
-            r[phases.c[i, j]] = 1.0
-            r
+                r[phases.c[i, j]] = 1.0
+                r
         end
-        for i in axes(phases.c, 1), j in axes(phases.c, 2)
+            for i in axes(phases.c, 1), j in axes(phases.c, 2)
     ]
     v = [
         let r = zeros(nphases)
-            r[phases.v[i, j]] = 1.0
-            r
+                r[phases.v[i, j]] = 1.0
+                r
         end
-        for i in axes(phases.v, 1), j in axes(phases.v, 2)
+            for i in axes(phases.v, 1), j in axes(phases.v, 2)
     ]
-    return (c=c, v=v)
+    return (c = c, v = v)
 end
 
 function MarkerWeight(xm, x, Δx)
@@ -55,10 +55,11 @@ end
 function MarkerWeight_phase!(phase_ratio, phase_weight, x, y, xm, ym, Δ, phase, nphases)
     w_x = MarkerWeight(xm, x, Δ.x)
     w_y = MarkerWeight(ym, y, Δ.y)
-    for k = 1:nphases
+    for k in 1:nphases
         phase_ratio[k] += (k === phase) * w_x * w_y
         phase_weight[k] += w_x * w_y
     end
+    return
 end
 
 function SetPhaseRatios!(phase_ratios, phase_weights, m, xce, yce, xve, yve, Δ, nphases)
@@ -77,17 +78,18 @@ function SetPhaseRatios!(phase_ratios, phase_weights, m, xce, yce, xve, yve, Δ,
     # centroids
     for i in axes(phase_ratios.c, 1), j in axes(phase_ratios.c, 2)
         #  normalize weights and assign to phase ratios
-        for k = 1:nphases
+        for k in 1:nphases
             phase_ratios.c[i, j][k] = phase_ratios.c[i, j][k] / (phase_weights.c[i, j][k] == 0.0 ? 1 : phase_weights.c[i, j][k])
         end
     end
     # vertices
     for i in axes(phase_ratios.v, 1), j in axes(phase_ratios.v, 2)
         #  normalize weights and assign to phase ratios
-        for k = 1:nphases
+        for k in 1:nphases
             phase_ratios.v[i, j][k] = phase_ratios.v[i, j][k] / (phase_weights.v[i, j][k] == 0.0 ? 1 : phase_weights.v[i, j][k])
         end
     end
+    return
 end
 
 function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
@@ -99,7 +101,7 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
             ρc = 0.0
             ξc = 0.0
             pr = phase_ratios.c[i, j]
-            for p = 1:nphases
+            for p in 1:nphases
                 r = pr[p]
                 βc += r * materials.β[p]
                 Gc += r * materials.G[p]
@@ -120,23 +122,23 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
 
     @inbounds for j in 1:nyc
         G.c[1, j] = G.c[2, j]
-        G.c[nxc, j] = G.c[nxc-1, j]
+        G.c[nxc, j] = G.c[nxc - 1, j]
         β.c[1, j] = β.c[2, j]
-        β.c[nxc, j] = β.c[nxc-1, j]
+        β.c[nxc, j] = β.c[nxc - 1, j]
         ρ.c[1, j] = ρ.c[2, j]
-        ρ.c[nxc, j] = ρ.c[nxc-1, j]
+        ρ.c[nxc, j] = ρ.c[nxc - 1, j]
         ξ.c[1, j] = ξ.c[2, j]
-        ξ.c[nxc, j] = ξ.c[nxc-1, j]
+        ξ.c[nxc, j] = ξ.c[nxc - 1, j]
     end
     @inbounds for i in 1:nxc
         G.c[i, 1] = G.c[i, 2]
-        G.c[i, nyc] = G.c[i, nyc-1]
+        G.c[i, nyc] = G.c[i, nyc - 1]
         β.c[i, 1] = β.c[i, 2]
-        β.c[i, nyc] = β.c[i, nyc-1]
+        β.c[i, nyc] = β.c[i, nyc - 1]
         ρ.c[i, 1] = ρ.c[i, 2]
-        ρ.c[i, nyc] = ρ.c[i, nyc-1]
+        ρ.c[i, nyc] = ρ.c[i, nyc - 1]
         ξ.c[i, 1] = ξ.c[i, 2]
-        ξ.c[i, nyc] = ξ.c[i, nyc-1]
+        ξ.c[i, nyc] = ξ.c[i, nyc - 1]
     end
 
     nxv, nyv = size(G.v)
@@ -144,7 +146,7 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
         if 1 < i < nc.x + 3 && 1 < j < nc.y + 3
             Gv = 0.0
             pr = phase_ratios.v[i, j]
-            for p = 1:nphases
+            for p in 1:nphases
                 Gv += pr[p] * materials.G[p]
             end
             G.v[i, j] = Gv
@@ -155,11 +157,11 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
 
     @inbounds for j in 1:nyv
         G.v[1, j] = G.v[2, j]
-        G.v[nxv, j] = G.v[nxv-1, j]
+        G.v[nxv, j] = G.v[nxv - 1, j]
     end
     @inbounds for i in 1:nxv
         G.v[i, 1] = G.v[i, 2]
-        G.v[i, nyv] = G.v[i, nyv-1]
+        G.v[i, nyv] = G.v[i, nyv - 1]
     end
     return nothing
 end

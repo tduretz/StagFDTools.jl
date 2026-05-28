@@ -1,6 +1,6 @@
 using SparseArrays
 
-function linear_tol(r, r0, iter; α=9)
+function linear_tol(r, r0, iter; α = 9)
     # Inexact Newton-Raphson: Botti paper
     if iter == 1
         return r / 10
@@ -10,27 +10,28 @@ function linear_tol(r, r0, iter; α=9)
     end
 end
 
-function mechanical_solver!(dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC;
-    solver=:PH, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true
-)
-    if solver == :PH
+function mechanical_solver!(
+        dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC;
+        solver = :PH, ηb = 1.0e5, ϵ_l = 1.0e-9, niter_l = 10, restart = 20, noisy = true
+    )
+    return if solver == :PH
         # Decoupled Powell & Hestenes using LU as PC
         fu = @views -r[1:size(𝐊, 1)]
-        fp = @views -r[size(𝐊, 1)+1:end]
-        @time u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu, ηb=1e5, niter_l=10, ϵ_l=ϵ_l, noisy=true)
+        fp = @views -r[(size(𝐊, 1) + 1):end]
+        @time u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact = :lu, ηb = 1.0e5, niter_l = 10, ϵ_l = ϵ_l, noisy = true)
         @views dx[1:size(𝐊, 1)] .= u
-        @views dx[size(𝐊, 1)+1:end] .= p
+        @views dx[(size(𝐊, 1) + 1):end] .= p
     elseif solver == :GCR
         # Coupled GCR with Cholesky as PC
         𝐌 = [M.Vx.Vx M.Vx.Vy M.Vx.Pt; M.Vy.Vx M.Vy.Vy M.Vy.Pt; M.Pt.Vx M.Pt.Vy M.Pt.Pt]
-        KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb=1e5, ϵ_l=ϵ_l, restart=20)
+        KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb = 1.0e5, ϵ_l = ϵ_l, restart = 20)
     end
 end
 
 function KSP_GCR_Stokes!(
-    x, M, b, Kuu, Kup, Kpu, Kpp;
-    ηb=1e3, ϵ_l=1e-9, restart=25, maxit=1000, noisy=true
-)
+        x, M, b, Kuu, Kup, Kpu, Kpp;
+        ηb = 1.0e3, ϵ_l = 1.0e-9, restart = 25, maxit = 1000, noisy = true
+    )
 
     @views begin
 
@@ -48,7 +49,7 @@ function KSP_GCR_Stokes!(
 
         Kuusc = Kuu - Kup * spdiagm(Pinv) * Kpu
 
-        Kf = cholesky(Hermitian(Kuusc), check=false)
+        Kf = cholesky(Hermitian(Kuusc), check = false)
 
         f = similar(x)
         s = similar(x)
@@ -60,10 +61,10 @@ function KSP_GCR_Stokes!(
         norm0 = norm(f)
 
         fu = f[1:ndofu]
-        fp = f[ndofu+1:end]
+        fp = f[(ndofu + 1):end]
 
         su = s[1:ndofu]
-        sp = s[ndofu+1:end]
+        sp = s[(ndofu + 1):end]
 
         VV = zeros(eltype(x), N, restart)
         SS = zeros(eltype(x), N, restart)
@@ -76,7 +77,7 @@ function KSP_GCR_Stokes!(
 
         while its < maxit
 
-            for k = 1:restart
+            for k in 1:restart
 
                 its += 1
 
@@ -94,7 +95,7 @@ function KSP_GCR_Stokes!(
 
                 mul!(v, M, s)
 
-                for j = 1:k-1
+                for j in 1:(k - 1)
                     hj = dot(v, VV[:, j])
                     BLAS.axpy!(-hj, VV[:, j], v)
                     BLAS.axpy!(-hj, SS[:, j], s)
@@ -111,7 +112,7 @@ function KSP_GCR_Stokes!(
                 BLAS.axpy!(-α, v, f)
 
                 if norm(fu) / sqrt(ndofu) < ϵ_l &&
-                   norm(fp) / sqrt(ndofp) < ϵ_l
+                        norm(fp) / sqrt(ndofp) < ϵ_l
 
                     noisy && println("KSP converged in $its iterations")
                     return its
@@ -129,7 +130,7 @@ function KSP_GCR_Stokes!(
     end
 end
 
-function DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:chol, ηb=1e3, niter_l=10, ϵ_l=1e-11, 𝐊_PC=I(size(𝐊, 1)), noisy=true)
+function DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact = :chol, ηb = 1.0e3, niter_l = 10, ϵ_l = 1.0e-11, 𝐊_PC = I(size(𝐊, 1)), noisy = true)
 
     if nnz(𝐏) == 0 # incompressible limit
         𝐏inv = ηb .* I(size(𝐏, 1))
@@ -141,15 +142,15 @@ function DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:chol, ηb=1e3,
 
     if fact == :chol
         L_PC = I(size(𝐊sc, 1))
-        𝐊fact = cholesky(Hermitian(L_PC * 𝐊sc), check=false)
+        𝐊fact = cholesky(Hermitian(L_PC * 𝐊sc), check = false)
     elseif fact == :symchol
         L_PC = 𝐊sc'
-        @time 𝐊fact = cholesky(Hermitian(𝐊sc_PC), check=false)
+        @time 𝐊fact = cholesky(Hermitian(𝐊sc_PC), check = false)
         @time Ksym = L_PC * 𝐊sc
-        @time 𝐊fact = cholesky(Hermitian(Ksym), check=false)
+        @time 𝐊fact = cholesky(Hermitian(Ksym), check = false)
     elseif fact == :PCchol
         L_PC = I(size(𝐊sc, 1))
-        @time 𝐊fact = cholesky(Hermitian(𝐊sc_PC), check=false)
+        @time 𝐊fact = cholesky(Hermitian(𝐊sc_PC), check = false)
     elseif fact == :lu
         L_PC = I(size(𝐊sc, 1))
         @time 𝐊fact = lu(L_PC * 𝐊sc)
@@ -161,7 +162,7 @@ function DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:chol, ηb=1e3,
     p = zeros(size(𝐐, 2))
     rp = zeros(size(𝐐, 2))
     # Iterations
-    for rit = 1:niter_l
+    for rit in 1:niter_l
         ru .= fu .- 𝐊 * u .- 𝐐 * p
         rp .= fp .- 𝐐ᵀ * u .- 𝐏 * p
         nrmu, nrmp = norm(ru), norm(rp)
