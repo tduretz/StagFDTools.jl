@@ -275,6 +275,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         bcpf    = SMatrix{3,3}(    BC.Pf[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
         phc     = SMatrix{3,3}( phases.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
 
+        # TODO: adapt to phase ratios
         k_ηf0   = materials.k_ηf0[phc]
         ηΦ      = materials.ξ0[phc]
         KΦ      = materials.KΦ[phc] 
@@ -300,7 +301,6 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
                     SMatrix{3,3, Float64}( Porosity(Φ0_loc[i,j], Pt[i,j], Pf[i,j], Pt0[i,j], Pf0[i,j], KΦ[i,j], ηΦ[i,j], m[i,j], 0.0, 0.0, Δ.t )[1] for i=1:3, j=1:3)
         end 
 
-
         # Interp Vy -> Vx, Vx - > Vy
         V̄y = SMatrix{2,1}(av2D(Vy))
         V̄x = SMatrix{1,2}(av2D(Vx))
@@ -324,19 +324,6 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
         ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P.t[i, j], P.f[i,j])
 
-        # # Kinematics
-        # Dxx = ∂x_inn(Vx) / Δ.x 
-        # Dyy = ∂y_inn(Vy) / Δ.y 
-        # Dxy = ∂y(Vx) / Δ.y
-        # Dyx = ∂x(Vy) / Δ.x
-        
-        # # Strain rate
-        # Dkk = Dxx .+ Dyy
-        # ε̇xx = @. Dxx - Dkk ./ 3
-        # ε̇yy = @. Dyy - Dkk ./ 3
-        # ε̇xy = @. (Dxy + Dyx) ./ 2
-        # ε̇̄xy = av(ε̇xy)
-
         # Darcy flux
         k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
         kx_μ_xx = SVector{2, Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
@@ -348,14 +335,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         qDy     =  SVector{2, Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
         divqD   = ((qDx[2] - qDx[1]) / Δ.x + (qDy[2] - qDy[1]) / Δ.y)[1]
        
-        # # Visco-elasticity
-        # G1      = materials.G[phases.c[i,j]]
-        # τ̄xy0   = av(τxy0)
-        # ε̇vec   = @SVector([ε̇xx[1]+τ0.xx[i,j]/(2*G1[1]*Δ.t), ε̇yy[1]+τ0.yy[i,j]/(2*G[1]*Δ.t), ε̇̄xy[1]+τ̄xy0[1]/(2*G[1]*Δ.t), P.t[i,j], P.f[i,j]])
-        # τ0_loc = @SVector([τ0.xx[i,j], τ0.yy[i,j], τ̄xy0[1]])
-
         ##################################
 
+        # TODO: adapt to phase ratios
         # Tangent operator used for Newton Linearisation
         τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
         η_local, Pt1, Pf1, λ̇_local, τII_local, Φ_local, f_local = LocalRheology_P(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
@@ -427,6 +409,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         bcpf    = SMatrix{4,4}(    BC.Pf[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
         phc     = SMatrix{4,4}( phases.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
 
+        # TODO: adapt to phase ratios
         k_ηf0   = materials.k_ηf0[phc]
         ηΦ      = materials.ξ0[phc]
         KΦ      = materials.KΦ[phc] 
@@ -452,52 +435,11 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
                     SMatrix{4,4, Float64}( Porosity(Φ0_loc[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ηΦ[ii], m[ii], 0.0, 0.0, Δt )[1] for ii in eachindex(Φ0_loc) )
                 end 
 
-        # # Kinematics
-        # Dxx    = ∂x(Vx) / Δ.x
-        # Dyy    = ∂y(Vy) / Δ.y
-        # Dxy    = ∂y_inn(Vx) / Δ.y
-        # Dyx    = ∂x_inn(Vy) / Δ.x
-
-        # # Strain rate
-        # Dkk   = @. Dxx + Dyy
-        # ε̇xx   = @. Dxx - Dkk / 3
-        # ε̇yy   = @. Dyy - Dkk / 3
-        # ε̇xy   = @. (Dxy + Dyx) /2
-        # ε̇̄xx   = av(ε̇xx)
-        # ε̇̄yy   = av(ε̇yy)
-
-        # Darcy flux
-        k_μ_xx  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
-        kx_μ_xx = SMatrix{3,2, Float64}( (k_μ_xx[i,j+1] + k_μ_xx[i+1,j+1]) / 2 for i=1:3, j=1:2 )
-        k_μ_yy  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
-        ky_μ_yy = SMatrix{2,3, Float64}( (k_μ_yy[i+1,j] + k_μ_yy[i+1,j+1]) / 2 for i=1:2, j=1:3 )
-        ∂Pf∂x   = SMatrix{3,2, Float64}( (Pf[i+1,j+1] - Pf[i,j+1] ) / Δ.x for i=1:3, j=1:2 )
-        ∂Pf∂y   = SMatrix{2,3, Float64}( (Pf[i+1,j+1] - Pf[i+1,j] ) / Δ.y for i=1:2, j=1:3 )
-        qDx     = SMatrix{3,2, Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
-        qDy     = SMatrix{2,3, Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
-        divqD   = ∂x(qDx) / Δ.x .+ ∂y(qDy) / Δ.y 
-        divqD̄   = av(divqD)[1]
-        
-        # # Visco-elasticity
-        # G      = materials.G[phases.v[i,j]]
-        # τ̄xx0   = av(τxx0)
-        # τ̄yy0   = av(τyy0)
-        # P̄t     = av(  Pt)
-        # P̄f     = av(  Pf)
-        # ε̇vec   = @SVector([ε̇̄xx[1]+τ̄xx0[1]/(2*G[1]*Δ.t), ε̇̄yy[1]+τ̄yy0[1]/(2*G[1]*Δ.t), ε̇xy[1]+τ0.xy[i,j]/(2*G[1]*Δ.t), P̄t[1], P̄f[1]])
-        # τ0_loc = @SVector([τ̄xx0[1], τ̄yy0[1], τ0.xy[i,j]])
-
-        # D̄kk   = av(Dkk)
-        # 
-        # P̄t0   = av(Pt0)
-        # P̄f0   = av(Pf0)
-
-
         # Interp Vy -> Vx, Vx - > Vy
         V̄y = SMatrix{1,2}(av2D(Vy))
         V̄x = SMatrix{2,1}(av2D(Vx))
 
-        # # More averages
+        # More averages
         τ0xx = av(τxx0)[1]
         τ0yy = av(τyy0)[1]
         τ0xy = τ0.xy[i, j]
@@ -521,8 +463,21 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
         ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄t, P̄f)
 
+        # Darcy flux
+        k_μ_xx  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        kx_μ_xx = SMatrix{3,2, Float64}( (k_μ_xx[i,j+1] + k_μ_xx[i+1,j+1]) / 2 for i=1:3, j=1:2 )
+        k_μ_yy  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        ky_μ_yy = SMatrix{2,3, Float64}( (k_μ_yy[i+1,j] + k_μ_yy[i+1,j+1]) / 2 for i=1:2, j=1:3 )
+        ∂Pf∂x   = SMatrix{3,2, Float64}( (Pf[i+1,j+1] - Pf[i,j+1] ) / Δ.x for i=1:3, j=1:2 )
+        ∂Pf∂y   = SMatrix{2,3, Float64}( (Pf[i+1,j+1] - Pf[i+1,j] ) / Δ.y for i=1:2, j=1:3 )
+        qDx     = SMatrix{3,2, Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
+        qDy     = SMatrix{2,3, Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
+        divqD   = ∂x(qDx) / Δ.x .+ ∂y(qDy) / Δ.y 
+        divqD̄   = av(divqD)[1]
+
         ##################################
 
+        # TODO: adapt to phase ratios
         # Tangent operator used for Newton Linearisation
         τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
         η_local, Pt1, Pf1, λ̇_local, τII_local, Φ_local, f_local = LocalRheology_P(ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0[1], materials, phases.v[i,j], Δ)

@@ -164,37 +164,50 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
     return nothing
 end
 
-function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, materials, phase_ratios, nc, nphases)
+function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, materials, phase_ratios, nc, nphases)
     nxc, nyc = size(G.c)
 
     # Centroid arrays
     @inbounds for j in 1:nyc, i in 1:nxc
-        if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
-            Ksc = 0.0
-            KΦc = 0.0
-            Kfc = 0.0
-            Gc  = 0.0
-            ξc  = 0.0
-            pr  = phase_ratios.c[i, j]
+        if 1 <= i <= nc.x + 2 && 1 <= j <= nc.y + 2
+            Ksc  = 0.0
+            KΦc  = 0.0
+            Kfc  = 0.0
+            Gc   = 0.0
+            ξc   = 0.0
+            mc   = 0.0 
+            ρsic = 0.0
+            ρfic = 0.0
+            pr   = phase_ratios.c[i, j]
             for p = 1:nphases
                 r = pr[p]
-                Ksc += r * materials.Ks[p]
-                KΦc += r * materials.KΦ[p]
-                Ksc += r * materials.Ks[p]
-                Gc  += r * materials.G[p]
-                ξc  += r * materials.ξ0[p]
+                Ksc  += r * materials.Ks[p]
+                KΦc  += r * materials.KΦ[p]
+                Ksc  += r * materials.Ks[p]
+                Gc   += r * materials.G[p]
+                ξc   += r * materials.ξ0[p]
+                mc   += r * materials.m[p]
+                ρsic += r * materials.ρs[p]
+                ρfic += r * materials.ρf[p]
             end
-            Ks.c[i, j] = Ksc
-            KΦ.c[i, j] = KΦc
-            Ks.c[i, j] = Ksc
-            G.c[i, j]  = Gc
-            ξ.c[i, j]  = ξc
-        else
-            Ks.c[i, j] = 0.0
-            KΦ.c[i, j] = 0.0
-            Ks.c[i, j] = 0.0
-            G.c[i, j]  = 0.0
-            ξ.c[i, j]  = 0.0
+            Ks.c[i, j]  = Ksc
+            KΦ.c[i, j]  = KΦc
+            Ks.c[i, j]  = Ksc
+            G.c[i, j]   = Gc
+            ξ.c[i, j]   = ξc
+            m.c[i, j]   = mc
+            # @show ρsi.c[i, j], ρsic
+            ρsi.c[i, j] = ρsic
+            ρfi.c[i, j] = ρfic
+        # else
+        #     Ks.c[i, j]  = 0.0
+        #     KΦ.c[i, j]  = 0.0
+        #     Ks.c[i, j]  = 0.0
+        #     G.c[i, j]   = 0.0
+        #     ξ.c[i, j]   = 0.0
+        #     m.c[i, j]   = 0.0
+        #     ρsi.c[i, j] = 0.0
+        #     ρfi.c[i, j] = 0.0
         end
     end
 

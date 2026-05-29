@@ -158,10 +158,11 @@ end
     D_ctl_v =  [@MMatrix(zeros(5,5)) for _ in axes(ε̇.xy,1), _ in axes(ε̇.xy,2)]
     𝐷_ctl   = (c = D_ctl_c, v = D_ctl_v)
     
-    ξ       = (c  =  ones(size_c...), v  =  ones(size_v...) )
+    ξ0      = (c  =  ones(size_c...), v  =  ones(size_v...) )
+    m       = (c=zeros(size_c...),)
     G       = (c=zeros(size_c...), v=zeros(size_v...))
-    ρs      = (c=zeros(size_c...), v=zeros(size_v...))
-    ρf      = (c=zeros(size_c...), v=zeros(size_v...))
+    ρsi     = (c=zeros(size_c...),)
+    ρfi     = (c=zeros(size_c...),)
     Ks      = (c=zeros(size_c...), v=zeros(size_v...))
     KΦ      = (c=zeros(size_c...), v=zeros(size_v...))
     Kf      = (c=zeros(size_c...), v=zeros(size_v...))
@@ -244,8 +245,9 @@ end
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, materials, phase_ratios, nc, nphases)
-
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, materials, phase_ratios, nc, nphases)
+        rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi
+        
         for iter=1:4
 
             @printf("     Step %04d --- Iteration %04d\n", it, iter)
@@ -254,7 +256,7 @@ end
             TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
             ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
             ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-            ResidualContinuity2D!(R, V, P, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
+            ResidualContinuity2D!(R, V, P, (P0, Φ0, ρ0), rheo, materials, number, type, BC, nc, Δ) 
             ResidualFluidContinuity2D!(R, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
 
             @info "Residuals"
@@ -262,6 +264,8 @@ end
             @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
             @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
             @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
+
+            # error()
 
             # Set global residual vector
             SetRHS!(r, R, number, type, nc)
@@ -271,7 +275,7 @@ end
             @info "Assembly, ndof  = $(nVx + nVy + nPt + nPf)"
             AssembleMomentum2D_x!(M, V, P, P0, ΔP, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
             AssembleMomentum2D_y!(M, V, P, P0, ΔP, τ0, Φ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleContinuity2D!(M, V, P, (P0, Φ0, ρ0), phases, materials, number, pattern, type, BC, nc, Δ)
+            AssembleContinuity2D!(M, V, P, (P0, Φ0, ρ0), rheo, materials, number, pattern, type, BC, nc, Δ)
             AssembleFluidContinuity2D!(M, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, pattern, type, BC, nc, Δ)
 
             # Two-phases operator as block matrix
