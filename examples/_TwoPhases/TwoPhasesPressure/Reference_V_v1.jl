@@ -262,7 +262,7 @@ end
             @time ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
             @time ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
             @time ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-
+# 
             # @info "Residuals"
             # @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             # @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
