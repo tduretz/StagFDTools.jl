@@ -160,6 +160,8 @@ end
     
     ξ0      = (c  =  ones(size_c...), v  =  ones(size_v...) )
     m       = (c=zeros(size_c...),)
+    k_ηf0   = (c=zeros(size_c...),)
+    n_CK    = (c=zeros(size_c...),)
     G       = (c=zeros(size_c...), v=zeros(size_v...))
     ρsi     = (c=zeros(size_c...),)
     ρfi     = (c=zeros(size_c...),)
@@ -245,27 +247,27 @@ end
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, materials, phase_ratios, nc, nphases)
-        rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        
+        old  = τ0, P0, Φ0, ρ0
+        rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
         
         for iter=1:4
 
             @printf("     Step %04d --- Iteration %04d\n", it, iter)
 
             # Residual check
-            TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
-            ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-            ResidualContinuity2D!(R, V, P, (P0, Φ0, ρ0), rheo, materials, number, type, BC, nc, Δ) 
-            ResidualFluidContinuity2D!(R, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
+            TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+            ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+            ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+            ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+            ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
 
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
-            @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
-            @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
-
-            # error()
+            @show norm(R.pt[inx_c,iny_c]) /sqrt(nPt)
+            @show norm(R.pf[inx_c,iny_c]) /sqrt(nPf)
 
             # Set global residual vector
             SetRHS!(r, R, number, type, nc)
@@ -273,10 +275,10 @@ end
             #--------------------------------------------#
             # Assembly
             @info "Assembly, ndof  = $(nVx + nVy + nPt + nPf)"
-            AssembleMomentum2D_x!(M, V, P, P0, ΔP, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleMomentum2D_y!(M, V, P, P0, ΔP, τ0, Φ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleContinuity2D!(M, V, P, (P0, Φ0, ρ0), rheo, materials, number, pattern, type, BC, nc, Δ)
-            AssembleFluidContinuity2D!(M, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, pattern, type, BC, nc, Δ)
+            AssembleMomentum2D_x!(     M, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleMomentum2D_y!(     M, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleContinuity2D!(     M, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleFluidContinuity2D!(M, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
 
             # Two-phases operator as block matrix
             𝑀 = [

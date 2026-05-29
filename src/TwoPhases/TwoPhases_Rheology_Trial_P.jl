@@ -248,9 +248,10 @@ function StressVector_P2!(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, 
     return τ
 end
 
-function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
+function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
 
     _ones = @SVector ones(5)
+    G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK = rheo
     invΔx, invΔy, Δt = 1 / Δ.x, 1 / Δ.y, Δ.t
 
     ########################### Loop over centroids ###########################
@@ -273,17 +274,24 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         bcpt    = SMatrix{3,3}(    BC.Pt[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
         typepf  = SMatrix{3,3}(  type.Pf[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
         bcpf    = SMatrix{3,3}(    BC.Pf[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
-        phc     = SMatrix{3,3}( phases.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        # phc     = SMatrix{3,3}( phases.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
 
-        # TODO: adapt to phase ratios
-        k_ηf0   = materials.k_ηf0[phc]
-        ηΦ      = materials.ξ0[phc]
-        KΦ      = materials.KΦ[phc] 
-        n       = materials.n_CK[phc] # Carman-Kozeny
-        m       = materials.m[phc]
+        # # TODO: adapt to phase ratios
+        # k_ηf0   = materials.k_ηf0[phc]
+        # ηΦ      = materials.ξ0[phc]
+        # KΦ      = materials.KΦ[phc] 
+        # n       = materials.n_CK[phc] # Carman-Kozeny
+        # m       = materials.m[phc]
+
+        k_ηf0_loc = SMatrix{3,3}(     k_ηf0.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        ηΦ_loc    = SMatrix{3,3}(        ξ0.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        KΦ_loc    = SMatrix{3,3}(        KΦ.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        n_loc     = SMatrix{3,3}(      n_CK.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        m_loc     = SMatrix{3,3}(         m.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
+        ρfi_loc   = SMatrix{3,3}(       ρfi.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
 
         # Density for Darcy flux
-        ρfgC   = SMatrix{3,3}( @. materials.ρf[phc] * materials.g[2] )
+        ρfgC   = SMatrix{3,3}( @. ρfi_loc * materials.g[2] )
         ρfg    = SVector{2, Float64}( 1/2 * (ρfgC[2,j] + ρfgC[2,j+1]) for j=1:2 )
 
         # BCs
@@ -298,7 +306,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         Φ_loc = if materials.linearizeΦ
                     SMatrix{3,3, Float64}( Φ0_loc ) 
                 else
-                    SMatrix{3,3, Float64}( Porosity(Φ0_loc[i,j], Pt[i,j], Pf[i,j], Pt0[i,j], Pf0[i,j], KΦ[i,j], ηΦ[i,j], m[i,j], 0.0, 0.0, Δ.t )[1] for i=1:3, j=1:3)
+                    SMatrix{3,3, Float64}( Porosity(Φ0_loc[i,j], Pt[i,j], Pf[i,j], Pt0[i,j], Pf0[i,j], KΦ_loc[i,j], ηΦ_loc[i,j], m_loc[i,j], 0.0, 0.0, Δ.t )[1] for i=1:3, j=1:3)
         end 
 
         # Interp Vy -> Vx, Vx - > Vy
@@ -325,9 +333,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P.t[i, j], P.f[i,j])
 
         # Darcy flux
-        k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
         kx_μ_xx = SVector{2, Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
-        k_μ_yy  = SMatrix{3,3, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        k_μ_yy  = SMatrix{3,3, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
         ky_μ_yy = SVector{2, Float64}( @. (k_μ_yy[2,j] + k_μ_yy[2,j+1]) / 2 for j=1:2 )
         ∂Pf∂x   = SVector{2, Float64}( @. (Pf[i+1,2] - Pf[i,2] ) / Δ.x for i=1:2 )
         ∂Pf∂y   = SVector{2, Float64}( @. (Pf[2,j+1] - Pf[2,j] ) / Δ.y for j=1:2 )
@@ -407,17 +415,18 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         bcpt    = SMatrix{4,4}(    BC.Pt[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
         typepf  = SMatrix{4,4}(  type.Pf[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
         bcpf    = SMatrix{4,4}(    BC.Pf[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
-        phc     = SMatrix{4,4}( phases.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        # phc     = SMatrix{4,4}( phases.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
 
         # TODO: adapt to phase ratios
-        k_ηf0   = materials.k_ηf0[phc]
-        ηΦ      = materials.ξ0[phc]
-        KΦ      = materials.KΦ[phc] 
-        n       = materials.n_CK[phc] # Carman-Kozeny
-        m       = materials.m[phc]    # Carman-Kozeny
+        k_ηf0_loc = SMatrix{4,4}(    k_ηf0.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        ηΦ_loc    = SMatrix{4,4}(       ξ0.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        KΦ_loc    = SMatrix{4,4}(       KΦ.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        n_loc     = SMatrix{4,4}(     n_CK.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        m_loc     = SMatrix{4,4}(        m.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
+        ρfi_loc   = SMatrix{4,4}(      ρfi.c[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
 
         # Fluid density
-        ρfgC   = SMatrix{4,4}( @. materials.ρf[phc] * materials.g[2] )
+        ρfgC   = SMatrix{4,4}( @. ρfi_loc * materials.g[2] )
         ρfg    = SMatrix{2, 3, Float64}(1/2 * (ρfgC[i+1,j] + ρfgC[i+1,j+1]) for i=1:2, j=1:3)
 
         # Set BCs
@@ -432,7 +441,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         Φ_loc = if materials.linearizeΦ
                     SMatrix{4,4, Float64}( @. Φ0_loc ) 
                 else
-                    SMatrix{4,4, Float64}( Porosity(Φ0_loc[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ηΦ[ii], m[ii], 0.0, 0.0, Δt )[1] for ii in eachindex(Φ0_loc) )
+                    SMatrix{4,4, Float64}( Porosity(Φ0_loc[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ_loc[ii], ηΦ_loc[ii], m_loc[ii], 0.0, 0.0, Δt )[1] for ii in eachindex(Φ0_loc) )
                 end 
 
         # Interp Vy -> Vx, Vx - > Vy
@@ -464,9 +473,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, P, ΔP,
         ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄t, P̄f)
 
         # Darcy flux
-        k_μ_xx  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        k_μ_xx  = SMatrix{4,4, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
         kx_μ_xx = SMatrix{3,2, Float64}( (k_μ_xx[i,j+1] + k_μ_xx[i+1,j+1]) / 2 for i=1:3, j=1:2 )
-        k_μ_yy  = SMatrix{4,4, Float64}( @.  k_ηf0 * max.(Φ_loc, 1e-6).^n  )
+        k_μ_yy  = SMatrix{4,4, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
         ky_μ_yy = SMatrix{2,3, Float64}( (k_μ_yy[i+1,j] + k_μ_yy[i+1,j+1]) / 2 for i=1:2, j=1:3 )
         ∂Pf∂x   = SMatrix{3,2, Float64}( (Pf[i+1,j+1] - Pf[i,j+1] ) / Δ.x for i=1:3, j=1:2 )
         ∂Pf∂y   = SMatrix{2,3, Float64}( (Pf[i+1,j+1] - Pf[i+1,j] ) / Δ.y for i=1:2, j=1:3 )
