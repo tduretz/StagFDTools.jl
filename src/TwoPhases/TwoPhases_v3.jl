@@ -824,34 +824,34 @@ function AssembleContinuity2D!(K, V, P, ΔP, old, rheo, materials, num, pattern,
         ∂R∂Pt = ad_gradient(Pt_loc -> Continuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ), Pt_loc)
         ∂R∂Pf = ad_gradient(Pf_loc -> Continuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ), Pf_loc)
 
-        # Pt --- Vx
-        Local = SMatrix{2, 3}(num.Vx[ii, jj] for ii in i:i+1, jj in j:j+2).* pattern[3][1]
-        for jj in axes(Local,2), ii in axes(Local,1)
-            if Local[ii,jj]>0 && num.Pt[i,j]>0
-                K[3][1][num.Pt[i,j], Local[ii,jj]] = ∂R∂Vx[ii,jj] 
-            end
-        end
-        # Pt --- Vy
-        Local = SMatrix{3, 2}(num.Vy[ii, jj] for ii in i:i+2, jj in j:j+1).* pattern[3][2]
-        for jj in axes(Local,2), ii in axes(Local,1)
-            if Local[ii,jj]>0 && num.Pt[i,j]>0
-                K[3][2][num.Pt[i,j], Local[ii,jj]] = ∂R∂Vy[ii,jj] 
-            end
-        end
-        # Pt --- Pt
-        Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][3]
-        for jj in axes(Local,2), ii in axes(Local,1)
-            if (Local[ii,jj]>0) && num.Pt[i,j]>0
-                K[3][3][num.Pt[i,j], Local[ii,jj]] = ∂R∂Pt[ii,jj]  
-            end
-        end
-        # Pt --- Pf
-        Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][4]
-        for jj in axes(Local,2), ii in axes(Local,1)
-            if (Local[ii,jj]>0) && num.Pt[i,j]>0
-                K[3][4][num.Pt[i,j], Local[ii,jj]] = ∂R∂Pf[ii,jj]  
-            end
-        end
+        # # Pt --- Vx
+        # Local = SMatrix{2, 3}(num.Vx[ii, jj] for ii in i:i+1, jj in j:j+2).* pattern[3][1]
+        # for jj in axes(Local,2), ii in axes(Local,1)
+        #     if Local[ii,jj]>0 && num.Pt[i,j]>0
+        #         K[3][1][num.Pt[i,j], Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+        #     end
+        # end
+        # # Pt --- Vy
+        # Local = SMatrix{3, 2}(num.Vy[ii, jj] for ii in i:i+2, jj in j:j+1).* pattern[3][2]
+        # for jj in axes(Local,2), ii in axes(Local,1)
+        #     if Local[ii,jj]>0 && num.Pt[i,j]>0
+        #         K[3][2][num.Pt[i,j], Local[ii,jj]] = ∂R∂Vy[ii,jj] 
+        #     end
+        # end
+        # # Pt --- Pt
+        # Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][3]
+        # for jj in axes(Local,2), ii in axes(Local,1)
+        #     if (Local[ii,jj]>0) && num.Pt[i,j]>0
+        #         K[3][3][num.Pt[i,j], Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+        #     end
+        # end
+        # # Pt --- Pf
+        # Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][4]
+        # for jj in axes(Local,2), ii in axes(Local,1)
+        #     if (Local[ii,jj]>0) && num.Pt[i,j]>0
+        #         K[3][4][num.Pt[i,j], Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+        #     end
+        # end
     end
     return nothing
 end
