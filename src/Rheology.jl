@@ -420,7 +420,7 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇, ε̇kk, P0, materials, phase_ratios, Δ) where {N,T}
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, materials, phase_ratios, Δ) where {N,T}
     η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, materials, phase_ratios, Δ)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
