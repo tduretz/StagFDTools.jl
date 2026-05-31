@@ -388,8 +388,8 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
     
     Pt0, Pf0, Φ0, ρs0, ρf0 = old
     Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, kμ, n_CK = rheo
-    invΔx   = 1 / Δ.x
-    invΔy   = 1 / Δ.y
+    invΔx   = inv(Δ.x)
+    invΔy   = inv(Δ.y)
     Δt      = Δ.t
 
     # Density - currently explicit in time (= using old fluid density)
@@ -398,14 +398,16 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
     Pf   = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
     Pt   = SetBCPf1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
 
-    dPtdt   = SMatrix{3,3}( (Pt .- Pt0) / Δt )
-    dPfdt   = SMatrix{3,3}( (Pf .- Pf0) / Δt )
-    if materials.linearizeΦ ||  materials.single_phase
-        Φ       = SMatrix{3, 3}( Φ0 )
-        dΦdt    = SMatrix{3, 3}( zeros(3,3) )
+    dPtdt   = @. (Pt .- Pt0) / Δt
+    dPfdt   = @. (Pf .- Pf0) / Δt
+    Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase
+        Φ       = Φ0
+        dΦdt    = zeros(Φ0)
+        Φ, dΦdt
     else
         Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
         dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
+        Φ, dΦdt
     end
 
     # # if Φ[1]<0 || Φ[2] <0 ||  Φ[3] <0
@@ -416,17 +418,17 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
     # #     @show Pf0
     # # end
     
-    dPsdt   = SMatrix{3, 3}( @. dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ) )
-    dlnρsdt = SMatrix{3, 3}( @. 1/Ks * ( dPsdt ) )
+    dPsdt   = @. dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
+    dlnρsdt = @. 1/Ks * ( dPsdt )
     dlnρfdt = dPfdt[2,2] / Kf[2,2]
 
     # Interpolate porosity to velocity nodes
-    Φxⁿ = SVector(
+    Φxⁿ = SVector{2}(
         (Φ[1,2]^n_CK[1,2] + Φ[2,2]^n_CK[2,2]) * 0.5,
         (Φ[2,2]^n_CK[2,2] + Φ[3,2]^n_CK[3,2]) * 0.5,
     )
     
-    Φyⁿ = SVector(
+    Φyⁿ = SVector{2}(
         (Φ[2,1]^n_CK[2,1] + Φ[2,2]^n_CK[2,2]) * 0.5,
         (Φ[2,2]^n_CK[2,2] + Φ[2,3]^n_CK[2,3]) * 0.5,
     )
@@ -447,35 +449,35 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
     divqD = ( (  qx[2] -   qx[1]) * invΔx + (  qy[2] -   qy[1]) * invΔy)
     divVs = ( (Vx[2,2] - Vx[1,2]) * invΔx + (Vy[2,2] - Vy[2,1]) * invΔy) 
     
-    if materials.conservative == false
-        if materials.oneway
-            fp   = divqD
+    fp = if materials.conservative == false
+        fp = if materials.oneway
+            divqD
         else
-            fp = (Φ[2,2]*dlnρfdt + dΦdt[2,2]       + Φ[2,2]*divVs + divqD)
+            (Φ[2,2]*dlnρfdt + dΦdt[2,2] + Φ[2,2]*divVs + divqD)
         end
     else
         # Total mass: ∂ρt∂t + ∇⋅(q) with q = ρf⋅qD + ρt⋅qD⋅V
-        lnρs   = SMatrix{3, 3}( @. log(ρs0) + Δt*dlnρsdt)
-        ρs     = SMatrix{3, 3}( @. exp(lnρs) )
-        lnρf   = SMatrix{3, 3}( @. log(ρf0) + Δt*dlnρsdt)
-        ρf     = SMatrix{3, 3}( @. exp(lnρf) )
-        ρt     = SMatrix{3, 3}( @. (1-Φ ) * ρs  + Φ  * ρf  )
-        ρt0    = SMatrix{3, 3}( @. (1-Φ0 )* ρs0 + Φ0 * ρf0 )
+        lnρs   = @. log(ρs0) + Δt*dlnρsdt
+        ρs     = @. exp(lnρs) 
+        lnρf   = @. log(ρf0) + Δt*dlnρsdt
+        ρf     = @. exp(lnρf) 
+        ρt     = @. (1-Φ ) * ρs  + Φ  * ρf  
+        ρt0    = @. (1-Φ0 )* ρs0 + Φ0 * ρf0 
         
         ∂ρt∂t  = (ρt[2,2] - ρt0[2,2]) / Δt
         ρfx    = SVector{2}(0.5 * (ρf[i,2] + ρf[i+1,2]) for i ∈ 1:2)
         ρfy    = SVector{2}(0.5 * (ρf[2,i] + ρf[2,i+1]) for i ∈ 1:2)
         ρtx    = SVector{2}(0.5 * (ρt[i,2] + ρt[i+1,2]) for i ∈ 1:2)
         ρty    = SVector{2}(0.5 * (ρt[2,i] + ρt[2,i+1]) for i ∈ 1:2)
-        qρx    = SVector{2}( @. ρfx * qx +  ρtx * Vx[:,2] )     # Brucite paper, Fowler (1985)
-        qρy    = SVector{2}( @. ρfy * qy +  ρty * Vy[2,:] )     # Brucite paper, Fowler (1985)    
+        qρx    = @. ρfx * qx + ρtx * Vx[:,2] # Brucite paper, Fowler (1985)
+        qρy    = @. ρfy * qy + ρty * Vy[2,:] # Brucite paper, Fowler (1985)    
         
         if materials.oneway
             ∂ρt∂t  = 0*(ρt[2,2] - ρt0[2,2]) / Δt
-            qρx    = SVector{2}( @. ρfx * qx +  0*ρtx * Vx[:,2] )     # Brucite paper, Fowler (1985)
-            qρy    = SVector{2}( @. ρfy * qy +  0*ρty * Vy[2,:] ) 
+            qρx    = @. ρfx * qx # +  0*ρtx * Vx[:,2]    # Brucite paper, Fowler (1985)
+            qρy    = @. ρfy * qy # +  0*ρty * Vy[2,:]
         end
-        fp     = ∂ρt∂t  +  (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy 
+        fp = ∂ρt∂t + (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy 
     end
     return fp
 end
