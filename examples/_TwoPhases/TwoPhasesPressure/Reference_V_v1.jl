@@ -63,7 +63,7 @@ end
         compressible = true,
         linearizeΦ   = false, 
         single_phase = false,
-        conservative = true,
+        conservative = false,
         plasticity   = DruckerPrager,
     )
     materials.η0             .= [ηsi,  ηs_inc] 
@@ -251,7 +251,7 @@ end
         
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
-        
+
         for iter=1:4
 
             @printf("     Step %04d --- Iteration %04d\n", it, iter)
@@ -288,95 +288,98 @@ end
                 M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
             ]
 
+            iter==1 && save("data/matrix_2phases_r$(nc.x)_ncons.jld2", "M", M, "𝑀", 𝑀, "R", R, "r", r, "nc", nc) 
+            
+
             @info "System symmetry"
             𝑀diff = 𝑀 - 𝑀'
             dropzeros!(𝑀diff)
             @show norm(𝑀diff)
 
-            # #--------------------------------------------#
+            #--------------------------------------------#
 
-            # if M2Di_solver == false 
-            #     # Direct solver 
-            #     @time dx = - 𝑀 \ r
-            # else
-            #     # M2Di solver
-            #     fv    = -r[1:(nVx+nVy)]
-            #     fpt   = -r[(nVx+nVy+1):(nVx+nVy+nPt)]
-            #     fpf   = -r[(nVx+nVy+nPt+1):end]
-            #     dv    = zeros(nVx+nVy)
-            #     dpt   = zeros(nPt)
-            #     dpf   = zeros(nPf)
-            #     rvs   = zeros(nVx+nVy)
-            #     rpt   = zeros(nPt)
-            #     rpf   = zeros(nPf)
-            #     rvs_t  = zeros(nVx+nVy)
-            #     rpt_t = zeros(nPt)
-            #     s     = zeros(nPf)
-            #     ddv   = zeros(nVx+nVy)
-            #     ddpt  = zeros(nPt)
-            #     ddpf  = zeros(nPf)
+            if M2Di_solver == false 
+                # Direct solver 
+                @time dx = - 𝑀 \ r
+            else
+                # M2Di solver
+                fv    = -r[1:(nVx+nVy)]
+                fpt   = -r[(nVx+nVy+1):(nVx+nVy+nPt)]
+                fpf   = -r[(nVx+nVy+nPt+1):end]
+                dv    = zeros(nVx+nVy)
+                dpt   = zeros(nPt)
+                dpf   = zeros(nPf)
+                rvs   = zeros(nVx+nVy)
+                rpt   = zeros(nPt)
+                rpf   = zeros(nPf)
+                rvs_t  = zeros(nVx+nVy)
+                rpt_t = zeros(nPt)
+                s     = zeros(nPf)
+                ddv   = zeros(nVx+nVy)
+                ddpt  = zeros(nPt)
+                ddpf  = zeros(nPf)
 
-            #     Jvv  = [M.Vx.Vx M.Vx.Vy;
-            #             M.Vy.Vx M.Vy.Vy]
-            #     Jvp  = [M.Vx.Pt;
-            #             M.Vy.Pt]
-            #     Jpv  = [M.Pt.Vx M.Pt.Vy]
-            #     Jpp  = M.Pt.Pt
-            #     Jppf = M.Pt.Pf
-            #     Jpfv = [M.Pf.Vx M.Pf.Vy]
-            #     Jpfp = M.Pf.Pt
-            #     Jpf  = M.Pf.Pf
-            #     Kvv  = Jvv
+                Jvv  = [M.Vx.Vx M.Vx.Vy;
+                        M.Vy.Vx M.Vy.Vy]
+                Jvp  = [M.Vx.Pt;
+                        M.Vy.Pt]
+                Jpv  = [M.Pt.Vx M.Pt.Vy]
+                Jpp  = M.Pt.Pt
+                Jppf = M.Pt.Pf
+                Jpfv = [M.Pf.Vx M.Pf.Vy]
+                Jpfp = M.Pf.Pt
+                Jpf  = M.Pf.Pf
+                Kvv  = Jvv
 
-            #     @time begin 
-            #         # γ = 1e-8
-            #         # Γ = spdiagm(γ*ones(nPt))
-            #         # Pre-conditionning (~Jacobi)
-            #         Jpv_t  = Jpv  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfv  
-            #         Jpp_t  = Jpp  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfp  #.+ Γ
-            #         Jvv_t  = Kvv  - Jvp *spdiagm(1 ./ diag(Jpp_t))*Jpv 
-            #         Jpf_h  = cholesky(Hermitian(SparseMatrixCSC(Jpf)), check = false  )        # Cholesky factors
-            #         Jvv_th = cholesky(Hermitian(SparseMatrixCSC(Jvv_t)), check = false)        # Cholesky factors
-            #         Jpp_th = spdiagm(1 ./diag(Jpp_t));             # trivial inverse
-            #         nrvs0, nrpt0, nrpf0 = 1.0, 1.0, 1.0
-            #         @views for itPH=1:30
-            #             rvs   .= -( Jvv*dv  + Jvp*dpt             - fv  )
-            #             rpt   .= -( Jpv*dv  + Jpp*dpt  + Jppf*dpf - fpt )
-            #             rpf   .= -( Jpfv*dv + Jpfp*dpt + Jpf*dpf  - fpf )
-            #             nrvs = norm(rvs)/length(rvs); nrpt = norm(rpt)/length(rpt);  nrpf = norm(rpf)/length(rpf)
-            #             if (itPH == 1) nrvs0, nrpt0, nrpf0 = nrvs, nrpt, nrpf end
-            #             @printf("  --- iteration %d --- \n",itPH);
-            #             @printf("  abs. rvs = %2.2e --- rel. rvs = %2.2e\n", nrvs, nrvs/nrvs0)
-            #             @printf("  abs. rpt = %2.2e --- rel. rpt = %2.2e\n", nrpt, nrpt/nrpt0)
-            #             @printf("  abs. rpf = %2.2e --- rel. rpf = %2.2e\n", nrpf, nrpf/nrpf0)
-            #             s     .= Jpf_h \ rpf
-            #             rpt_t .= -( Jppf*s - rpt)
-            #             s     .=    Jpp_th*rpt_t
-            #             rvs_t .= -( Jvp*s  - rvs )
-            #             ddv   .= Jvv_th \ rvs_t
-            #             s     .= -( Jpv_t*ddv - rpt_t )
-            #             ddpt  .=    Jpp_th*s
-            #             s     .= -( Jpfp*ddpt + Jpfv*ddv - rpf )
-            #             ddpf  .= Jpf_h \ s
-            #             dv   .+= ddv
-            #             dpt  .+= ddpt
-            #             dpf  .+= ddpf
-            #             # if ((norm(rvs)/length(rvs)) < tol_linv) && ((norm(rpt)/length(rpt)) < tol_linpt) && ((norm(rpf)/length(rpf)) < tol_linpf), break; end
-            #             # if ((norm(rvs)/length(rvs)) > (norm(rv0)/length(rv0)) && norm(rvs)/length(rvs) < tol_glob && (norm(rpt)/length(rpt)) > (norm(rpt0)/length(rpt0)) && norm(rpt)/length(rpt) < tol_glob && (norm(rpf)/length(rpf)) > (norm(rpf0)/length(rpf0)) && norm(rpf)/length(rpf) < tol_glob),
-            #             #     if noisy>=1, fprintf(' > Linear residuals do no converge further:\n'); break; end
-            #             # end
-            #             # rv0=rvs; rpt0=rpt; rpf0=rpf; if (itPH==nPH), nfail=nfail+1; end
-            #         end
-            #     end
+                @time begin 
+                    # γ = 1e-8
+                    # Γ = spdiagm(γ*ones(nPt))
+                    # Pre-conditionning (~Jacobi)
+                    Jpv_t  = Jpv  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfv  
+                    Jpp_t  = Jpp  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfp  #.+ Γ
+                    Jvv_t  = Kvv  - Jvp *spdiagm(1 ./ diag(Jpp_t))*Jpv 
+                    Jpf_h  = cholesky(Hermitian(SparseMatrixCSC(Jpf)), check = false  )        # Cholesky factors
+                    Jvv_th = cholesky(Hermitian(SparseMatrixCSC(Jvv_t)), check = false)        # Cholesky factors
+                    Jpp_th = spdiagm(1 ./diag(Jpp_t));             # trivial inverse
+                    nrvs0, nrpt0, nrpf0 = 1.0, 1.0, 1.0
+                    @views for itPH=1:30
+                        rvs   .= -( Jvv*dv  + Jvp*dpt             - fv  )
+                        rpt   .= -( Jpv*dv  + Jpp*dpt  + Jppf*dpf - fpt )
+                        rpf   .= -( Jpfv*dv + Jpfp*dpt + Jpf*dpf  - fpf )
+                        nrvs = norm(rvs)/length(rvs); nrpt = norm(rpt)/length(rpt);  nrpf = norm(rpf)/length(rpf)
+                        if (itPH == 1) nrvs0, nrpt0, nrpf0 = nrvs, nrpt, nrpf end
+                        @printf("  --- iteration %d --- \n",itPH);
+                        @printf("  abs. rvs = %2.2e --- rel. rvs = %2.2e\n", nrvs, nrvs/nrvs0)
+                        @printf("  abs. rpt = %2.2e --- rel. rpt = %2.2e\n", nrpt, nrpt/nrpt0)
+                        @printf("  abs. rpf = %2.2e --- rel. rpf = %2.2e\n", nrpf, nrpf/nrpf0)
+                        s     .= Jpf_h \ rpf
+                        rpt_t .= -( Jppf*s - rpt)
+                        s     .=    Jpp_th*rpt_t
+                        rvs_t .= -( Jvp*s  - rvs )
+                        ddv   .= Jvv_th \ rvs_t
+                        s     .= -( Jpv_t*ddv - rpt_t )
+                        ddpt  .=    Jpp_th*s
+                        s     .= -( Jpfp*ddpt + Jpfv*ddv - rpf )
+                        ddpf  .= Jpf_h \ s
+                        dv   .+= ddv
+                        dpt  .+= ddpt
+                        dpf  .+= ddpf
+                        # if ((norm(rvs)/length(rvs)) < tol_linv) && ((norm(rpt)/length(rpt)) < tol_linpt) && ((norm(rpf)/length(rpf)) < tol_linpf), break; end
+                        # if ((norm(rvs)/length(rvs)) > (norm(rv0)/length(rv0)) && norm(rvs)/length(rvs) < tol_glob && (norm(rpt)/length(rpt)) > (norm(rpt0)/length(rpt0)) && norm(rpt)/length(rpt) < tol_glob && (norm(rpf)/length(rpf)) > (norm(rpf0)/length(rpf0)) && norm(rpf)/length(rpf) < tol_glob),
+                        #     if noisy>=1, fprintf(' > Linear residuals do no converge further:\n'); break; end
+                        # end
+                        # rv0=rvs; rpt0=rpt; rpf0=rpf; if (itPH==nPH), nfail=nfail+1; end
+                    end
+                end
                 
-            #     dx = zeros(nVx + nVy + nPt + nPf)
-            #     dx[1:(nVx+nVy)] .= dv
-            #     dx[(nVx+nVy+1):(nVx+nVy+nPt)] .= dpt
-            #     dx[(nVx+nVy+nPt+1):end] .= dpf
-            # end
+                dx = zeros(nVx + nVy + nPt + nPf)
+                dx[1:(nVx+nVy)] .= dv
+                dx[(nVx+nVy+1):(nVx+nVy+nPt)] .= dpt
+                dx[(nVx+nVy+nPt+1):end] .= dpf
+            end
 
-            # #--------------------------------------------#
-            # UpdateSolution!(V, P, dx, number, type, nc)
+            #--------------------------------------------#
+            UpdateSolution!(V, P, dx, number, type, nc)
 
         end
 
@@ -486,8 +489,8 @@ function Run()
 
     nc = (x=300, y=300)
 
-    # nc = (x=200, y=200)
-    nc = (x=50, y=50)
+    nc = (x=300, y=300)
+    # nc = (x=50, y=50)
 
     # Mode 0   
     # Ωl = 10^(-1.7) # ---> δ/r
