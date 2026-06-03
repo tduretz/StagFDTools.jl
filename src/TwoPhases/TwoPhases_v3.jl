@@ -312,9 +312,7 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
         dΦdt    = zeros(Φ0)
         Φ, dΦdt
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt
+        Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
     end
 
     # # if Φ[1]<0 || Φ[2] <0 ||  Φ[3] <0
@@ -388,6 +386,22 @@ function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials,
     end
     return fp
 end
+
+
+@generated function compute_Φ_and_dΦdt(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt) where {M,T,N}
+    quote
+       Base.@nexprs $N i -> begin
+            @inline 
+            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], 0., 0., Δt)
+            Φ_i = out[1]
+            dΦdt_i = out[2]
+       end
+       
+    #    SMatrix{M,M,T,N}((Base.@ncall $N tuple Φ)...), SMatrix{M,M,T,N}((Base.@ncall $N tuple dΦdt)...)
+       SMatrix{M,M}((Base.@ncall $N tuple Φ)...), SMatrix{M,M}((Base.@ncall $N tuple dΦdt)...)
+    end
+end
+
 
 function ResidualMomentum2D_x!(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
     
