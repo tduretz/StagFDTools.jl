@@ -285,16 +285,21 @@ end
             #--------------------------------------------#
             # Assemble global Jacobian
             @info "Assembly, ndof  = $(nVx + nVy + nPt + nPf)"
+            @info "Assemble Jacobian"
             @time AssembleMomentum2D_x!(     M, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
             @time AssembleMomentum2D_y!(     M, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
             @time AssembleContinuity2D!(     M, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
             @time AssembleFluidContinuity2D!(M, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
 
             # Assemble preconditionner
+            @info "Assemble PC"
             @time AssembleMomentum2D_x!(     M_PC, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
             @time AssembleMomentum2D_y!(     M_PC, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
             @time AssembleContinuity2D!(     M_PC, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
             @time AssembleFluidContinuity2D!(M_PC, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+
+            @info "empty"
+            @time AssembleFluidContinuity2D_test!(M_PC, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
 
             @info "Solver"
             # Prepare work space (symbolic factorization)
