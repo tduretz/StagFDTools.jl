@@ -236,16 +236,19 @@ function Continuity(Vx, Vy, Pt_loc, Pf_loc, old, rheo, materials, type, bcv, Δ;
     dPtdt = @. (Pt - Pt0) / Δt
     dPfdt = @. (Pf - Pf0) / Δt
     
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!
-    Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase
-        Φ       = Φ0
-        dΦdt    = zeros(Φ)
-        Φ, dΦdt 
-    else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt 
-    end
+    # # !!!!!!!!!!!!!!!!!!!!!!!!!!
+    # Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase
+    #     Φ       = Φ0
+    #     dΦdt    = zeros(Φ)
+    #     Φ, dΦdt 
+    # else
+    #     Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
+    #     dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
+    #     Φ, dΦdt 
+    # end
+
+    Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+
 
     dPsdt   = @. dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
     dlnρsdt = @. 1/Ks * ( dPsdt )
