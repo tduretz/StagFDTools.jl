@@ -105,11 +105,11 @@ function LocalRheology(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, phases
     # Parameters
     ϵ    = 1e-10 # tolerance
     n    = materials.n[phases]
-    η0   = materials.ηs0[phases]
+    η0   = materials.η0[phases]
     # B    = materials.B[phases]
     G    = materials.G[phases]
     C    = materials.C[phases]
-    ηΦ   = materials.ηΦ0[phases]
+    ηΦ   = materials.ξ0[phases]
     KΦ   = materials.KΦ[phases]
     Ks   = materials.Ks[phases]
     Kf   = materials.Kf[phases]
@@ -261,11 +261,11 @@ function LocalRheology_div(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, ph
     # Parameters
     ϵ    = 1e-10 # tolerance
     n    = materials.n[phases]
-    η0   = materials.ηs0[phases]
+    η0   = materials.η0[phases]
     # B    = materials.B[phases]
     G    = materials.G[phases]
     C    = materials.C[phases]
-    ηΦ   = materials.ηΦ0[phases]
+    ηΦ   = materials.ξ0[phases]
     KΦ   = materials.KΦ[phases]
     Ks   = materials.Ks[phases]
     Kf   = materials.Kf[phases]
@@ -422,7 +422,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
         KΦ      = materials.KΦ[phases.c[i,j]]
         Ks      = materials.Ks[phases.c[i,j]]
         Kf      = materials.Kf[phases.c[i,j]]
-        ηΦ      = materials.ηΦ0[phases.c[i,j]]
+        ηΦ      = materials.ξ0[phases.c[i,j]]
         x = @SVector[Dkk[1], divqD]
         Jp = ad_jacobian(Pressures, x, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], KΦ, Ks, Kf, ηΦ, Δ.t)
 
@@ -542,7 +542,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
         KΦ      = materials.KΦ[phases.v[i,j]]
         Ks      = materials.Ks[phases.v[i,j]]
         Kf      = materials.Kf[phases.v[i,j]]
-        ηΦ      = materials.ηΦ0[phases.v[i,j]]
+        ηΦ      = materials.ξ0[phases.v[i,j]]
         x = @SVector[D̄kk[1], divqD̄]
         Jp = ad_jacobian(Pressures, x, P̄t0[1], P̄f0[1], ϕ̄0[1], KΦ, Ks, Kf, ηΦ, Δ.t)
 

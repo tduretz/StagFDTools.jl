@@ -64,14 +64,14 @@ end
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false, 
+        linearizeΦ   = false, 
         single_phase = false,
         conservative = true,
         n     = [1.0  1.0],
         m     = [0.0  0.0],
         n_CK  = [n_CK n_CK],
-        ηs0   = [ηsi  ηs_inc], 
-        ηΦ0   = [ηbi  ηbi],
+        η0   = [ηsi  ηs_inc], 
+        ξ0   = [ηbi  ηbi],
         G     = [1e30 1e30], 
         ρs    = [1.0  1.0 ],
         ρf    = [1.0  1.0 ],
@@ -90,7 +90,7 @@ end
     )
 
     k_ηf0 = materials.k_ηf0[1]
-    lc = sqrt((k_ηf0) * (materials.ηΦ0[1] + 4/3*materials.ηs0[1])) 
+    lc = sqrt((k_ηf0) * (materials.ξ0[1] + 4/3*materials.η0[1])) 
 
     # @show k_ηf0, lc
 

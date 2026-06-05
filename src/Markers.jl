@@ -163,3 +163,97 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
     end
     return nothing
 end
+
+function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+    nxc, nyc = size(G.c)
+
+    # Centroid arrays
+    @inbounds for j in 1:nyc, i in 1:nxc
+        if 1 <= i <= nc.x + 2 && 1 <= j <= nc.y + 2
+            Ksc    = 0.0
+            KΦc    = 0.0
+            Kfc    = 0.0
+            Gc     = 0.0
+            ξc     = 0.0
+            mc     = 0.0 
+            ρsic   = 0.0
+            ρfic   = 0.0
+            k_ηf0c = 0.0
+            n_CKc  = 0.0
+            pr     = phase_ratios.c[i, j]
+            for p = 1:nphases
+                r = pr[p]
+                Ksc    += r * materials.Ks[p]
+                KΦc    += r * materials.KΦ[p]
+                Kfc    += r * materials.Kf[p]
+                Gc     += r * materials.G[p]
+                ξc     += r * materials.ξ0[p]
+                mc     += r * materials.m[p]
+                ρsic   += r * materials.ρs[p]
+                ρfic   += r * materials.ρf[p]
+                k_ηf0c += r * materials.k_ηf0[p]
+                n_CKc  += r * materials.n_CK[p]
+            end
+            Ks.c[i, j]   = Ksc
+            KΦ.c[i, j]   = KΦc
+            Kf.c[i, j]   = Kfc
+            G.c[i, j]    = Gc
+            ξ.c[i, j]    = ξc
+            m.c[i, j]    = mc
+            ρsi.c[i, j]  = ρsic
+            ρfi.c[i, j]  = ρfic
+            k_ηf0.c[i,j] = k_ηf0c
+            n_CK.c[i,j]  = n_CKc
+        end
+    end
+
+    @inbounds for j in 1:nyc
+        G.c[1, j]    = G.c[2, j]
+        G.c[nxc, j]  = G.c[nxc-1, j]
+        Ks.c[1, j]   = Ks.c[2, j]
+        Ks.c[nxc, j] = Ks.c[nxc-1, j]
+        KΦ.c[1, j]   = KΦ.c[2, j]
+        KΦ.c[nxc, j] = KΦ.c[nxc-1, j]
+        Kf.c[1, j]   = Kf.c[2, j]
+        Kf.c[nxc, j] = Kf.c[nxc-1, j]
+        ξ.c[1, j]    = ξ.c[2, j]
+        ξ.c[nxc, j]  = ξ.c[nxc-1, j]
+    end
+    @inbounds for i in 1:nxc
+        G.c[i, 1]    = G.c[i, 2]
+        G.c[i, nyc]  = G.c[i, nyc-1]
+        Ks.c[i, 1]   = Ks.c[i, 2]
+        Ks.c[i, nyc] = Ks.c[i, nyc-1]
+        KΦ.c[i, 1]   = KΦ.c[i, 2]
+        KΦ.c[i, nyc] = KΦ.c[i, nyc-1]
+        Kf.c[i, 1]   = Kf.c[i, 2]
+        Kf.c[i, nyc] = Kf.c[i, nyc-1]
+        ξ.c[i, 1]    = ξ.c[i, 2]
+        ξ.c[i, nyc]  = ξ.c[i, nyc-1]
+    end
+
+    # Vertex arrays
+    nxv, nyv = size(G.v)
+    @inbounds for j in 1:nyv, i in 1:nxv
+        if 1 < i < nc.x + 3 && 1 < j < nc.y + 3
+            Gv = 0.0
+            pr = phase_ratios.v[i, j]
+            for p = 1:nphases
+                Gv += pr[p] * materials.G[p]
+            end
+            G.v[i, j] = Gv
+        else
+            G.v[i, j] = 0.0
+        end
+    end
+
+    @inbounds for j in 1:nyv
+        G.v[1, j] = G.v[2, j]
+        G.v[nxv, j] = G.v[nxv-1, j]
+    end
+    @inbounds for i in 1:nxv
+        G.v[i, 1] = G.v[i, 2]
+        G.v[i, nyv] = G.v[i, nyv-1]
+    end
+    return nothing
+end

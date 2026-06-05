@@ -37,15 +37,15 @@ end
 @views function main(nc, Ωl, Ωη)
 
     # Independant
-    ηs0    = 1e0              # Shear viscosity
+    η0    = 1e0              # Shear viscosity
     ηsi    = 1.0       # Inclusion shear viscosity
     len    = 10.              # Box size
     ϕ0     = 1e-3
     # Dependant
     ν        = 0.25
-    @show ηb0      = 3*ηs0*(1-2ν)/(2*(1+ν)*(1-2ν))
+    @show ηb0      = 3*η0*(1-2ν)/(2*(1+ν)*(1-2ν))
 
-    @show ηb0      = 40*ηs0       # Bulk viscosity
+    @show ηb0      = 40*η0       # Bulk viscosity
     ηΦi      = ηb0*20000
     ηΦo      = ηb0/20000
     k_ηf0    = 1e0 # Permeability / fluid viscosity
@@ -82,7 +82,7 @@ end
     Δ   = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
     R   = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...))
     V   = (x=zeros(size_x...), y=zeros(size_y...))
-    η   = (x= ηs0.*ones(size_x...), y= ηs0.*ones(size_y...), p = ηs0.*ones(size_c...) )
+    η   = (x= η0.*ones(size_x...), y= η0.*ones(size_y...), p = η0.*ones(size_c...) )
     ϕ   = ϕ0.*ones(size_c...) 
     ηΦ  = ηb0./(1. .-ϕ ).*ones(size_c...) 
     KΦ  = KΦ0.*ones(size_c...) 

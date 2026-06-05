@@ -47,14 +47,14 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false, 
+        linearizeΦ   = false, 
         single_phase = false,
         conservative = false,
         n     = [1.0  1.0],
         m     = [0.0  0.0],
         n_CK  = [n_CK n_CK],
-        ηs0   = [ηsi  ηs_inc], 
-        ηΦ0   = [ηbi  ηbi],       # done not clear
+        η0   = [ηsi  ηs_inc], 
+        ξ0   = [ηbi  ηbi],       # done not clear
         G     = [1e0 1e0] * 2000 * make_elastic * fact,  # done
         ρs    = [1.0  1.0 ],
         ρf    = [1.0  1.0 ],
@@ -78,7 +78,7 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
 
     Φ0 =    Φi  
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ηΦ0[1])
+    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0

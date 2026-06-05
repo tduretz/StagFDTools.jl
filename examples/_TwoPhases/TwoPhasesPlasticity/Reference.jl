@@ -33,14 +33,14 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false,              # !!!!!!!!!!!
+        linearizeΦ   = false,              # !!!!!!!!!!!
         single_phase = false,
         conservative = false,
         n     = [1.0    1.0  ],
         m     = [0.0    0.0  ],
         n_CK  = [1.0    1.0   1.0  ],
-        ηs0   = [1e22   1e19 ]/sc.σ/sc.t, 
-        ηΦ0   = [2e22   2e22 ]/sc.σ/sc.t,
+        η0   = [1e22   1e19 ]/sc.σ/sc.t, 
+        ξ0   = [2e22   2e22 ]/sc.σ/sc.t,
         G     = [3e10   3e10 ]./sc.σ, 
         ρs    = [2800   2800 ]/(sc.σ*sc.t^2/sc.L^2),
         ρf    = [1000   1000 ]/(sc.σ*sc.t^2/sc.L^2),
@@ -64,7 +64,7 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
 
     Φ0      = 0.05
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ηΦ0[1])
+    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0
@@ -402,7 +402,7 @@ import Statistics:mean
         # # Post process 
         # @time for i in eachindex(Φ.c)
         #     KΦ     = materials.KΦ[phases.c[i]]
-        #     ηΦ     = materials.ηΦ0[phases.c[i]] 
+        #     ηΦ     = materials.ξ0[phases.c[i]] 
         #     sinψ   = materials.sinψ[phases.c[i]] 
         #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t
         #     dPfdt  = (P.f[i] - P0.f[i]) / Δ.t

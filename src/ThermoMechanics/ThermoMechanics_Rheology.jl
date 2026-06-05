@@ -8,7 +8,7 @@ function LocalRheology(ε̇, materials, phases, Δ)
     # Parameters
     ϵ    = 1e-10 # tolerance
     n    = materials.n[phases]
-    η0   = materials.ηs0[phases]
+    η0   = materials.η0[phases]
     # B    = materials.B[phases]
     G    = materials.G[phases]
     # C    = materials.C[phases]

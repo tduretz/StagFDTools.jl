@@ -43,7 +43,7 @@ using DifferentiationInterface
     materials = ( 
         g     = [0.0 0.0] / (sc.L/sc.t^2),
         oneway       = true, # !!!!!!!!!!! For Rozhko test !!!!!!!!!!!
-        linearizeϕ   = true, # !!!!!!!!!!! For Rozhko test !!!!!!!!!!!
+        linearizeΦ   = true, # !!!!!!!!!!! For Rozhko test !!!!!!!!!!!
         compressible = true,
         plasticity   = :off,
         single_phase = false,
@@ -53,8 +53,8 @@ using DifferentiationInterface
         n     = [1.0    1.0   1.0 ],
         m     = [0.0    0.0   0.0 ],
         n_CK  = [1.0    1.0   1.0 ],
-        ηs0   = [1e40  1e40*1e-6  1e40*1e-6]./sc.σ/sc.t, 
-        ηΦ0   = [1e40  1e40*1e6   1e40*1e-6]./sc.σ/sc.t,
+        η0   = [1e40  1e40*1e-6  1e40*1e-6]./sc.σ/sc.t, 
+        ξ0   = [1e40  1e40*1e6   1e40*1e-6]./sc.σ/sc.t,
         G     = [G_anal  1e-10 1e-10 ] .* kill_elasticity ./sc.σ, 
         ρs    = [2900   2900  2900]/(sc.σ*sc.t^2/sc.L^2),
         ρf    = [2600   2600  2600]/(sc.σ*sc.t^2/sc.L^2),

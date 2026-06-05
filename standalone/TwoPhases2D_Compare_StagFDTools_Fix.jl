@@ -25,16 +25,16 @@ Dat = Float64  # Precision (double=Float64 or single=Float32)
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1e0             # Ratio (ε̇bg * ηs) / P0
     # Independant
-    ηs0    = 1.              # Shear viscosity
+    η0    = 1.              # Shear viscosity
     r      = 0.1             # Box size
     τi     = 1.              # Initial ambiant pressure
     ϕi     = 1e-2
     # Dependant
-    ηb0    = Ωη * ηs0       # Bulk viscosity
-    k_ηf0  = (r.^2 * Ωl^2) / (ηb0 + 4/3 * ηs0) # Permeability / fluid viscosity
+    ηb0    = Ωη * η0       # Bulk viscosity
+    k_ηf0  = (r.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     len    = r / Ωr          # Inclusion radius
-    ηs_inc = 1 ./ Ωηi * ηs0  # Inclusion shear viscosity
-    εbg    = Ωp * τi / ηs0   #
+    ηs_inc = 1 ./ Ωηi * η0  # Inclusion shear viscosity
+    εbg    = Ωp * τi / η0   #
     # Physics
     Lx, Ly = len, len          # domain size
     radi   = 0.1               # inclusion radius
@@ -119,10 +119,10 @@ Dat = Float64  # Precision (double=Float64 or single=Float32)
     dtPf    = zeros(Dat, nx  ,ny  )
     dtVx    = zeros(Dat, nx-1,ny  )
     dtVy    = zeros(Dat, nx  ,ny-1)
-    ηc_v    =   ηs0*ones(Dat, nx, ny)
-    ηv_v    =   ηs0*ones(Dat, nx+1, ny+1)
-    ηc_ve   =   ηs0*ones(Dat, nx, ny)
-    ηv_ve   =   ηs0*ones(Dat, nx+1, ny+1)
+    ηc_v    =   η0*ones(Dat, nx, ny)
+    ηv_v    =   η0*ones(Dat, nx+1, ny+1)
+    ηc_ve   =   η0*ones(Dat, nx, ny)
+    ηv_ve   =   η0*ones(Dat, nx+1, ny+1)
     # Initial condition
     xc, yc    = LinRange(-Lx/2+dx/2, Lx/2-dx/2, nx), LinRange(-Ly/2+dy/2, Ly/2-dy/2, ny)
     xv, yv    = LinRange(-Lx/2, Lx/2, nx+1), LinRange(-Ly/2, Ly/2, ny+1)

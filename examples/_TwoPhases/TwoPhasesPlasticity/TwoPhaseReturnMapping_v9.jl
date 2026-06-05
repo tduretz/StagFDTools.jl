@@ -19,8 +19,8 @@ bulk_viscosity(ϕ, η0, m) = η0*abs(ϕ)^m
 
 # The porosity rate is non-linear because bulk parameters (ηΦ) is a function of Φ
 function PorosityRate(Φ, Pt, Pf, λ̇, Pt0, Pf0, p)
-    KΦ, ηΦ0, m, sinψ, Δt  = p.KΦ, p.ηΦ, p.m, p.sinψ, p.Δt
-    ηΦ      = bulk_viscosity(Φ, ηΦ0, m)
+    KΦ, ξ0, m, sinψ, Δt  = p.KΦ, p.ηΦ, p.m, p.sinψ, p.Δt
+    ηΦ      = bulk_viscosity(Φ, ξ0, m)
     dPtdt   = (Pt - Pt0) / Δt
     dPfdt   = (Pf - Pf0) / Δt
     dΦdt    = ((dPfdt - dPtdt)/KΦ + (Pf - Pt)/ηΦ + λ̇*sinψ) * 1

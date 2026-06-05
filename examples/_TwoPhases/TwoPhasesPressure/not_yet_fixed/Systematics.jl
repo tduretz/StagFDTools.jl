@@ -8,16 +8,16 @@ using DifferentiationInterface
     Ωηi    = 1e-4            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
     # Independant
-    ηs0    = 1.              # Shear viscosity
+    η0    = 1.              # Shear viscosity
     len    = 1.              # Box size
     P0     = 1.              # Initial ambiant pressure
     ϕ0     = 1e-1
     # Dependant
-    ηb0    = Ωη * ηs0        # Bulk viscosity
-    k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * ηs0) # Permeability / fluid viscosity
+    ηb0    = Ωη * η0        # Bulk viscosity
+    k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     r      = Ωr * len        # Inclusion radius
-    ηs_inc = Ωηi * ηs0       # Inclusion shear viscosity
-    ε̇      = Ωp * P0 / ηs0   # Background strain rate
+    ηs_inc = Ωηi * η0       # Inclusion shear viscosity
+    ε̇      = Ωp * P0 / η0   # Background strain rate
 
     # Velocity gradient matrix
     D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
@@ -88,7 +88,7 @@ using DifferentiationInterface
     Δ   = (x=L.x/nc.x, y=L.y/nc.y)
     R   = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...))
     V   = (x=zeros(size_x...), y=zeros(size_y...))
-    η   = (x= ηs0.*ones(size_x...), y= ηs0.*ones(size_y...), p = ηs0.*ones(size_c...) )
+    η   = (x= η0.*ones(size_x...), y= η0.*ones(size_y...), p = η0.*ones(size_c...) )
     ϕ   = ϕ0.*ones(size_c...) 
     ηΦ  = ηb0./(1. .-ϕ ).*ones(size_c...) 
     kμf = (x= k_ηf0.*ones(size_x...), y= k_ηf0.*ones(size_y...))

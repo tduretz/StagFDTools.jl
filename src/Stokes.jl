@@ -387,23 +387,22 @@ function ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, G, materials, number
     Threads.@threads for j in 1+shift.y:nc.y+shift.y
         for i in 1+shift.x:nc.x+shift.x+1
             if type.Vx[i, j] == :in
-                Vx_loc = SMatrix{3,3}(V.x[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
-                Vy_loc = SMatrix{4,4}(V.y[ii, jj] for ii in i-1:i+2, jj in j-2:j+1)
-                bcx_loc = SMatrix{3,3}(BC.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
-                bcy_loc = SMatrix{4,4}(BC.Vy[ii, jj] for ii in i-1:i+2, jj in j-2:j+1)
+                Vx_loc    = SMatrix{3,3}(V.x[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
+                Vy_loc    = SMatrix{4,4}(V.y[ii, jj] for ii in i-1:i+2, jj in j-2:j+1)
+                bcx_loc   = SMatrix{3,3}(BC.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
+                bcy_loc   = SMatrix{4,4}(BC.Vy[ii, jj] for ii in i-1:i+2, jj in j-2:j+1)
                 typex_loc = SMatrix{3,3}(type.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
                 typey_loc = SMatrix{4,4}(type.Vy[ii, jj] for ii in i-1:i+2, jj in j-2:j+1)
                 typep_loc = SMatrix{2,1}(type.Pt[ii, jj] for ii in i-1:i-0, jj in j-1:j-1)
-                P_loc = SMatrix{2,3}(P[ii, jj] for ii in i-1:i, jj in j-2:j)
-                ΔP_loc = SMatrix{2,1}(ΔP.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
-                τxx0 = SMatrix{2,3}(τ0.xx[ii, jj] for ii in i-1:i, jj in j-2:j)
-                τyy0 = SMatrix{2,3}(τ0.yy[ii, jj] for ii in i-1:i, jj in j-2:j)
-                τxy0 = SMatrix{3,2}(τ0.xy[ii, jj] for ii in i-1:i+1, jj in j-1:j)
-                Gc_loc = SMatrix{2,1}(G.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
-                Gv_loc = SMatrix{1,2}(G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
-
-                Dc = SMatrix{2,1}(𝐷.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
-                Dv = SMatrix{1,2}(𝐷.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
+                P_loc     = SMatrix{2,3}(P[ii, jj] for ii in i-1:i, jj in j-2:j)
+                ΔP_loc    = SMatrix{2,1}(ΔP.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
+                τxx0      = SMatrix{2,3}(τ0.xx[ii, jj] for ii in i-1:i, jj in j-2:j)
+                τyy0      = SMatrix{2,3}(τ0.yy[ii, jj] for ii in i-1:i, jj in j-2:j)
+                τxy0      = SMatrix{3,2}(τ0.xy[ii, jj] for ii in i-1:i+1, jj in j-1:j)
+                Gc_loc    = SMatrix{2,1}(G.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
+                Gv_loc    = SMatrix{1,2}(G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
+                Dc        = SMatrix{2,1}(𝐷.c[ii, jj] for ii in i-1:i, jj in j-1:j-1)
+                Dv        = SMatrix{1,2}(𝐷.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
                 bcv_loc = (x=bcx_loc, y=bcy_loc)
                 type_loc = (x=typex_loc, y=typey_loc, p=typep_loc)
                 D = (c=Dc, v=Dv)
@@ -486,27 +485,24 @@ function ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, 𝐷, G, ρ, materials, nu
     Threads.@threads for j in 1+shift.y:nc.y+shift.y+1
         for i in 1+shift.x:nc.x+shift.x
             if type.Vy[i, j] == :in
-                Vx_loc = SMatrix{4,4}(V.x[ii, jj] for ii in i-2:i+1, jj in j-1:j+2)
-                Vy_loc = SMatrix{3,3}(V.y[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
-                bcx_loc = SMatrix{4,4}(BC.Vx[ii, jj] for ii in i-2:i+1, jj in j-1:j+2)
-                bcy_loc = SMatrix{3,3}(BC.Vy[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
+                Vx_loc    = SMatrix{4,4}(V.x[ii, jj] for ii in i-2:i+1, jj in j-1:j+2)
+                Vy_loc    = SMatrix{3,3}(V.y[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
+                bcx_loc   = SMatrix{4,4}(BC.Vx[ii, jj] for ii in i-2:i+1, jj in j-1:j+2)
+                bcy_loc   = SMatrix{3,3}(BC.Vy[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
                 typex_loc = SMatrix{4,4}(type.Vx[ii, jj] for ii in i-2:i+1, jj in j-1:j+2)
                 typey_loc = SMatrix{3,3}(type.Vy[ii, jj] for ii in i-1:i+1, jj in j-1:j+1)
-                # phc_loc    = SMatrix{1,2}( phases.c[ii,jj] for ii in i-1:i-1, jj in j-1:j  )
-                # phv_loc    = SMatrix{2,1}( phases.v[ii,jj] for ii in i-1:i-0, jj in j-0:j-0) 
-                P_loc = SMatrix{3,2}(P[ii, jj] for ii in i-2:i, jj in j-1:j)
-                ΔP_loc = SMatrix{1,2}(ΔP.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
-                Gc_loc = SMatrix{1,2}(G.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
-                Gv_loc = SMatrix{2,1}(G.v[ii, jj] for ii in i-1:i-0, jj in j-0:j-0)
-                ρ_loc = SMatrix{1,2}(ρ.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
-                τxx0 = SMatrix{3,2}(τ0.xx[ii, jj] for ii in i-2:i, jj in j-1:j)
-                τyy0 = SMatrix{3,2}(τ0.yy[ii, jj] for ii in i-2:i, jj in j-1:j)
-                τxy0 = SMatrix{2,3}(τ0.xy[ii, jj] for ii in i-1:i, jj in j-1:j+1)
-                Dc = SMatrix{1,2}(𝐷.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
-                Dv = SMatrix{2,1}(𝐷.v[ii, jj] for ii in i-1:i-0, jj in j-0:j-0)
+                P_loc     = SMatrix{3,2}(P[ii, jj] for ii in i-2:i, jj in j-1:j)
+                ΔP_loc    = SMatrix{1,2}(ΔP.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
+                Gc_loc    = SMatrix{1,2}(G.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
+                Gv_loc    = SMatrix{2,1}(G.v[ii, jj] for ii in i-1:i-0, jj in j-0:j-0)
+                ρ_loc     = SMatrix{1,2}(ρ.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
+                τxx0      = SMatrix{3,2}(τ0.xx[ii, jj] for ii in i-2:i, jj in j-1:j)
+                τyy0      = SMatrix{3,2}(τ0.yy[ii, jj] for ii in i-2:i, jj in j-1:j)
+                τxy0      = SMatrix{2,3}(τ0.xy[ii, jj] for ii in i-1:i, jj in j-1:j+1)
+                Dc        = SMatrix{1,2}(𝐷.c[ii, jj] for ii in i-1:i-1, jj in j-1:j)
+                Dv        = SMatrix{2,1}(𝐷.v[ii, jj] for ii in i-1:i-0, jj in j-0:j-0)
                 bcv_loc = (x=bcx_loc, y=bcy_loc)
                 type_loc = (x=typex_loc, y=typey_loc)
-                # ph_loc     = (c=phc_loc, v=phv_loc)
                 G_loc = (c=Gc_loc, v=Gv_loc)
                 D = (c=Dc, v=Dv)
                 τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
@@ -997,13 +993,13 @@ end
             if (i == 1 && j == 1) || (i == size(ε̇.xx, 1) && j == 1) || (i == 1 && j == size(ε̇.xx, 2)) || (i == size(ε̇.xx, 1) && j == size(ε̇.xx, 2))
                 # Avoid the outer corners - nothing is well defined there ;)
             else
-                Vx = SMatrix{2,3}(V.x[ii, jj] for ii in i:i+1, jj in j:j+2)
-                Vy = SMatrix{3,2}(V.y[ii, jj] for ii in i:i+2, jj in j:j+1)
-                bcx = SMatrix{2,3}(BC.Vx[ii, jj] for ii in i:i+1, jj in j:j+2)
-                bcy = SMatrix{3,2}(BC.Vy[ii, jj] for ii in i:i+2, jj in j:j+1)
+                Vx    = SMatrix{2,3}(    V.x[ii, jj] for ii in i:i+1, jj in j:j+2)
+                Vy    = SMatrix{3,2}(    V.y[ii, jj] for ii in i:i+2, jj in j:j+1)
+                bcx   = SMatrix{2,3}(  BC.Vx[ii, jj] for ii in i:i+1, jj in j:j+2)
+                bcy   = SMatrix{3,2}(  BC.Vy[ii, jj] for ii in i:i+2, jj in j:j+1)
                 typex = SMatrix{2,3}(type.Vx[ii, jj] for ii in i:i+1, jj in j:j+2)
                 typey = SMatrix{3,2}(type.Vy[ii, jj] for ii in i:i+2, jj in j:j+1)
-                τxy0 = SMatrix{2,2}(τ0.xy[ii, jj] for ii in i:i+1, jj in j:j+1)
+                τxy0  = SMatrix{2,2}(  τ0.xy[ii, jj] for ii in i:i+1, jj in j:j+1)
 
                 # Apply BC's
                 Vx = SetBCVx1(Vx, typex, bcx, Δ)
@@ -1084,16 +1080,16 @@ end
     # Loop over vertices
     Threads.@threads for j = 1+s:size(ε̇.xy, 2)-s
         for i = 1+s:size(ε̇.xy, 1)-s
-            Vx = SMatrix{3,2}(V.x[ii, jj] for ii in i-1:i+1, jj in j:j+1)
-            Vy = SMatrix{2,3}(V.y[ii, jj] for ii in i:i+1, jj in j-1:j+1)
-            bcx = SMatrix{3,2}(BC.Vx[ii, jj] for ii in i-1:i+1, jj in j:j+1)
-            bcy = SMatrix{2,3}(BC.Vy[ii, jj] for ii in i:i+1, jj in j-1:j+1)
+            Vx    = SMatrix{3,2}(    V.x[ii, jj] for ii in i-1:i+1, jj in j:j+1)
+            Vy    = SMatrix{2,3}(    V.y[ii, jj] for ii in i:i+1, jj in j-1:j+1)
+            bcx   = SMatrix{3,2}(  BC.Vx[ii, jj] for ii in i-1:i+1, jj in j:j+1)
+            bcy   = SMatrix{2,3}(  BC.Vy[ii, jj] for ii in i:i+1, jj in j-1:j+1)
             typex = SMatrix{3,2}(type.Vx[ii, jj] for ii in i-1:i+1, jj in j:j+1)
             typey = SMatrix{2,3}(type.Vy[ii, jj] for ii in i:i+1, jj in j-1:j+1)
-            τxx0 = SMatrix{2,2}(τ0.xx[ii, jj] for ii in i-1:i, jj in j-1:j)
-            τyy0 = SMatrix{2,2}(τ0.yy[ii, jj] for ii in i-1:i, jj in j-1:j)
-            P = SMatrix{2,2}(Pt[ii, jj] for ii in i-1:i, jj in j-1:j)
-            P0 = SMatrix{2,2}(Pt0[ii, jj] for ii in i-1:i, jj in j-1:j)
+            τxx0  = SMatrix{2,2}(  τ0.xx[ii, jj] for ii in i-1:i, jj in j-1:j)
+            τyy0  = SMatrix{2,2}(  τ0.yy[ii, jj] for ii in i-1:i, jj in j-1:j)
+            P     = SMatrix{2,2}(     Pt[ii, jj] for ii in i-1:i, jj in j-1:j)
+            P0    = SMatrix{2,2}(    Pt0[ii, jj] for ii in i-1:i, jj in j-1:j)
 
             # Apply BC's
             Vx = SetBCVx1(Vx, typex, bcx, Δ)
@@ -1107,8 +1103,8 @@ end
             τ0xx = av(τxx0)[1]
             τ0yy = av(τyy0)[1]
             τ0xy = τ0.xy[i, j]
-            P̄ = av(P)[1]
-            P̄0 = av(P0)[1]
+            P̄    = av(P)[1]
+            P̄0   = av(P0)[1]
 
             # Velocity gradient - centroids
             Dxx = (∂x(V̄x)*invΔx)[1]
@@ -1125,8 +1121,8 @@ end
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.v[i, j], Δ)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.v[i, j], Δ)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac

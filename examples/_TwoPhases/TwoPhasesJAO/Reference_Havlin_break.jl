@@ -41,7 +41,7 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false,              # !!!!!!!!!!!
+        linearizeΦ   = false,              # !!!!!!!!!!!
         single_phase = false,
         conservative = false,
         #        mush
@@ -49,8 +49,8 @@ import Statistics:mean
         m     = [-1.0  ]  * 1.0,
         n     = [1.0   ],
         n_CK  = [2.7   ] .* 1.0,
-        ηs0   = [1e16  ]./sc.σ/sc.t, 
-        ηΦ0   = [1e16  ]./sc.σ/sc.t,
+        η0   = [1e16  ]./sc.σ/sc.t, 
+        ξ0   = [1e16  ]./sc.σ/sc.t,
         G     = [3e10  ] ./sc.σ .* kill_elasticity, 
         ρs    = [3200  ]/(sc.σ*sc.t^2/sc.L^2),
         ρf    = [3000  ]/(sc.σ*sc.t^2/sc.L^2),

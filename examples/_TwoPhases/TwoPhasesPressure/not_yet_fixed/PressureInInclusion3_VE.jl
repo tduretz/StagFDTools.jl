@@ -15,27 +15,27 @@ import Statistics:mean
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1e0              # Ratio (ε̇bg * ηs) / P0
     # Independant
-    ηs0    = 1.              # Shear viscosity
+    η0    = 1.              # Shear viscosity
     r      = 0.1             # Box size
     τi     = 1.              # Initial ambiant pressure
     ϕi     = 1e-2
     # Dependant
-    ηb0    = Ωη * ηs0       # Bulk viscosity
-    k_ηf0  = (r.^2 * Ωl^2) / (ηb0 + 4/3 * ηs0) # Permeability / fluid viscosity
+    ηb0    = Ωη * η0       # Bulk viscosity
+    k_ηf0  = (r.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     len    = r / Ωr          # Inclusion radius
-    ηs_inc = 1 ./ Ωηi * ηs0       # Inclusion shear viscosity
-    ∂v∂x   = Ωp * τi / ηs0   # Background strain rate
+    ηs_inc = 1 ./ Ωηi * η0       # Inclusion shear viscosity
+    ∂v∂x   = Ωp * τi / η0   # Background strain rate
 
-    # ηs0    = 1.              # Shear viscosity
+    # η0    = 1.              # Shear viscosity
     # len    = 1.              # Box size
     # P0     = 1.              # Initial ambiant pressure
     # ϕ0     = 1e-1
     # # Dependant
-    # ηb0    = Ωη * ηs0        # Bulk viscosity
-    # k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * ηs0) # Permeability / fluid viscosity
+    # ηb0    = Ωη * η0        # Bulk viscosity
+    # k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     # r    =  Ωr * len          # Inclusion radius
-    # ηs_inc = 1 ./ Ωηi * ηs0       # Inclusion shear viscosity
-    # ε̇      = Ωp * P0 / ηs0   # Background strain rate
+    # ηs_inc = 1 ./ Ωηi * η0       # Inclusion shear viscosity
+    # ε̇      = Ωp * P0 / η0   # Background strain rate
 
     # Velocity gradient matrix
     D_BC = @SMatrix( [∂v∂x 0; 0 -∂v∂x] )
@@ -46,7 +46,7 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         n     = [1.0  1.0],
-        ηs0   = [ηs0  ηs_inc], 
+        η0   = [η0  ηs_inc], 
         ηb    = [ηb0  ηb0 ]./(1-ϕi),
         G     = [1e-7 1e-7], 
         Kd    = [1e-6 1e-6],
@@ -60,7 +60,7 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         n     = [1.0  1.0],
-        ηs0   = [ηs0  ηs_inc], 
+        η0   = [η0  ηs_inc], 
         ηb    = [ηb0  ηb0 ]./(1-ϕi),
         G     = [1e30 1e30], 
         Kd    = [1e30 1e30],
@@ -72,13 +72,13 @@ import Statistics:mean
     end
 
     @show materials
-    @show materials.ηs0 ./ materials.G
+    @show materials.η0 ./ materials.G
     @show materials.ηb  ./ materials.G
-    @show materials.ηs0 ./ materials.Kd
+    @show materials.η0 ./ materials.Kd
     @show materials.ηb  ./ materials.Kd
-    @show materials.ηs0 ./ materials.KΦ
+    @show materials.η0 ./ materials.KΦ
     @show materials.ηb  ./ materials.KΦ
-    @show materials.ηs0 ./ materials.Kf
+    @show materials.η0 ./ materials.Kf
     @show materials.ηb  ./ materials.Kf
     @show r^2/k_ηf0/materials.Ks[1]
 

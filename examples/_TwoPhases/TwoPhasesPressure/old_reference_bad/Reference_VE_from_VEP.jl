@@ -33,12 +33,12 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false,              # !!!!!!!!!!!
+        linearizeΦ   = false,              # !!!!!!!!!!!
         single_phase = false,
         conservative = false,
         n     = [1.0    1.0  ],
         n_CK  = [1.0    1.0   1.0  ],
-        ηs0   = [1e22   1e19 ]/sc.σ/sc.t, 
+        η0   = [1e22   1e19 ]/sc.σ/sc.t, 
         ηΦ    = [2e22   2e22 ]/sc.σ/sc.t,
         G     = [3e10   3e10 ]./sc.σ, 
         ρs    = [2800   2800 ]/(sc.σ*sc.t^2/sc.L^2),
@@ -63,7 +63,7 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
 
     Φ0      = 0.01
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ηΦ0[1])
+    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0

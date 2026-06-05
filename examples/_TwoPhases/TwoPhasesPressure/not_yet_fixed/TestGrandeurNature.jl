@@ -11,7 +11,7 @@ import Statistics:mean
     # viscoelastic = false
    
     # Independant
-    ηs0    = 1.              # Shear viscosity
+    η0    = 1.              # Shear viscosity
     r      = 0.1e0             # Inclusion size
     ϕi     = 0.01
     # Dependant
@@ -26,7 +26,7 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         n     = [1.0  1.0],
-        ηs0   = [1e22  1e20], 
+        η0   = [1e22  1e20], 
         ηb    = [1e23  1e23 ]./(1-ϕi),
         G     = [3e10 3e10], 
         Kd    = [1e11 1e11],
@@ -38,13 +38,13 @@ import Statistics:mean
    
 
     @show materials
-    @show materials.ηs0 ./ materials.G
+    @show materials.η0 ./ materials.G
     @show materials.ηb  ./ materials.G
-    @show materials.ηs0 ./ materials.Kd
+    @show materials.η0 ./ materials.Kd
     @show materials.ηb  ./ materials.Kd
-    @show materials.ηs0 ./ materials.KΦ
+    @show materials.η0 ./ materials.KΦ
     @show materials.ηb  ./ materials.KΦ
-    @show materials.ηs0 ./ materials.Kf
+    @show materials.η0 ./ materials.Kf
     @show materials.ηb  ./ materials.Kf
     @show r^2/k_ηf0/materials.Ks[1]
 

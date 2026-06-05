@@ -12,7 +12,7 @@ function LocalRheology(ε̇, materials, phases, Δ)
     # Parameters
     ϵ    = 1e-10 # tolerance
     n    = materials.n[phases]
-    η0   = materials.ηs0[phases]
+    η0   = materials.η0[phases]
     # B    = materials.B[phases]
     G    = materials.G[phases]
     # C    = materials.C[phases]
@@ -245,7 +245,7 @@ end
         oneway       = true,
         compressible = true,
         n     = [1.0 1.0  1.0],
-        ηs0   = [1e0  1e0*1e-6  1e0*1e-6], 
+        η0   = [1e0  1e0*1e-6  1e0*1e-6], 
         ηb    = [K  K*1e6   K*1e-6]./(1-ϕ0),
         G     = [1e30 1e30 1e30], 
         Kd    = [1e30 1e30 1e30],

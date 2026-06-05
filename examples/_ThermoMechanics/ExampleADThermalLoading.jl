@@ -38,7 +38,7 @@ import Statistics:mean
         compressible = true,
         Dzz          = 0.0,
         n            = [1.0  1.0],
-        ηs0          = [ηi  ηinc], 
+        η0          = [ηi  ηinc], 
         G            = [Gi  Ginc], 
         K            = [Ki  Ki  ],
         α            = [αi  αi  ],

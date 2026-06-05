@@ -1,11 +1,5 @@
 module StagFDTools
 
-# abstract type AbstractYield end
-# struct DruckerPrager1 <: AbstractYield end
-# struct Hyperbolic     <: AbstractYield end
-# struct GolchinMCC     <: AbstractYield end
-# export DruckerPrager1, Hyperbolic, GolchinMCC
-
 using StaticArrays, ExtendableSparse, StaticArrays, Printf, LinearAlgebra
 using DifferentiationInterface, ForwardDiff
 
@@ -22,15 +16,15 @@ include("Utils.jl")
 export GenerateGrid, printxy, av2D, Plot_Tangent_Operator
 
 include("Solvers.jl")
-export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol
+export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt! 
 
 include("BCs.jl")
 export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
-export Materials, initialize_materials, preprocess!, preprocess
+export Materials, Materials_TwoPhases, preprocess!, preprocess
 export AbstractPlasticity, VonMises, DruckerPrager, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
-export initialize_materials
+export initialize_materials, initialize_materials_TwoPhases
 
 # module markers
 #     include("markers.jl")
@@ -105,6 +99,7 @@ export LineSearch!, BackTrackingLineSearch!
 export AssembleContinuity2D!, ResidualContinuity2D!, Continuity, ResidualPorosity2D!, UpdatePorosity2D!
 export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
 export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
+export reduce_sparse_matrix!, reset_parallel_storage
 # export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
 # export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
 # include("TwoPhases.jl")
@@ -120,6 +115,8 @@ include("TwoPhases/TwoPhases_Rheology_Trial_P.jl")
 export TangentOperator!, Porosity
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F
+include("Markers.jl")
+export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
 end
 
 module TwoPhases_v1

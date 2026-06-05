@@ -32,12 +32,12 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false, 
+        linearizeΦ   = false, 
         single_phase = false,
         conservative = true,
         n     = [1.0  1.0],
         n_CK  = [n_CK n_CK],
-        ηs0   = [ηsi  ηs_inc], 
+        η0   = [ηsi  ηs_inc], 
         ηΦ    = [ηbi  ηbi ]./(1-Φi),
         G     = [1e30 1e30], 
         ρs    = [1.0  1.0 ],
@@ -62,13 +62,13 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
    
     @show materials
-    @show materials.ηs0 ./ materials.G
+    @show materials.η0 ./ materials.G
     @show materials.ηΦ  ./ materials.G
-    @show materials.ηs0 ./ materials.Kd
+    @show materials.η0 ./ materials.Kd
     @show materials.ηΦ  ./ materials.Kd
-    @show materials.ηs0 ./ materials.KΦ
+    @show materials.η0 ./ materials.KΦ
     @show materials.ηΦ  ./ materials.KΦ
-    @show materials.ηs0 ./ materials.Kf
+    @show materials.η0 ./ materials.Kf
     @show materials.ηΦ  ./ materials.Kf
     @show r^2/k_ηfi/materials.Ks[1]
 

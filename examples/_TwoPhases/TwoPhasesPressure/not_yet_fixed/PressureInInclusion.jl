@@ -7,16 +7,16 @@ import Statistics:mean
     Ωηi    = 1e-4            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
     # Independant
-    ηs0    = 1.              # Shear viscosity
+    η0    = 1.              # Shear viscosity
     len    = 1.              # Box size
     P0     = 1.              # Initial ambiant pressure
     ϕ0     = 1e-1
     # Dependant
-    ηb0    = Ωη * ηs0        # Bulk viscosity
-    k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * ηs0) # Permeability / fluid viscosity
+    ηb0    = Ωη * η0        # Bulk viscosity
+    k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     r      = Ωr * len        # Inclusion radius
-    ηs_inc = 1 ./ Ωηi * ηs0       # Inclusion shear viscosity
-    ε̇      = Ωp * P0 / ηs0   # Background strain rate
+    ηs_inc = 1 ./ Ωηi * η0       # Inclusion shear viscosity
+    ε̇      = Ωp * P0 / η0   # Background strain rate
 
     # Velocity gradient matrix
     D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
@@ -26,7 +26,7 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         n     = [1.0  1.0],
-        ηs0   = [ηs0  ηs_inc], 
+        η0   = [η0  ηs_inc], 
         ηb    = [ηb0  ηb0 ]./(1-ϕ0),
         G     = [1e30 1e30], 
         Kd    = [1e30 1e30],

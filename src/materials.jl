@@ -101,17 +101,42 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
 end
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T = [0.0, 0.0]
-    ρ::T = Float64[]
-    n::T = Float64[]
-    η0::T = Float64[]
-    ξ0::T = Float64[]
-    G::T = Float64[]
-    β::T = Float64[]
-    B::T = Float64[]
-    plasticity::P = NoPlasticity()
+    g::T               = [0.0, 0.0]
+    ρ::T               = Float64[]
+    n::T               = Float64[]
+    η0::T              = Float64[]
+    ξ0::T              = Float64[]
+    G::T               = Float64[]
+    β::T               = Float64[]
+    B::T               = Float64[]
+    plasticity::P      = NoPlasticity()
     compressible::Bool = false
-    phase_avg::Symbol = :arithmetic
+    phase_avg::Symbol  = :arithmetic
+end
+
+Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
+    g::T               = [0.0, 0.0]
+    ρs::T              = Float64[]
+    ρf::T              = Float64[]
+    n::T               = Float64[]
+    η0::T              = Float64[]
+    ξ0::T              = Float64[]
+    G::T               = Float64[]
+    β::T               = Float64[]
+    Ks::T              = Float64[]
+    KΦ::T              = Float64[]
+    Kf::T              = Float64[]
+    m::T               = Float64[]
+    n_CK::T            = Float64[]
+    k_ηf0::T           = Float64[]
+    B::T               = Float64[]
+    plasticity::P      = NoPlasticity()
+    linearizeΦ         = false 
+    oneway             = false
+    single_phase       = false
+    conservative       = false
+    compressible::Bool = false
+    phase_avg::Symbol  = :arithmetic
 end
 
 struct NoPlasticity <: AbstractPlasticity end
@@ -239,6 +264,39 @@ function initialize_materials(nphases::Integer;
     )
 end
 
+function initialize_materials_TwoPhases(nphases::Integer;
+    plasticity=NoPlasticity(),
+    compressible::Bool = true,
+    single_phase::Bool = false,
+    oneway::Bool       = false,
+    linearizeΦ::Bool   = false,
+    conservative::Bool = false,
+    phase_avg::Symbol  = :arithmetic)
+    P = plasticity isa Type ? plasticity : typeof(plasticity)
+    return Materials_TwoPhases(
+        ρs    = ones(nphases),
+        ρf    = ones(nphases),
+        n     = ones(nphases),
+        η0    = ones(nphases),
+        ξ0    = 1e2  * ones(nphases),
+        G     = 1e50 * ones(nphases),
+        Ks    = 1e50 * ones(nphases),
+        KΦ    = 1e50 * ones(nphases),
+        Kf    = 1e50 * ones(nphases),
+        m     = zeros(nphases),
+        n_CK  = 3.0*ones(nphases),
+        k_ηf0 = 2.220394736842105*ones(nphases),
+        B     = ones(nphases),
+        plasticity   = initialize(P, nphases),
+        compressible = compressible,
+        oneway       = oneway,
+        linearizeΦ   = linearizeΦ, 
+        single_phase = single_phase,
+        conservative = conservative,
+        phase_avg    = phase_avg
+    )
+end
+
 function preprocess!(dp::DruckerPrager)
     @. dp.cosϕ = cosd(dp.ϕ)
     @. dp.sinϕ = sind(dp.ϕ)
@@ -295,6 +353,12 @@ function preprocess!(t::Tensile)
 end
 
 function preprocess!(mat::Materials)
+    @. mat.B = (2 * mat.η0)^(-mat.n)
+    preprocess!(mat.plasticity)
+end
+
+# This is same as above, could be Union ? 
+function preprocess!(mat::Materials_TwoPhases) 
     @. mat.B = (2 * mat.η0)^(-mat.n)
     preprocess!(mat.plasticity)
 end

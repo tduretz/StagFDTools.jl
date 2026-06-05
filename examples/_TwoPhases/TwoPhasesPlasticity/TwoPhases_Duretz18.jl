@@ -38,14 +38,14 @@ import Statistics:mean
         oneway       = false,
         compressible = true,
         plasticity   = :off,
-        linearizeϕ   = false,        
+        linearizeΦ   = false,        
         single_phase = true,
         conservative = false,
         n     = [1.0    1.0  ],
         m     = [0.0    0.0  ],
         n_CK  = [1.0    1.0  ],
-        ηs0   = [1e20   1e20 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous shear
-        ηΦ0   = [2e22   2e22 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous volumetric
+        η0   = [1e20   1e20 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous shear
+        ξ0   = [2e22   2e22 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous volumetric
         G     = [1e10   0.25e10]./sc.σ, 
         ρs    = [2800   2800 ]/(sc.σ*sc.t^2/sc.L^2),
         ρf    = [1000   1000 ]/(sc.σ*sc.t^2/sc.L^2),
@@ -69,7 +69,7 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
 
     Φ0      = 1e-3
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ηΦ0[1])
+    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0

@@ -1,5 +1,11 @@
 using SparseArrays
 
+convergence_tolerance(norm0::Float64; reltol::Float64=KSP_RELTOL, abstol::Float64=KSP_ABSTOL) =
+    max(abstol, reltol * norm0)
+
+has_converged(norm_r::Float64, norm0::Float64; reltol::Float64=KSP_RELTOL, abstol::Float64=KSP_ABSTOL) =
+    norm_r <= convergence_tolerance(norm0; reltol, abstol)
+
 function linear_tol(r, r0, iter; α=9)
     # Inexact Newton-Raphson: Botti paper
     if iter == 1
@@ -185,4 +191,198 @@ function DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:chol, ηb=1e3,
         p .+= 𝐏inv * (fp .- 𝐐ᵀ * u .- 𝐏 * p)
     end
     return u, p
+end
+
+# ==============================================================================
+# Original Custom GCR Solver (from test_solvers_2phases_v3_opt.jl)
+# ==============================================================================
+@views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000)
+
+    # Construct PC
+    VxVx = sparse(M.Vx.Vx); VxVy = sparse(M.Vx.Vy); VxPt = sparse(M.Vx.Pt)
+    VyVx = sparse(M.Vy.Vx); VyVy = sparse(M.Vy.Vy); VyPt = sparse(M.Vy.Pt)
+    PtVx = sparse(M.Pt.Vx); PtVy = sparse(M.Pt.Vy); PtPt = sparse(M.Pt.Pt); PtPf = sparse(M.Pt.Pf)
+    PfVx = sparse(M.Pf.Vx); PfVy = sparse(M.Pf.Vy); PfPt = sparse(M.Pf.Pt); PfPf = sparse(M.Pf.Pf)
+    
+    Jvv = [VxVx VxVy; VyVx VyVy]
+    Jvp = [VxPt; VyPt]
+    Jpv = [PtVx PtVy]
+    Jpp = PtPt
+    Jpq = PtPf
+    Jqp = PfPt # added
+    Jqu = [PfVx PfVy]
+    Jqq = PfPf
+
+    Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
+    # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
+    J̃pp = Jpp - Jpq * Dqq * Jqp
+    Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    J̃vv = Jvv - Jvp * Dpp * Jpv
+
+    Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    Juu_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+
+    ndofu = size(Jvp, 1)
+    ndofp = size(Jvp, 2)
+    N     = ndofu + ndofp + ndofp
+
+    f = zeros(Float64, N)
+    v = zeros(Float64, N)
+    s = zeros(Float64, N)
+    VV = zeros(Float64, N, restart)
+    SS = zeros(Float64, N, restart)
+
+    iu = 1:ndofu
+    ip = (ndofu + 1):(ndofu + ndofp)
+    iq = (ndofu + ndofp + 1):N
+
+    return (;
+        Jqq_f_sym, Juu_f_sym,
+        restart, maxit,
+        f, v, s, fu=view(f, iu), fp=view(f, ip), fq=view(f, iq),
+        su=view(s, iu), sp=view(s, ip), sq=view(s, iq),
+        VV, SS, VVcols=[view(VV, :, i) for i in 1:restart], SScols=[view(SS, :, i) for i in 1:restart],
+        Vnorm2=zeros(Float64, restart),
+        du=zeros(Float64, ndofu), dp=zeros(Float64, ndofp), dq=zeros(Float64, ndofp),
+        r̃u=zeros(Float64, ndofu), r̃p=zeros(Float64, ndofp),
+        tmpp=zeros(Float64, ndofp), tmpq=zeros(Float64, ndofp), tmpq2=zeros(Float64, ndofp),
+    )
+end
+
+@views function KSP_GCR_TwoPhases_opt!(
+    x::Vector{Float64}, A::SparseMatrixCSC{Float64, Int64}, b::Vector{Float64}, noisy::Bool, M, cache;
+    abstol::Float64=KSP_ABSTOL, reltol=1e-6
+)
+    (;  Jqq_f_sym, Juu_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
+        du, dp, dq, r̃u, r̃p, tmpp, tmpq, tmpq2) = cache
+
+    # Construct PC
+    VxVx = sparse(M.Vx.Vx); VxVy = sparse(M.Vx.Vy); VxPt = sparse(M.Vx.Pt)
+    VyVx = sparse(M.Vy.Vx); VyVy = sparse(M.Vy.Vy); VyPt = sparse(M.Vy.Pt)
+    PtVx = sparse(M.Pt.Vx); PtVy = sparse(M.Pt.Vy); PtPt = sparse(M.Pt.Pt); PtPf = sparse(M.Pt.Pf)
+    PfVx = sparse(M.Pf.Vx); PfVy = sparse(M.Pf.Vy); PfPt = sparse(M.Pf.Pt); PfPf = sparse(M.Pf.Pf)
+    
+    Jvv = [VxVx VxVy; VyVx VyVy]
+    Jvp = [VxPt; VyPt]
+    Jpv = [PtVx PtVy]
+    Jpp = PtPt
+    Jpq = PtPf
+    Jqp = PfPt # added
+    Jqu = [PfVx PfVy]
+    Jqq = PfPf
+
+    Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
+    # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
+    J̃pp = Jpp - Jpq * Dqq * Jqp
+    Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    J̃vv = Jvv - Jvp * Dpp * Jpv
+
+    Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    Jvv_f = cholesky!(Juu_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jpp_f = Dpp #cholesky(Hermitian(SparseMatrixCSC(J̃pp)), check=false) # PC is diagonal !
+    #-----------------------------------
+
+    # Initial resiual
+    mul!(f, A, x)
+    @. f = b - f
+    norm_r = norm(f)
+    norm0 = norm_r
+    tol = convergence_tolerance(norm0; reltol, abstol)
+    noisy && @printf("       %1.4d KSP GCR Residual %1.12e %1.12e\n", 0, norm_r, norm_r / norm0)
+
+    if has_converged(norm_r, norm0; reltol, abstol)
+        @printf("Final residual = %.3e after %d iterations (tol %.3e)\n", norm_r, 0, tol)
+        return 0
+    end
+
+    its = 0
+    ncyc = 0
+
+    while its < maxit
+        for k in 1:restart
+            # Apply block triangular preconditioner, s = PC^{-1} f.
+            ldiv!(tmpq, Jqq_f, fq)
+            mul!(r̃p, Jpq, tmpq)
+            @. r̃p = fp - r̃p
+
+            # ldiv!(tmpp, Jpp_f, r̃p) 
+            mul!(tmpp, Jpp_f, r̃p) # PC is diagonal !
+            mul!(r̃u, Jvp, tmpp)
+            @. r̃u = fu - r̃u
+
+            ldiv!(du, Jvv_f, r̃u)
+
+            mul!(tmpp, Jpv, du)
+            @. tmpp = r̃p - tmpp
+            # ldiv!(dp, Jpp_f, tmpp)
+            mul!(dp, Jpp_f, tmpp) # PC is diagonal !
+
+            mul!(tmpq, Jqp, dp)
+            mul!(tmpq2, Jqu, du)
+            @. tmpq = fq - tmpq - tmpq2
+            ldiv!(dq, Jqq_f, tmpq)
+
+            copyto!(su, du)
+            copyto!(sp, dp)
+            copyto!(sq, dq)
+
+            mul!(v, A, s)
+
+            for j in 1:(k - 1)
+                Vj = VVcols[j]
+                Sj = SScols[j]
+                β = dot(Vj, v) / Vnorm2[j]
+                BLAS.axpy!(-β, Vj, v)
+                BLAS.axpy!(-β, Sj, s)
+            end
+
+            den = dot(v, v)
+            α = dot(f, v) / den
+
+            BLAS.axpy!(α, s, x)
+            BLAS.axpy!(-α, v, f)
+
+            norm_r = norm(f)
+            noisy && @printf(
+                "  --> Powell-Hestenes Iteration %02d\n  Momentum res.   = %2.2e\n  Continuity 1 res. = %2.2e\n Continuity 2 res. = %2.2e\n",
+                its, norm(fu) / sqrt(length(fu)), norm(fp) / sqrt(length(fp)), norm(fq) / sqrt(length(fq))
+            )
+
+            if has_converged(norm_r, norm0; reltol, abstol)
+                noisy && println("converged")
+                @printf("Final residual = %.3e after %d iterations (tol %.3e)\n", norm_r, its, tol)
+                return its
+            end
+
+            copyto!(VVcols[k], v)
+            copyto!(SScols[k], s)
+            Vnorm2[k] = den
+            its += 1
+        end
+        its += 1
+        ncyc += 1
+    end
+
+    noisy && noisy > 1 && @printf("[%1.4d] %1.4d KSP GCR Residual %1.12e %1.12e\n", ncyc, its, norm_r, norm_r / norm0)
+    @printf("Final residual = %.3e after %d iterations (tol %.3e)\n", norm_r, its, tol)
+    return its
+end
+
+function two_phases_mechanical_solver!(dx, M, r, M_PC;
+    solver=:PH, solver_cache=0, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true
+)
+    # Two-phases operator as block matrix
+    𝑀 = [
+        M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
+        M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
+        M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
+        M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
+    ]
+    if solver == :LU
+        # Backslash 
+        dx .= -𝑀 \ r    
+    elseif solver == :GCR
+        # Coupled GCR with fancy PC from Raess et al., 2017
+        KSP_GCR_TwoPhases_opt!(dx, 𝑀, .-r, noisy, M_PC, solver_cache; reltol=ϵ_l, abstol=ϵ_l )
+    end
 end
