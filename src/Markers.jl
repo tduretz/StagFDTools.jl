@@ -15,7 +15,7 @@ function InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
     return (Xm=Xm, Ym=Ym, xm=xm, ym=ym, Δm=Δm, num=num, phase=mphase)
 end
 
-function InitialisePhaseRatios(nphases, f)
+function InitialisePhaseRatios(nphases::Int64, f)
     phase_ratios = (
         c=[zeros(nphases) for _ in axes(f.xx, 1), _ in axes(f.xx, 2)],
         v=[zeros(nphases) for _ in axes(f.xy, 1), _ in axes(f.xy, 2)],
@@ -87,6 +87,23 @@ function SetPhaseRatios!(phase_ratios, phase_weights, m, xce, yce, xve, yve, Δ,
         for k = 1:nphases
             phase_ratios.v[i, j][k] = phase_ratios.v[i, j][k] / (phase_weights.v[i, j][k] == 0.0 ? 1 : phase_weights.v[i, j][k])
         end
+    end
+end
+
+function update_JustPIC!(a::Allocs, phase_ratios::PhaseRatios, particles, phases)
+    update_phase_ratios!(phase_ratios, particles, phases)
+    @views begin
+        a.phase_ratios.c[2:end-1, 2:end-1] .= phase_ratios.center
+        a.phase_ratios.v[2:end-1, 2:end-1] .= phase_ratios.vertex
+
+        a.phase_ratios.c[1, :] .= a.phase_ratios.c[2, :]
+        a.phase_ratios.c[end, :] .= a.phase_ratios.c[end-1, :]
+        a.phase_ratios.c[:, 1] .= a.phase_ratios.c[:, 2]
+        a.phase_ratios.c[:, end] .= a.phase_ratios.c[:, end-1]
+        a.phase_ratios.v[1, :] .= a.phase_ratios.v[2, :]
+        a.phase_ratios.v[end, :] .= a.phase_ratios.v[end-1, :]
+        a.phase_ratios.v[:, 1] .= a.phase_ratios.v[:, 2]
+        a.phase_ratios.v[:, end] .= a.phase_ratios.v[:, end-1]
     end
 end
 
@@ -170,66 +187,66 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
     # Centroid arrays
     @inbounds for j in 1:nyc, i in 1:nxc
         if 1 <= i <= nc.x + 2 && 1 <= j <= nc.y + 2
-            Ksc    = 0.0
-            KΦc    = 0.0
-            Kfc    = 0.0
-            Gc     = 0.0
-            ξc     = 0.0
-            mc     = 0.0 
-            ρsic   = 0.0
-            ρfic   = 0.0
+            Ksc = 0.0
+            KΦc = 0.0
+            Kfc = 0.0
+            Gc = 0.0
+            ξc = 0.0
+            mc = 0.0
+            ρsic = 0.0
+            ρfic = 0.0
             k_ηf0c = 0.0
-            n_CKc  = 0.0
-            pr     = phase_ratios.c[i, j]
+            n_CKc = 0.0
+            pr = phase_ratios.c[i, j]
             for p = 1:nphases
                 r = pr[p]
-                Ksc    += r * materials.Ks[p]
-                KΦc    += r * materials.KΦ[p]
-                Kfc    += r * materials.Kf[p]
-                Gc     += r * materials.G[p]
-                ξc     += r * materials.ξ0[p]
-                mc     += r * materials.m[p]
-                ρsic   += r * materials.ρs[p]
-                ρfic   += r * materials.ρf[p]
+                Ksc += r * materials.Ks[p]
+                KΦc += r * materials.KΦ[p]
+                Kfc += r * materials.Kf[p]
+                Gc += r * materials.G[p]
+                ξc += r * materials.ξ0[p]
+                mc += r * materials.m[p]
+                ρsic += r * materials.ρs[p]
+                ρfic += r * materials.ρf[p]
                 k_ηf0c += r * materials.k_ηf0[p]
-                n_CKc  += r * materials.n_CK[p]
+                n_CKc += r * materials.n_CK[p]
             end
-            Ks.c[i, j]   = Ksc
-            KΦ.c[i, j]   = KΦc
-            Kf.c[i, j]   = Kfc
-            G.c[i, j]    = Gc
-            ξ.c[i, j]    = ξc
-            m.c[i, j]    = mc
-            ρsi.c[i, j]  = ρsic
-            ρfi.c[i, j]  = ρfic
-            k_ηf0.c[i,j] = k_ηf0c
-            n_CK.c[i,j]  = n_CKc
+            Ks.c[i, j] = Ksc
+            KΦ.c[i, j] = KΦc
+            Kf.c[i, j] = Kfc
+            G.c[i, j] = Gc
+            ξ.c[i, j] = ξc
+            m.c[i, j] = mc
+            ρsi.c[i, j] = ρsic
+            ρfi.c[i, j] = ρfic
+            k_ηf0.c[i, j] = k_ηf0c
+            n_CK.c[i, j] = n_CKc
         end
     end
 
     @inbounds for j in 1:nyc
-        G.c[1, j]    = G.c[2, j]
-        G.c[nxc, j]  = G.c[nxc-1, j]
-        Ks.c[1, j]   = Ks.c[2, j]
+        G.c[1, j] = G.c[2, j]
+        G.c[nxc, j] = G.c[nxc-1, j]
+        Ks.c[1, j] = Ks.c[2, j]
         Ks.c[nxc, j] = Ks.c[nxc-1, j]
-        KΦ.c[1, j]   = KΦ.c[2, j]
+        KΦ.c[1, j] = KΦ.c[2, j]
         KΦ.c[nxc, j] = KΦ.c[nxc-1, j]
-        Kf.c[1, j]   = Kf.c[2, j]
+        Kf.c[1, j] = Kf.c[2, j]
         Kf.c[nxc, j] = Kf.c[nxc-1, j]
-        ξ.c[1, j]    = ξ.c[2, j]
-        ξ.c[nxc, j]  = ξ.c[nxc-1, j]
+        ξ.c[1, j] = ξ.c[2, j]
+        ξ.c[nxc, j] = ξ.c[nxc-1, j]
     end
     @inbounds for i in 1:nxc
-        G.c[i, 1]    = G.c[i, 2]
-        G.c[i, nyc]  = G.c[i, nyc-1]
-        Ks.c[i, 1]   = Ks.c[i, 2]
+        G.c[i, 1] = G.c[i, 2]
+        G.c[i, nyc] = G.c[i, nyc-1]
+        Ks.c[i, 1] = Ks.c[i, 2]
         Ks.c[i, nyc] = Ks.c[i, nyc-1]
-        KΦ.c[i, 1]   = KΦ.c[i, 2]
+        KΦ.c[i, 1] = KΦ.c[i, 2]
         KΦ.c[i, nyc] = KΦ.c[i, nyc-1]
-        Kf.c[i, 1]   = Kf.c[i, 2]
+        Kf.c[i, 1] = Kf.c[i, 2]
         Kf.c[i, nyc] = Kf.c[i, nyc-1]
-        ξ.c[i, 1]    = ξ.c[i, 2]
-        ξ.c[i, nyc]  = ξ.c[i, nyc-1]
+        ξ.c[i, 1] = ξ.c[i, 2]
+        ξ.c[i, nyc] = ξ.c[i, nyc-1]
     end
 
     # Vertex arrays

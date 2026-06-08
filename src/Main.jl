@@ -1,6 +1,16 @@
+using JustPIC
+
 abstract type AbstractSolver end
 
-struct InexactNewton{t,n,p,M} <: AbstractSolver
+# Keeping a Solver struct if one wants to add solvers
+struct JustPICAdvection{}
+    particles::P
+    grid_vi::G
+    xvi::X
+    particle_args::PA
+    phase_ratios::PR
+end
+struct Solver{t,n,p,M} <: AbstractSolver
     type::t
     number::n
     pattern::p
@@ -17,31 +27,6 @@ struct InexactNewton{t,n,p,M} <: AbstractSolver
     dx::Vector{Float64}
     r::Vector{Float64}
 end
-
-struct Direct{t,n,p,M} <: AbstractSolver
-    type::t
-    number::n
-    pattern::p
-    M::M
-    𝐊::ExtendableSparseMatrix
-    𝐐::ExtendableSparseMatrix
-    𝐐ᵀ::ExtendableSparseMatrix
-    𝐏::ExtendableSparseMatrix
-    dx::Vector{Float64}
-    r::Vector{Float64}
-end
-
-abstract type AbstractAdvection end
-
-struct NoAdvection <: AbstractAdvection end
-
-struct JustPICAdvection{P,G,X,PA} <: AbstractAdvection
-    particles::P
-    grid_vi::G
-    xvi::X
-    particle_args::PA
-end
-
 struct Allocs{RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,G,S<:AbstractSolver}
     solv::S
     R::RNT
@@ -53,9 +38,9 @@ struct Allocs{RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,G,S<:AbstractSolver}
     G::FNT
     β::FNT
     ρ::FNT
-    ε̇::SNT   # (xx, yy, xy, II, θ)
-    τ0::TNT   # (xx, yy, xy)
-    τ::SNT   # (xx, yy, xy, II, θ)
+    ε̇::SNT
+    τ0::TNT
+    τ::SNT
     Pt::Matrix{Float64}
     Pti::Matrix{Float64}
     Pt0::Matrix{Float64}
@@ -67,13 +52,24 @@ struct Allocs{RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,G,S<:AbstractSolver}
     D_ctl_v::DV
     𝐷_ctl::DNT
     phases::PHNT
-    Grid::G
+    phase_ratios::FNT
+    X::G
 end
 
 const _allocs_own_fields = fieldnames(Allocs)
 function Base.getproperty(a::Allocs, s::Symbol)
     s ∈ _allocs_own_fields && return getfield(a, s)
     return getproperty(getfield(a, :solv), s)
+end
+
+function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, args)
+    grid_vx = (a.X.v.x, a.X.c_e.y)
+    grid_vy = (a.X.c_e.x, a.X.v.y)
+    xvi = (a.X.v.x, a.X.v.y)
+    particles = init_particles(backend, nxcell, max_xcell, min_xcell, grid_vx, grid_vy)
+    particle_args = init_cell_arrays(particles, Val(args))
+    phase_ratios = JustPIC._2D.PhaseRatios(backend, nphases, values(nc))
+    return JustPICAdvection(particles, (grid_vx, grid_vy), xvi, particle_args, phase_ratios)
 end
 
 function allocate(nc, config, x, y, Δ)
@@ -132,11 +128,12 @@ function allocate(nc, config, x, y, Δ)
     D_ctl_v = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)]
     𝐷_ctl = (c=D_ctl_c, v=D_ctl_v)
     phases = (c=ones(Int64, size_c...), v=ones(Int64, size_v...))
-    Grid = GenerateGrid(x, y, Δ, nc)
+    phase_ratios = (c=zeros(size_c...), v=zeros(size_v...))
+    X = GenerateGrid(x, y, Δ, nc)
 
     return type, number, pattern, nVx, nVy, nPt,
     R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, Grid
+    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X
 end
 
 function allocate_matrices(nVx, nVy, nPt)
@@ -154,47 +151,23 @@ function allocate_matrices(nVx, nVy, nPt)
     return M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r
 end
 
-Allocs(nc, config, x, y, Δ) = Allocs(Direct, nc, config, x, y, Δ)
-
-function Allocs(::Type{Direct}, nc, config, x, y, Δ)
+function Allocs(nc, config, x, y, Δ)
     type, number, pattern, nVx, nVy, nPt,
     R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, Grid =
-        allocate(nc, config, x, y, Δ)
-
-    M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
-    solv = Direct(type, number, pattern, M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r)
-
-    return Allocs(solv, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, Grid)
-end
-
-function Allocs(::Type{InexactNewton}, nc, config, x, y, Δ)
-    type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, Grid =
+    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
         allocate(nc, config, x, y, Δ)
 
     M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
     M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
 
-    solv = InexactNewton(type, number, pattern,
+    solv = Solver(type, number, pattern,
         M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r)
 
     return Allocs(solv, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, Grid)
+        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
 end
 
-function _assemble!(::Direct, a, materials, BC, nc, Δ)
-    AssembleContinuity2D!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.β, a.ξ,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_x!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_y!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G, a.ρ,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-end
-
-function _assemble!(::InexactNewton, a, materials, BC, nc, Δ)
+function _assemble!(a::Allocs, materials, BC, nc, Δ)
     # Jacobian
     AssembleContinuity2D!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.β, a.ξ,
         materials, a.number, a.pattern, a.type, BC, nc, Δ)
@@ -211,30 +184,7 @@ function _assemble!(::InexactNewton, a, materials, BC, nc, Δ)
         materials, a.number, a.pattern, a.type, BC, nc, Δ)
 end
 
-function update_solution!(::Direct, a, materials, BC, phase_ratios, nc, Δ, to,
-    rvec, iter, ϵ0, ϵ, iter_params)
-    a.𝐊 .= [a.M.Vx.Vx a.M.Vx.Vy; a.M.Vy.Vx a.M.Vy.Vy]
-    a.𝐐 .= [a.M.Vx.Pt; a.M.Vy.Pt]
-    a.𝐐ᵀ .= [a.M.Pt.Vx a.M.Pt.Vy]
-    a.𝐏 .= a.M.Pt.Pt
-
-    fu = @views -a.r[1:size(a.𝐊, 1)]
-    fp = @views -a.r[size(a.𝐊, 1)+1:end]
-    u, p = DecoupledSolver(a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, fu, fp;
-        fact=:lu, ηb=1e3, niter_l=10, ϵ_l=iter_params.ϵ_l)
-    @views a.dx[1:size(a.𝐊, 1)] .= u
-    @views a.dx[size(a.𝐊, 1)+1:end] .= p
-
-    @timeit to "Line search" imin = LineSearch!(
-        rvec, iter_params.α, a.dx, a.R, a.V, a.Pt, a.ε̇, a.τ, a.Vi, a.Pti,
-        a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G, a.β, a.ξ, a.ρ,
-        a.𝐷, a.𝐷_ctl, a.number, a.type, BC, materials, phase_ratios, nc, Δ)
-    UpdateSolution!(a.V, a.Pt, iter_params.α[imin] * a.dx, a.number, a.type, nc)
-    TangentOperator!(a.𝐷, a.𝐷_ctl, a.τ, a.τ0, a.ε̇, a.λ̇, a.η, a.G,
-        a.V, a.Pt, a.Pt0, a.ΔPt, a.type, BC, materials, phase_ratios, Δ)
-end
-
-function update_solution!(::InexactNewton, a, materials, BC, phase_ratios, nc, Δ, to,
+function update_solution!(a::Allocs, materials, BC, phase_ratios, nc, Δ, to,
     rvec, iter, ϵ0, ϵ, iter_params)
     a.𝐊 .= [a.M.Vx.Vx a.M.Vx.Vy; a.M.Vy.Vx a.M.Vy.Vy]
     a.𝐐 .= [a.M.Vx.Pt; a.M.Vy.Pt]
@@ -249,29 +199,22 @@ function update_solution!(::InexactNewton, a, materials, BC, phase_ratios, nc, �
     @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e\n", ϵ, ϵ / ϵ0, ϵ_l)
 
     @timeit to "Linear solve" begin
-        mechanical_solver!(a.dx, a.M, a.r, a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏,
-            a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC;
-            solver=iter_params.solver_type, ηb=iter_params.γ,
-            ϵ_l=ϵ_l, niter_l=10, restart=20)
+        mechanical_solver!(a.dx, a.M, a.r, a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC; solver=iter_params.solver_type, ηb=iter_params.γ, ϵ_l=ϵ_l, niter_l=10, restart=20)
     end
 
     @timeit to "Line search" begin
-        imin = LineSearch!(rvec, iter_params.α, a.dx, a.R, a.V, a.Pt, a.ε̇, a.τ,
-            a.Vi, a.Pti, a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G,
-            a.β, a.ξ, a.ρ, a.𝐷, a.𝐷_ctl, a.number, a.type,
-            BC, materials, phase_ratios, nc, Δ)
+        imin = LineSearch!(rvec, iter_params.α, a.dx, a.R, a.V, a.Pt, a.ε̇, a.τ, a.Vi, a.Pti, a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G, a.β, a.ξ, a.ρ, a.𝐷, a.𝐷_ctl, a.number, a.type, BC, materials, phase_ratios, nc, Δ)
     end
     UpdateSolution!(a.V, a.Pt, iter_params.α[imin] * a.dx, a.number, a.type, nc)
 end
 
 function Solve!(a::Allocs, materials, BC, phase_ratios, nc, Δ, to,
     rvec, iter, ϵ0, ϵ, iter_params)
-    @timeit to "Assembly" _assemble!(a.solv, a, materials, BC, nc, Δ)
-    update_solution!(a.solv, a, materials, BC, phase_ratios, nc, Δ, to,
-        rvec, iter, ϵ0, ϵ, iter_params)
+    @timeit to "Assembly" _assemble!(a, materials, BC, nc, Δ)
+    update_solution!(a, materials, BC, phase_ratios, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params)
 end
 
-function _newton_loop!(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to,
+function main_solver!(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to,
     nphases, iter_params)
 
     rvec = zeros(length(iter_params.α))
@@ -322,23 +265,20 @@ function _newton_loop!(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to,
     return iter, err
 end
 
-main_loop(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params) =
-    main_loop(a, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params, NoAdvection())
-
-function main_loop(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to,
-    nphases, iter_params, ::NoAdvection)
+main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params) = main_loop(a, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params)
+# No advection
+function main_loop(a::Allocs, it, materials, BC, phase_ratios::Nothing, nc, Δ, to, nphases, iter_params)
     @printf("Step %04d\n", it)
-    return _newton_loop!(a, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params)
+    return main_solver!(a, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params)
 end
 
-function main_loop(a::Allocs, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params, adv::JustPICAdvection)
-    @printf("Step %04d\n", it)
-    iter, err = _newton_loop!(a, it, materials, BC, phase_ratios, nc, Δ, to, nphases, iter_params)
+# JustPIC advection
+function main_loop(a::Allocs, it, materials, BC, phase_ratios::PhaseRatios, nc, Δ, to, nphases, iter_params)
+
+    main_solver!(a, it, materials, BC, tphase_ratios, nc, Δ, to, nphases, iter_params)
 
     @timeit to "Advection" begin
-        advection!(adv.particles, RungeKutta2(), (a.V.x, a.V.y), adv.grid_vi, Δ.t)
+        advection!(adv.particles, RungeKutta4(), (a.V.x, a.V.y), adv.grid_vi, Δ.t)
         move_particles!(adv.particles, adv.xvi, adv.particle_args)
     end
-
-    return iter, err
 end
