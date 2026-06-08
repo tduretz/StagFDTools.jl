@@ -215,7 +215,7 @@ end
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
     # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
     J̃pp = Jpp - Jpq * Dqq * Jqp
-    incomp = maximum(abs.(extrema(J̃pp))) < 1e-3
+    incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
     if incomp
         @info "incomp"
     end
@@ -280,7 +280,7 @@ end
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
     # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
     J̃pp = Jpp - Jpq * Dqq * Jqp
-    incomp = maximum(abs.(extrema(J̃pp))) < 1e-3
+    incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
     if incomp
         @info "incomp"
     end
