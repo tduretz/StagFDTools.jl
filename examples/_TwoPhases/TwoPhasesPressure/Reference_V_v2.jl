@@ -1,4 +1,4 @@
-using StagFDTools, Base.Threads, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2
+using StagFDTools, Base.Threads, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2
 import Statistics:mean
 using TimerOutputs
 
@@ -16,16 +16,55 @@ let
     δ      = Ωl * Ωr * L     # δ = δ/r * r/L where L = 1
     ηΦ     = Ωη * ηs  
     n_CK   = 3.0
-    k_ηΦ   = δ^2 / (ηΦ + 4/3 * ηs) # Permeability / fluid viscosity
+    k_ηf   = δ^2 / (ηΦ + 4/3 * ηs) # Permeability / fluid viscosity
 
     # Reference conductivity
-    k_ηf0  = k_ηΦ/Φi^n_CK 
+    k_ηf0  = k_ηf/Φi^n_CK 
 
     # Double check compaction length
     δ1 = sqrt((k_ηf0 * Φi^n_CK) * (ηΦ + 4/3*ηs)) 
 
-    @show k_ηf0, δ, δ1
+    @show k_ηf, k_ηf0, δ, δ1
 
+    ###############################################
+
+    @info "--------- Characteristic scales ---------"
+    @show Lc = 1e3
+    @show σc = 1e7
+    @show tc = 1e13
+    ηc = σc * tc
+
+    @info "--------- Dimensional model ---------"
+
+    @show L_d    = L  * Lc
+    @show ηs_d   = ηs * ηc
+    @show ηΦ_d   = ηΦ * ηc
+
+    @info "Hydraulic parameters"
+    @show n = 3
+    @show ϕref = 1e-2
+    δ_d          = Ωl * Ωr * L_d               # δ = δ/r * r/L where L = 1
+    k_ηf_d       = δ_d^2 / (ηΦ_d + 4/3 * ηs_d) # Permeability / fluid viscosity
+    k_ηf0_d      = k_ηf_d/Φi^n_CK 
+    δ_d1 = sqrt((k_ηf0_d * Φi^n_CK) * (ηΦ_d + 4/3*ηs_d)) 
+
+    @show δ_d, δ_d1
+    @show k_ηf_d 
+    @show k_ηf0_d
+
+    @info "Elastic parameters"
+    G  = 2e3
+    Ks = 1.1e4
+    Kf = 1.0e4
+    KΦ = 0.9e4
+
+    @show  G*σc
+    @show Ks*σc
+    @show Kf*σc
+    @show KΦ*σc
+
+    # Back to Dimensionaless
+    @show k_ηf0_d / (Lc^2/ηc), δ_d/Lc, δ_d1/Lc
 end
 
 @views function main(nc, Ωl, Ωη)
@@ -70,12 +109,12 @@ end
         compressible = true,
         linearizeΦ   = false, 
         single_phase = false,
-        conservative = true,
+        conservative = false,
         plasticity   = DruckerPrager,
     )
-    materials.η0             .= [ηsi,  ηs_inc] 
-    materials.n_CK           .= [n_CK, n_CK  ] 
-    materials.ξ0             .= [ηbi,  ηbi]
+    materials.η0             .= [ηsi,          ηs_inc      ] 
+    materials.n_CK           .= [n_CK,         n_CK        ] 
+    materials.ξ0             .= [ηbi,          ηbi         ]
     materials.k_ηf0          .= [k_ηΦ/Φi^n_CK, k_ηΦ/Φi^n_CK]
     materials.plasticity.C   .= [1e50,  1e50]
     materials.plasticity.ϕ   .= [30. ,  30. ]
@@ -140,28 +179,26 @@ end
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
     M = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
-        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
-        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
+        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt), ExtendableSparseMatrix(nVx, nPt)), 
+        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt), ExtendableSparseMatrix(nVy, nPt)), 
+        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt), ExtendableSparseMatrix(nPt, nPf)),
+        Fields(ExtendableSparseMatrix(nPf, nVx), ExtendableSparseMatrix(nPf, nVy), ExtendableSparseMatrix(nPf, nPt), ExtendableSparseMatrix(nPf, nPf)),
     )
     M_PC = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
-        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
-        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
+        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt), ExtendableSparseMatrix(nVx, nPt)), 
+        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt), ExtendableSparseMatrix(nVy, nPt)), 
+        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt), ExtendableSparseMatrix(nPt, nPf)),
+        Fields(ExtendableSparseMatrix(nPf, nVx), ExtendableSparseMatrix(nPf, nVy), ExtendableSparseMatrix(nPf, nPt), ExtendableSparseMatrix(nPf, nPf)),
     )
-
+    # Global arrays
     dx   = zeros(nVx + nVy + nPt + nPf)
     r    = zeros(nVx + nVy + nPt + nPf)
-    solver_cache = 0
-
+    solver_cache = 0 
+    
     #--------------------------------------------#
     # Intialise field 
     L   = (x=L, y=L)
-    Δx  = L.x / nc.x
-    Δy  = L.y / nc.y
-    Δ   = (x=Δx, y=Δy, invΔx=inv(Δx), invΔy=inv(Δy), t=Δt0)
+    Δ   = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
     R   = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...), Φ=zeros(size_c...))
     V   = (x=zeros(size_x...), y=zeros(size_y...))
     η   = (c  =  ones(size_c...), v  =  ones(size_v...) )
@@ -295,7 +332,6 @@ end
 
             #--------------------------------------------#
             @timeit to "Assembly" begin
-
                 # Assemble global Jacobian
                 @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
@@ -306,7 +342,6 @@ end
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M, M_PC_threads)
                 end
-
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
@@ -346,8 +381,8 @@ end
         Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
         Vs   = (x=Vxsc, y=Vysc )
         Vs_mag   = sqrt.( Vxsc.^2 .+ Vysc.^2)
-        Vxf  = -k_ηΦ_x .* diff(P.f, dims=1) .* Δ.invΔx
-        Vyf  = -k_ηΦ_y .* diff(P.f, dims=2) .* Δ.invΔy
+        Vxf  = -k_ηΦ_x .* diff(P.f, dims=1)/Δ.x
+        Vyf  = -k_ηΦ_y .* diff(P.f, dims=2)/Δ.y
         Vxfc = 0.5*(Vxf[1:end-1,2:end-1] .+ Vxf[2:end,2:end-1])
         Vyfc = 0.5*(Vyf[2:end-1,1:end-1] .+ Vyf[2:end-1,2:end])
         Vf   = (x=Vxfc, y=Vyfc )
@@ -361,7 +396,8 @@ end
 
         cmap = (CairoMakie.Reverse(:matter), 1)
         # cmap = :jet1
-        st  = 15
+        st  = 15 # for  300^2
+        # st  = 50 # for 1000^2
         ind = st:st:size(xc,1)-st
 
         fig = Figure(fontsize = 14, size = (675, 600) )  
@@ -414,12 +450,10 @@ end
 
         @show mean(P.t[inx_c,iny_c])
         @show mean(P.f[inx_c,iny_c])
-
         @show norm(P.t[inx_c,iny_c]) / sqrt(nc.x*nc.y)
         @show norm(P.f[inx_c,iny_c]) / sqrt(nc.x*nc.y)
 
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_200x200_omega$(Ωl).jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc), "τvis", τvis, "Ptvis", Ptvis, "Pfvis", Pfvis, "Peffvis", Peffvis)
-
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc), "τvis", τvis, "Ptvis", Ptvis, "Pfvis", Pfvis, "Peffvis", Peffvis)
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_endmember1.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_middle.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
@@ -442,6 +476,7 @@ end
 
 function Run()
 
+    # nc = (x=1000, y=1000) 
     # nc = (x=700, y=700)
     nc = (x=300, y=300) # paper figure
     # nc = (x=200, y=200)

@@ -23,6 +23,10 @@ end
 
     dΦdt, ηΦ = PorosityRate(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, λ̇, sinψ, Δt)
     Φ        = Φ0  + dΦdt * Δt
+    if iszero(m)
+        return Φ, dΦdt, ηΦ
+    end
+
     r0       = 1.0
     for iter=1:10
         r, dresdΦ = ad_value_and_derivative(PorosityResidual, Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, λ̇, sinψ, Δt)
