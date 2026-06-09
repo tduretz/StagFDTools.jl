@@ -141,7 +141,7 @@ end
 
         Vmax = max(maximum(abs.(a.V.x)), maximum(abs.(a.V.y)))
         Δ = (x=Δ.x, y=Δ.y, t=C * min(Δ.x, Δ.y) / Vmax)
-        main_loop(a, adv, it, materials, BC, nc, Δ, to, nphases, iter_params)
+        main_loop(a, adv, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
         #--------------------------------------------#
         # Visualise
