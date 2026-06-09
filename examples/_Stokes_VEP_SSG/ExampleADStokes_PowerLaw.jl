@@ -33,7 +33,6 @@ using TimerOutputs
 
     # Allocate all fields and solver structures
     a = Allocs(nc, config, x, y, Δ, nphases)
-    # Default (Direct): a = Allocs(nc, config, x, y, Δ)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -69,13 +68,15 @@ using TimerOutputs
     @views a.phases.v[:, [2,end-1]] .= 3
     @views a.phases.c[[2,end-1], :] .= 3
     @views a.phases.c[:, [2,end-1]] .= 3
-     FillPhaseRatios!(a)
+    FillPhaseRatios!(a)
 
+    rvec = zeros(length(α))
+    err = (x=zeros(niter), y=zeros(niter), p=zeros(niter))
     to = TimerOutput()
 
     for it = 1:nt
 
-        iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params)
+        iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
         fig = Figure(size=(900,700), fontsize=14)
 

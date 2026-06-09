@@ -83,11 +83,6 @@ end
     ALE = false
     C = 0.5
 
-    # # Newton solver
-    # niter = 2
-    # ϵ_nl = 1e-8
-    # α = LinRange(0.05, 1.0, 10)
-
     # Solver parameters
     iter_params = IterParams(niter=2, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10)) # default parameters
 

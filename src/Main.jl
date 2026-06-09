@@ -1,4 +1,6 @@
 abstract type AbstractSolver end
+abstract type AbstractMarkers end
+struct NoMarkers <: AbstractMarkers end
 
 # Keeping a Solver struct if one wants to add solvers
 struct JustPICAdvection{P,G,X,PA,PR}
@@ -25,8 +27,18 @@ struct Solver{t,n,p,M} <: AbstractSolver
     dx::Vector{Float64}
     r::Vector{Float64}
 end
-struct Allocs{RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G,S<:AbstractSolver}
+struct Markers{Xm,xm,dm,n,ph} <: AbstractMarkers
+    Xm::Xm
+    Ym::Xm
+    xm::xm
+    ym::xm
+    Δm::dm
+    num::n
+    phase::ph
+end
+struct Allocs{RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G,S<:AbstractSolver,M<:AbstractMarkers}
     solv::S
+    m::M
     R::RNT
     V::VNT
     Vi::VNT
@@ -163,7 +175,27 @@ function Allocs(nc, config, x, y, Δ, nphases)
     solv = Solver(type, number, pattern,
         M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r)
 
-    return Allocs(solv, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+    return Allocs(solv, NoMarkers(), R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
+end
+
+function Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
+    type, number, pattern, nVx, nVy, nPt,
+    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
+        allocate(nc, config, x, y, Δ, nphases)
+
+    M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
+    M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
+
+    solv = Solver(type, number, pattern,
+        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r)
+
+    L = (x=x.max - x.min, y=y.max - y.min)
+    mf = InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
+    m = Markers(mf.Xm, mf.Ym, mf.xm, mf.ym, mf.Δm, mf.num, mf.phase)
+
+    return Allocs(solv, m, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
         Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
 end
 
@@ -214,12 +246,7 @@ function Solve!(a::Allocs, materials, BC, phase_ratios, nc, Δ, to,
     update_solution!(a, materials, BC, phase_ratios, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params)
 end
 
-function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params)
-
-    rvec = zeros(length(iter_params.α))
-    err = (x=zeros(iter_params.niter),
-        y=zeros(iter_params.niter),
-        p=zeros(iter_params.niter))
+function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     a.τ0.xx .= a.τ.xx
     a.τ0.yy .= a.τ.yy
@@ -265,16 +292,16 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
 end
 
 # No advection
-main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params) = main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params)
+main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params)
+function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     @printf("Step %04d\n", it)
-    return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params)
+    return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
 # JustPIC advection
-function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, to, nphases, iter_params)
-    main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params)
+function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     println("everything works"), error()
 
     @timeit to "Advection" begin

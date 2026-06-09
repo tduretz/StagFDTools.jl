@@ -56,7 +56,12 @@ function MarkerWeight_phase!(phase_ratio, phase_weight, x, y, xm, ym, Δ, phase,
     end
 end
 
-function SetPhaseRatios!(phase_ratios, phase_weights, m, xce, yce, xve, yve, Δ, nphases)
+function SetPhaseRatios!(phase_ratios, m, xce, yce, xve, yve, Δ, nphases)
+
+    phase_weights = (
+        c=[zeros(nphases) for _ in axes(phase_ratios.c, 1), _ in axes(phase_ratios.c, 2)],
+        v=[zeros(nphases) for _ in axes(phase_ratios.v, 1), _ in axes(phase_ratios.v, 2)],
+    )
 
     for I in eachindex(m.Xm)
         x, y, phase = m.Xm[I], m.Ym[I], m.phase[I]

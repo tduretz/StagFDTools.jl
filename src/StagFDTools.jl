@@ -54,7 +54,7 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Markers.jl")
-export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!
+export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!
 include("Main.jl")
 export AbstractSolver, Allocs, Solve!, main_loop, IterParams
 export JustPICAdvection
