@@ -3,12 +3,13 @@ abstract type AbstractMarkers end
 struct NoMarkers <: AbstractMarkers end
 
 # Keeping a Solver struct if one wants to add solvers
-struct JustPICAdvection{P,G,X,PA,PR}
+struct JustPICAdvection{P,G,X,PA,PR,PB}
     particles::P
     grid_vi::G
     xvi::X
     particle_args::PA
     phase_ratios::PR
+    periodic::PB  # (periodic_x, periodic_y)
 end
 struct Solver{t,n,p,M} <: AbstractSolver
     type::t
@@ -72,15 +73,16 @@ function Base.getproperty(a::Allocs, s::Symbol)
     return getproperty(getfield(a, :solv), s)
 end
 
-function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, nphases, args)
+function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, nphases, args; periodic=(false, false))
     grid_vx = (a.X.v.x, a.X.c_e.y)
     grid_vy = (a.X.c_e.x, a.X.v.y)
+    xi_vel = (grid_vx, grid_vy)
     xvi = (a.X.v.x, a.X.v.y)
     d = (step(a.X.v.x), step(a.X.v.y))
-    particles = init_particles(backend, nxcell, max_xcell, min_xcell, (grid_vx, grid_vy))
+    particles = init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
     particle_args = init_cell_arrays(particles, Val(args))
     phase_ratios = JustPIC._2D.PhaseRatios(backend, nphases, values(nc))
-    return JustPICAdvection(particles, (grid_vx, grid_vy), xvi, particle_args, phase_ratios)
+    return JustPICAdvection(particles, (grid_vx, grid_vy), xvi, particle_args, phase_ratios, periodic)
 end
 
 function allocate(nc, config, x, y, Δ, nphases)
@@ -302,22 +304,16 @@ end
 # JustPIC advection
 function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-    # Update phase_ratios for the solver (includes ghost nodes)
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-    # @timeit to "Advection" begin
+
     V = (a.V.x[2:end-1, 2:end-1], a.V.y[2:end-1, 2:end-1])
-    @show size(a.V.x)
-    @show size(a.V.y)
-    @show size(V[1])
-    @show size(V[2])
-    @show size(adv.grid_vi[1][1])
-    @show size(adv.grid_vi[1][2])
+
+    # Advection
     advection!(adv.particles, RungeKutta2(), V, Δ.t)
-    println("Particles advected")
     move_particles!(adv.particles, adv.particle_args)
-    inject_particles!(adv.particles, adv.particle_args)
-    update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
-    # end
+    inject_particles_phase!(adv.particles, adv.particle_args[1], (), ())
+
+    # Update phase_ratios for the solver (includes ghost nodes)
+    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1], nphases)
 end

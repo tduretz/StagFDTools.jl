@@ -32,11 +32,11 @@ function set_phases!(phases, particles, garnets, micas, layering)
                     end
                 end
 
-                # for igeom in eachindex(micas) # Micas: phase 3
-                #     if inside(𝐱, micas[igeom])
-                #         @index phases[ip, i, j] = 3.0
-                #     end
-                # end
+                for igeom in eachindex(micas) # Micas: phase 3
+                    if inside(𝐱, micas[igeom])
+                        @index phases[ip, i, j] = 3.0
+                    end
+                end
 
             end
         end
@@ -47,8 +47,8 @@ end
     #--------------------------------------------#
 
     # Boundary loading type
-    config = :free_slip
-    # config = BC_template
+    # config = :no_slip
+    config = BC_template
     D_BC = D_template
 
     # Material parameters
@@ -80,17 +80,17 @@ end
     # Time steps
     Δt0 = 0.5
     nt = 100
-    ALE = false
+    ALE = true
     C = 0.5
 
     # Solver parameters
-    iter_params = IterParams(niter=2, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10)) # default parameters
+    iter_params = IterParams(niter=1, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10)) # default parameters
 
     # X
     L = (x=1.0, y=1.0)
     Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
     x = (min=-L.x / 2, max=L.x / 2)
-    y = (min=-L.y, max=0.0)
+    y = (min=-L.y / 2, max=L.y / 2)
 
     # Allocate all fields and solver structures
     a = Allocs(nc, config, x, y, Δ, nphases)
@@ -119,13 +119,14 @@ end
     # Initialize particles
     nxcell = 36 # initial number of particles per cell
     max_xcell = 36 * 2 # maximum number of particles per cell
-    min_xcell = 1 # minimum number of particles per cell
+    min_xcell = 6 # minimum number of particles per cell
     args = 1 # Fields to be advected (1=phase)
     adv = JustPICAdvection(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
     phases, = adv.particle_args
     # Set material geometry
     set_phases!(phases, adv.particles, garnets, micas, layering)
-    update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
+    # update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
+    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1], nphases)
     #--------------------------------------------#
 
     rvec = zeros(length(iter_params.α))
@@ -136,14 +137,14 @@ end
 
     #--------------------------------------------#
 
-    # for it=1:nt
-    record(fig, "results/SimpleShearGarnets.mp4", 1:nt; framerate=15) do it
+    for it = 1:nt
+        # record(fig, "results/SimpleShearGarnets.mp4", 1:nt; framerate=15) do it
 
         dt = min(Δ.x / maximum(abs.(Array(a.V.x))), Δ.y / maximum(abs.(Array(a.V.y))))
-        dt *= 0.25
-        # Vmax = max(maximum(abs.(a.V.x)), maximum(abs.(a.V.y)))
+        dt *= 0.75
         Δ = (x=Δ.x, y=Δ.y, t=dt)
         main_loop(a, adv, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+        # main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
         #--------------------------------------------#
         # Visualise
@@ -187,12 +188,12 @@ end
 let
 
     # Resolution
-    nc = (x=10, y=10)
+    nc = (x=100, y=100)
 
     # # Boundary condition templates
     BCs = [
-        # :free_slip,
-        :EW_periodic,
+        :free_slip,
+        # :EW_periodic,
     ]
 
     # Boundary velocity gradient matrix
