@@ -85,7 +85,7 @@ end
     C = 0.5
 
     # Solver parameters
-    iter_params = IterParams(niter=2, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10)) # default parameters
+    iter_params = IterParams(solver_type=:PH, niter=2, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10)) # default parameters
 
     # X
     L = (x=1.0, y=1.0)
@@ -127,7 +127,7 @@ end
     # Set material geometry
     set_phases!(phases, adv.particles, garnets, micas, layering)
     # update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1], nphases)
+    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
     #--------------------------------------------#
 
     rvec = zeros(length(iter_params.α))
@@ -142,7 +142,7 @@ end
         # record(fig, "results/SimpleShearGarnets.mp4", 1:nt; framerate=15) do it
 
         dt = min(Δ.x / maximum(abs.(Array(a.V.x))), Δ.y / maximum(abs.(Array(a.V.y))))
-        dt *= 0.6
+        dt *= 0.7
         Δ = (x=Δ.x, y=Δ.y, t=dt)
         @time main_loop(a, adv, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
         # @benchmark main_loop($a, $adv, $it, $materials, $BC, $nc, $Δ, $to, $nphases, $iter_params, $rvec, $err)
@@ -190,12 +190,12 @@ end
 let
 
     # Resolution
-    nc = (x=99, y=99)
+    nc = (x=100, y=100)
 
     # # Boundary condition templates
     BCs = [
-        :free_slip,
-        # :EW_periodic,
+        # :free_slip,
+        :EW_periodic,
     ]
 
     # Boundary velocity gradient matrix

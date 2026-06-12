@@ -275,6 +275,16 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
             ResidualMomentum2D_y!(a.R, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.G, a.ρ, materials, a.number, a.type, BC, nc, Δ)
         end
 
+        @show extrema(a.η.c)
+        @show extrema(a.η.v)
+        @show extrema(a.phase_ratios.c)
+        @show extrema(a.phase_ratios.v)
+        # @show extrema(a.𝐷_ctl.c)
+        # @show extrema(a.𝐷_ctl.v)
+        # @show extrema(a.β.c)
+        # @show extrema(a.ξ.c)
+        # @show extrema(a.Pt.c)
+
         err.x[iter] = @views norm(a.R.x[inx_Vx, iny_Vx]) / sqrt(nVx)
         err.y[iter] = @views norm(a.R.y[inx_Vy, iny_Vy]) / sqrt(nVy)
         err.p[iter] = @views norm(a.R.p[inx_c, iny_c]) / sqrt(nPt)
@@ -313,5 +323,5 @@ function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, 
     inject_particles_phase!(adv.particles, adv.particle_args[1], (), ())
 
     # Update phase_ratios for the solver (includes ghost nodes)
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1], nphases)
+    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 end
