@@ -1,4 +1,6 @@
 using Test, StaticArrays, StagFDTools
+using StagFDTools.Stokes: Ranges
+using Statistics: mean
 
 function SetBCVx!(Vx_loc, bcx_loc, bcv, Δ)
 
@@ -103,17 +105,17 @@ function TestShearStrainRate(D_BC)
     # Resolution
     nc = (x = 10, y = 10)
 
-    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, size_x, size_y, size_c = Ranges(nc)
+    (; inx_Vx, iny_Vx, inx_Vy, iny_Vy, size_x, size_y) = Ranges(nc)
 
     #--------------------------------------------#
     # Boundary conditions
 
     # Define node types and set BC flags
-    type = BoundaryConditions(
-        fill(:out, (nc.x+3, nc.y+4)),
-        fill(:out, (nc.x+4, nc.y+3)),
-        fill(:out, (nc.x+2, nc.y+2)),
-        fill(:out, (nc.x+1, nc.y+1)),
+    type = (
+        Vx = fill(:out, (nc.x+3, nc.y+4)),
+        Vy = fill(:out, (nc.x+4, nc.y+3)),
+        Pt = fill(:out, (nc.x+2, nc.y+2)),
+        xy = fill(:out, (nc.x+1, nc.y+1)),
     )
 
     type.xy                  .= :τxy 
@@ -202,10 +204,10 @@ function TestShearStrainRate(D_BC)
         bcv_Vy     = (Vy_BC=Vy_BC, ∂Vy∂x_BC=∂Vy∂x_BC, ∂Vy∂y_BC=∂Vy∂y_BC)
 
         #########################
-        SetBCVx1!(Vx_loc, bcx_loc, bcv_Vx, Δ)
+        SetBCVx!(Vx_loc, bcx_loc, bcv_Vx, Δ)
 
         #########################
-        SetBCVy1!(Vy_loc, bcy_loc, bcv_Vy, Δ)
+        SetBCVy!(Vy_loc, bcy_loc, bcv_Vy, Δ)
 
         # ########################
         ε̇xy_loc .= 1/2* ( diff(Vx_loc, dims=2)/Δ.y + diff(Vy_loc, dims=1)/Δ.x ) 
