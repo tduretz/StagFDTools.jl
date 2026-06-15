@@ -34,12 +34,12 @@ end
 
 @views function main(nc, Ωl, Ωη)
 
-    # Independant
+    # Independent
     η0    = 1e0              # Shear viscosity
     ηsi    = 1.0       # Inclusion shear viscosity
     len    = 10.              # Box size
     ϕ0     = 1e-3
-    # Dependant
+    # Dependent
     ηb0      = 2*η0       # Bulk viscosity
     ηΦi      = ηb0
     k_ηf0    = 1.0 # Permeability / fluid viscosity

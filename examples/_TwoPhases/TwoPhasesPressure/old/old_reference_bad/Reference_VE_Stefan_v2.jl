@@ -1,10 +1,8 @@
 using StagFDTools, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2
 import Statistics:mean
-
-
 let 
 
-    Ωl = 0.15      # ---> δ/r
+    Ωl = 0.1       # ---> δ/r
     Ωr = 0.1       # ---> r/L
     Ωη = 10^(2)    # ---> ηΦ/ηs
 
@@ -28,7 +26,7 @@ let
 
 end
 
-@views function main(nc, Ωl, Ωη, file_index)
+@views function main(nc, Ωl, Ωη)
 
     M2Di_solver = false
 
@@ -36,25 +34,27 @@ end
     Ωr     = 0.1             # Ratio inclusion radius / L
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     ηsi    = 1.              # Shear viscosity
     L      = 1.              # Box size
     Pi     = 1.              # Initial ambiant pressure
     Φi     = 1e-2            # Reference
     n_CK   = 3.0
-    # Dependant
+    # Dependent
     @show Ωl, Ωr, L
     δ      = Ωl * Ωr * L     # δ = δ/r * r/L where L = 1
     ηbi    = Ωη * ηsi        # Bulk viscosity
     k_ηΦ   = δ^2 / (ηbi + 4/3 * ηsi) # Permeability / fluid viscosity
-    @show k_ηΦ / Φi^3
     r      = Ωr * L          # Inclusion radius
     ηs_inc = Ωηi * ηsi       # Inclusion shear viscosity
     ε̇      = Ωp * Pi / ηsi   # Background strain rate
     # Time integration
-    nt     = 1
-    Δt0    = 2.5e-4 #1 / ε̇ / nc.x / 2  
+    nt     = 300
+    Δt0    = 1e-3#1 / ε̇ / nc.x / 2  * 4
 
+    # @show Δt0, ε̇
+    # error()
+    
     # Velocity gradient matrix
     D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
    
@@ -66,23 +66,22 @@ end
         plasticity   = :off,
         linearizeΦ   = false, 
         single_phase = false,
-        conservative = true,
+        conservative = false,
         n     = [1.0  1.0],
-        m     = [0.0  0.0],
         n_CK  = [n_CK n_CK],
         η0   = [ηsi  ηs_inc], 
-        ξ0   = [ηbi  ηbi],
-        G     = [1e30 1e30], 
+        ηΦ    = [ηbi  ηbi],
+        G     = [1e0 1e0]*100, 
         ρs    = [1.0  1.0 ],
         ρf    = [1.0  1.0 ],
-        Kd    = [1e30 1e30],
-        Ks    = [1e30 1e30],
-        KΦ    = [1e30 1e30],
-        Kf    = [1e30 1e30],
+        Kd    = [1e0 1e0]*1,
+        Ks    = [1e0 1e0]*100,
+        KΦ    = [1e0 1e0]*100,
+        Kf    = [1e0 1e0]*100,
         k_ηf0 = [k_ηΦ/Φi^n_CK k_ηΦ/Φi^n_CK],
         ψ     = [10.    10.  ],
         ϕ     = [35.    35.  ],
-        C     = [1e70    1e70],
+        C     = [1e70   1e70],
         ηvp   = [0.0    0.0  ],
         cosϕ  = [0.0    0.0  ],
         sinϕ  = [0.0    0.0  ],
@@ -127,10 +126,10 @@ end
     type.Pt[2:end-1,2:end-1] .= :in
     # -------- Pf -------- #
     type.Pf[2:end-1,2:end-1] .= :in
-    type.Pf[1,:]             .= :Dirichlet 
-    type.Pf[end,:]           .= :Dirichlet 
-    type.Pf[:,1]             .= :Dirichlet
-    type.Pf[:,end]           .= :Dirichlet
+    type.Pf[1,:]             .= :Neumann 
+    type.Pf[end,:]           .= :Neumann 
+    type.Pf[:,1]             .= :Neumann
+    type.Pf[:,end]           .= :Neumann
     
     # Equation Fields
     number = Fields(
@@ -227,20 +226,15 @@ end
     #--------------------------------------------#
 
     probes = (
+        maxPt = zeros(nt),
+        maxPf = zeros(nt),
+        maxτ  = zeros(nt),
         Pti = zeros(nt),
         Pfi = zeros(nt),
         Pei = zeros(nt),
         ΔPt = zeros(nt),
         ΔPf = zeros(nt),
         ΔPe = zeros(nt),
-        normτ   = zeros(nt),
-        normPe  = zeros(nt),
-        normPt  = zeros(nt),
-        normPf  = zeros(nt),
-        meanτ   = zeros(nt),
-        meanPe  = zeros(nt),
-        meanPt  = zeros(nt),
-        meanPf  = zeros(nt),
         Pe  = zeros(nt),
         Pt  = zeros(nt),
         Pf  = zeros(nt),
@@ -392,6 +386,8 @@ end
 
         #--------------------------------------------#
 
+
+
         k_ηΦ_x = materials.k_ηf0[1] .* ((Φ.c[2:end,:] .+ Φ.c[1:end-1,:]) / 2).^ materials.n_CK[1]
         k_ηΦ_y = materials.k_ηf0[1] .* ((Φ.c[:,2:end] .+ Φ.c[:,1:end-1]) / 2).^ materials.n_CK[1]
 
@@ -408,8 +404,8 @@ end
 
         dΦdt = (Φ.c .- Φ0.c) / Δ.t
 
-        # P.t .-= mean(P.t[inx_c,iny_c]) 
-        # P.f .-= mean(P.f[inx_c,iny_c])
+        P.t .-= mean(P.t[inx_c,iny_c]) 
+        P.f .-= mean(P.f[inx_c,iny_c])
 
         # # p1 = heatmap(xc, yc, Vs[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Vs")
         # p1 = heatmap(xv, yc, V.x[inx_Vx,iny_Vx]', aspect_ratio=1, xlim=extrema(xc), title="Vf")
@@ -462,72 +458,61 @@ end
 
         display(fig)
 
-        probes.Pti[it]  = mean(P.t[phases.c.==2])
-        probes.Pfi[it]  = mean(P.f[phases.c.==2])
-        probes.Pei[it]  = mean(P.t[phases.c.==2] .- P.f[phases.c.==2])
-        probes.ΔPt[it]  = maximum(P.t) - minimum(P.t)
-        probes.ΔPf[it]  = maximum(P.f) - minimum(P.f)
-        probes.ΔPe[it]  = maximum(P.t .- P.f) - minimum(P.t .- P.f) 
-        probes.Pe[it]   = norm(P.t .- P.f)
-        probes.Pt[it]   = norm(P.t)
-        probes.Pf[it]   = norm(P.f)
-        probes.t[it]    = it*Δ.t
+        # save("./figures/benchmark_v2.png", f, px_per_unit=4)
 
-        # @show mean(P.t[phases.c.==2])
-        # @show mean(P.f[phases.c.==2])
+        # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
 
-        num = @sprintf("%03d", file_index)
-        save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_syst$(num).jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
+        # P.t .-= mean(P.t)
+        # P.f .-= mean(P.f)
+
+        probes.Pti[it]   = mean(P.t[phases.c.==2])
+        probes.Pfi[it]   = mean(P.f[phases.c.==2])
+        probes.Pei[it]   = mean(P.t[phases.c.==2] .- P.f[phases.c.==2])
+        probes.ΔPt[it]   = maximum(P.t) - minimum(P.t)
+        probes.ΔPf[it]   = maximum(P.f) - minimum(P.f)
+        probes.ΔPe[it]   = maximum(P.t .- P.f) - minimum(P.t .- P.f) 
+        probes.Pe[it]    = norm(P.t .- P.f)
+        probes.Pt[it]    = norm(P.t)
+        probes.Pf[it]    = norm(P.f)
+        probes.t[it]     = it*Δ.t
+        probes.maxPt[it] = maximum(P.t)
+        probes.maxPf[it] = maximum(P.f)
+        probes.maxτ[it]  = maximum(τ.II)
+
+        @show mean(P.t[phases.c.==2])
+        @show mean(P.f[phases.c.==2])
+
+        fig = Figure(fontsize = 14, size = (600, 600) )  
+        ax = Axis(fig[1,1], xlabelsize=20, ylabelsize=20, title=L"$\text{max} P^t, P^f, \tau_\text{II}$", xlabel = L"$t$ [-]", ylabel = L"$P, \tau$ [-]")
+        lines!(ax,  probes.t[1:it], probes.maxPt[1:it], label=L"$$P^t")
+        lines!(ax,  probes.t[1:it], probes.maxPf[1:it], label=L"$$P^f")
+        lines!(ax,  probes.t[1:it], probes.maxτ[1:it],  label=L"$$\tau_\text{II}")
+        axislegend(framevisible = false, position=:lt)
+        display(fig)
 
     end
 
-    # @show maximum(P.t[inx_c,iny_c])  - minimum(P.t[inx_c,iny_c]) 
-    # @show maximum(P.f[inx_c,iny_c])  - minimum(P.f[inx_c,iny_c]) 
-    # @show maximum(τ.II[inx_c,iny_c])
-
-    n = nc.x * nc.y
-    @show norm(P.f[inx_c,iny_c]) / sqrt(n)# -  minimum(Pf)
-
-
     #--------------------------------------------#
-    
-    @show Δt0
 
-
+    # if viscoelastic
+    #     save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic3.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
+    # else
+        # save("./examples/_TwoPhases/TwoPhasesPressure/Reference Model.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
+    # end
     return P, Δ, (c=xc, v=xv), (c=yc, v=yv)
 end
 
 function Run()
 
-    nc = (x=300, y=300)
-    # nc = (x=200, y=200)
-
+    nc = (x=100, y=100)
 
     # Mode 0   
     # Ωl = 10^(-1.7) # ---> δ/r
     # Ωl = 10^(-1.0)
     Ωη = 10^(2)
-    # Ωl = LinRange(0.015, 1.5, 50)
-    # for i in eachindex(Ωl)
-    #     main(nc,  Ωl[i], Ωη, i)
-    # end 
-
-    # # Point 0
-    # Ωl = 0.0015/10
-    # main(nc,  Ωl, Ωη, 0)
-
-    # # Point 51
-    # Ωl = 150
-    # main(nc,  Ωl, Ωη, 51)
-
-    Ωl = LinRange(-4, 3, 100)
-    for i in eachindex(Ωl)
-        main(nc,  10^(Ωl[i]), Ωη, i)
-    end 
-
-    # i = 31
-    # main(nc,  10^(Ωl[i]), Ωη, i)
-
+    Ωl = 1.0 #0.2
+    main(nc,  Ωl, Ωη);
+    
 end
 
 Run()

@@ -195,10 +195,10 @@ end
 
 @views function main(nc, Ωl, Ωη)
 
-    # Independant
+    # Independent
     len      = 10.              # Box size
     ϕ0       = 1e-6
-    # Dependant
+    # Dependent
     ε̇        = 1.0    # Background strain rate
 
     params = (mm = 1.0, mc = 100, rc = 2.0, gr = 0.0, er = ε̇)

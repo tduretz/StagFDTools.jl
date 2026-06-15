@@ -1,9 +1,8 @@
-using StagFDTools, Base.Threads, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2
+using StagFDTools, Base.Threads, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2
 import Statistics:mean
 using TimerOutputs
 
 let 
-
     Ωl = 0.15      # ---> δ/r
     Ωr = 0.1       # ---> r/L
     Ωη = 10^(2)    # ---> ηΦ/ηs
@@ -63,7 +62,7 @@ let
     @show Kf*σc
     @show KΦ*σc
 
-    # Back to Dimensionaless
+    # Back to dimensionless (check)
     @show k_ηf0_d / (Lc^2/ηc), δ_d/Lc, δ_d1/Lc
 end
 
@@ -81,13 +80,13 @@ end
     Ωr     = 0.1             # Ratio inclusion radius / L
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     ηsi    = 1.              # Shear viscosity
     L      = 1.              # Box size
     Pi     = 1.              # Initial ambiant pressure
     Φi     = 1e-2            # Reference
     n_CK   = 3.0
-    # Dependant
+    # Dependent
     @show Ωl, Ωr, L
     δ      = Ωl * Ωr * L     # δ = δ/r * r/L where L = 1
     ηbi    = Ωη * ηsi        # Bulk viscosity
@@ -109,7 +108,7 @@ end
         compressible = true,
         linearizeΦ   = false, 
         single_phase = false,
-        conservative = false,
+        conservative = true,
         plasticity   = DruckerPrager,
     )
     materials.η0             .= [ηsi,          ηs_inc      ] 
@@ -178,17 +177,17 @@ end
     nVy   = maximum(number.Vy)
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
-    M = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt), ExtendableSparseMatrix(nVx, nPt)), 
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt), ExtendableSparseMatrix(nVy, nPt)), 
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt), ExtendableSparseMatrix(nPt, nPf)),
-        Fields(ExtendableSparseMatrix(nPf, nVx), ExtendableSparseMatrix(nPf, nVy), ExtendableSparseMatrix(nPf, nPt), ExtendableSparseMatrix(nPf, nPf)),
+    M     = Fields(
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
+        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
-    M_PC = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt), ExtendableSparseMatrix(nVx, nPt)), 
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt), ExtendableSparseMatrix(nVy, nPt)), 
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt), ExtendableSparseMatrix(nPt, nPf)),
-        Fields(ExtendableSparseMatrix(nPf, nVx), ExtendableSparseMatrix(nPf, nVy), ExtendableSparseMatrix(nPf, nPt), ExtendableSparseMatrix(nPf, nPf)),
+    M_PC  = Fields(
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
+        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
     # Global arrays
     dx   = zeros(nVx + nVy + nPt + nPf)
@@ -197,13 +196,13 @@ end
     
     #--------------------------------------------#
     # Intialise field 
-    L   = (x=L, y=L)
-    Δ   = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
-    R   = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...), Φ=zeros(size_c...))
-    V   = (x=zeros(size_x...), y=zeros(size_y...))
-    η   = (c  =  ones(size_c...), v  =  ones(size_v...) )
-    Φ   = (c=Φi.*ones(size_c...), v=Φi.*ones(size_v...) )
-    Φ0  = (c=Φi.*ones(size_c...), v=Φi.*ones(size_v...) )
+    L       = (x=L, y=L)
+    Δ       = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
+    R       = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...), Φ=zeros(size_c...))
+    V       = (x=zeros(size_x...), y=zeros(size_y...))
+    η       = (c  =  ones(size_c...), v  =  ones(size_v...) )
+    Φ       = (c=Φi.*ones(size_c...), v=Φi.*ones(size_v...) )
+    Φ0      = (c=Φi.*ones(size_c...), v=Φi.*ones(size_v...) )
     ε̇       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
     τ0      = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...) )
     τ       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), f = zeros(size_c...)  )
@@ -232,8 +231,8 @@ end
     ΔP      = (t=zeros(size_c...), f=zeros(size_c...))
     ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
-
-    P   = (t=zeros(size_c...), f=zeros(size_c...))
+    P       = (t=zeros(size_c...), f=zeros(size_c...))
+    
     xv  = LinRange(-L.x/2, L.x/2, nc.x+1)
     yv  = LinRange(-L.y/2, L.y/2, nc.y+1)
     xc  = LinRange(-L.x/2+Δ.x/2, L.x/2-Δ.x/2, nc.x)
@@ -360,7 +359,7 @@ end
                 solver_cache = KSP_GCR_TwoPhases_setup( M_PC; restart=GCR_restart, maxit=GCR_maxit)
             end
 
-            # Sparse-direct solver
+            # Sparse-direct-iterative solver
             @timeit to "Linear solve" begin
                 two_phases_mechanical_solver!(dx, M, r, M_PC;
                     solver=solver, solver_cache=solver_cache,
@@ -381,12 +380,12 @@ end
         Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
         Vs   = (x=Vxsc, y=Vysc )
         Vs_mag   = sqrt.( Vxsc.^2 .+ Vysc.^2)
-        Vxf  = -k_ηΦ_x .* diff(P.f, dims=1)/Δ.x
-        Vyf  = -k_ηΦ_y .* diff(P.f, dims=2)/Δ.y
-        Vxfc = 0.5*(Vxf[1:end-1,2:end-1] .+ Vxf[2:end,2:end-1])
-        Vyfc = 0.5*(Vyf[2:end-1,1:end-1] .+ Vyf[2:end-1,2:end])
-        Vf   = (x=Vxfc, y=Vyfc )
-        Vf_mag  = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+        Qxf  = -k_ηΦ_x .* diff(P.f, dims=1)/Δ.x
+        Qyf  = -k_ηΦ_y .* diff(P.f, dims=2)/Δ.y
+        Qxfc = 0.5*(Qxf[1:end-1,2:end-1] .+ Qxf[2:end,2:end-1])
+        Qyfc = 0.5*(Qyf[2:end-1,1:end-1] .+ Qyf[2:end-1,2:end])
+        Qf   = (x=Qxfc, y=Qyfc )
+        Qf_mag  = sqrt.( Qxfc.^2 .+ Qyfc.^2)
         dΦdt = (Φ.c .- Φ0.c) / Δ.t
         
         @show τvis = norm(τ.II[inx_c,iny_c]) / sqrt(nc.x*nc.y)
@@ -407,8 +406,8 @@ end
         arrows2d!(ax1, xc[ind], yc[ind], Vs.x[ind,ind], Vs.y[ind,ind], lengthscale = 1e-1, color = :white)
 
         ax2 = Axis(fig[3,2], xlabelsize=20, ylabelsize=20, aspect=DataAspect()) #, title=L"$V^\text{f} \times 1000$"
-        hmVf = heatmap!(ax2, xc, yc, Vf_mag*1000, colormap=cmap, colorrange=(0,0.2)) 
-        arrows2d!(ax2, xc[ind], yc[ind], Vf.x[ind,ind], Vf.y[ind,ind], lengthscale = 500, color = :white)
+        hmVf = heatmap!(ax2, xc, yc, Qf_mag*1000, colormap=cmap, colorrange=(0,0.2)) 
+        arrows2d!(ax2, xc[ind], yc[ind], Qf.x[ind,ind], Qf.y[ind,ind], lengthscale = 500, color = :white)
         # arrowsize = V.arrow, lengthscale = V.scale)
 
         ax2 = Axis(fig[3,3], xlabelsize=20, ylabelsize=20, aspect=DataAspect()) #, title=L"$V^\text{f} \times 1000$"
@@ -427,8 +426,8 @@ end
 
         # # contour!( ax3, xc, yc, Pe[inx_c,iny_c], levels=[0.1], color=:white)
         
-        Colorbar(fig[4,   1], hmVs, label = L"D) $|V^\text{s}|$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = false )
-        Colorbar(fig[4,   2], hmVf, label = L"E) $|Q^\text{f}| \times 1000$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = false )
+        Colorbar(fig[4,   1], hmVs, label = L"D) $|\text{v}^\text{s}|$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = false )
+        Colorbar(fig[4,   2], hmVf, label = L"E) $|\text{q}^\text{f}| \times 1000$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = false )
         Colorbar(fig[4,   3], hmτ,  label = L"F) $\tau_{II}$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = false )
 
         Colorbar(fig[1, 1], hm1, label = L"A) $P^\text{t}$ [-]", height=10, width = 150, labelsize = 16, ticklabelsize = 12, vertical=false, valign=true, flipaxis = true )
@@ -454,7 +453,7 @@ end
         @show norm(P.f[inx_c,iny_c]) / sqrt(nc.x*nc.y)
 
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_200x200_omega$(Ωl).jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc), "τvis", τvis, "Ptvis", Ptvis, "Pfvis", Pfvis, "Peffvis", Peffvis)
-        # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc), "τvis", τvis, "Ptvis", Ptvis, "Pfvis", Pfvis, "Peffvis", Peffvis)
+        save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Qf", (x=Qxfc, y=Qyfc), "τvis", τvis, "Ptvis", Ptvis, "Pfvis", Pfvis, "Peffvis", Peffvis)
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_endmember1.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_middle.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))
         # save("./examples/_TwoPhases/TwoPhasesPressure/PoroviscousReference_endmember2.jld2", "Ωl", Ωl, "Ωη", Ωη,"x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "dΦdt", dΦdt, "Φ", Φ, "τ", τ, "Vs", (x=Vxsc, y=Vysc), "Vf", (x=Vxfc, y=Vyfc))        
@@ -467,14 +466,13 @@ end
     #--------------------------------------------#
     
     @show Δt0
-
     @show nthreads()
     display(to)
 
     return P, Δ, (c=xc, v=xv), (c=yc, v=yv)
 end
 
-function Run()
+let 
 
     # nc = (x=1000, y=1000) 
     # nc = (x=700, y=700)
@@ -489,4 +487,4 @@ function Run()
     
 end
 
-Run()
+

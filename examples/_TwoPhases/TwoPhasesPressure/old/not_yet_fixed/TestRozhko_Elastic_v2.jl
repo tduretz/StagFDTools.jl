@@ -1,4 +1,4 @@
-using StagFDTools, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, Plots, LinearAlgebra, SparseArrays, Printf, JLD2
+using StagFDTools, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, Plots, LinearAlgebra, SparseArrays, Printf, JLD2, ExactFieldSolutions
 import Statistics:mean
 using DifferentiationInterface
 using StagFDTools: Duplicated, Const, forwarddiff_gradients!, forwarddiff_gradient, forwarddiff_jacobian
@@ -193,45 +193,12 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, t
     end
 end
 
-function Rozhko2008(rho, phi, r1, rc, P0, dPf, m, G, ν)
-    eta   = (1.0 - 2.0*ν)/(1.0-ν)/2.0
-    kappa = 3. - 4. * ν
-    if rho < r1
-        Pf   = dPf
-        Ux   = 0.
-        Uy   = 0.
-        Ur   = 0.
-        Ut   = 0.
-        Pt   = 0.
-        Sxx  = 0.  
-        Syy  = 0.  
-        Sxy  = 0.  
-    else
-        Srr = (eta*rho^2*dPf*m^3*cos(2*phi)*log(1/(rho^32))+eta*rho^2*dPf*m^4*log(1/(rc^8))+eta*dPf*m^4*log(rho^8*rc^8)+eta*rho^6*dPf*log(rc^8)+eta*m^2*rho^4*P0*log(1/(rho^32))+eta*m^2*rho^4*dPf*log(rho^32)+eta*m*rho^6*P0*cos(2*phi)*log(rho^32)+eta*m^2*rho^2*dPf*log(1/(rc^8))+eta*rho^2*P0*m^4*log(rc^8)+eta*rho^8*dPf*log(1/rc^8*rho^8)+eta*rho^8*P0*log(1/rho^8*rc^8)+8*eta*P0*m^4+24*eta*m^2*rho^2*dPf+16*eta*m^2*rho^4*P0-16*eta*m^2*rho^4*dPf-8*eta*rho^6*dPf*m^2+8*eta*rho^6*P0*m^2-8*eta*dPf*m^4-24*eta*m^2*rho^2*P0+eta*rho^6*dPf*m^2*log(rc^8)+8*eta*rho^2*dPf*m^4-8*eta*rho^2*P0*m^4+8*eta*rho^2*dPf*m^3*cos(2*phi)-8*eta*m^3*dPf*cos(2*phi)+8*eta*m^3*P0*cos(2*phi)+eta*P0*m^4*log(1/(rho^8*rc^8))+eta*rho^6*P0*log(1/(rc^8))+24*eta*m*rho^4*P0*cos(2*phi)-8*eta*m^2*rho^2*P0*cos(4*phi)+8*eta*m^2*rho^4*P0*cos(4*phi)-24*eta*m*rho^6*P0*cos(2*phi)+8*eta*m^2*rho^2*dPf*cos(4*phi)-8*eta*m^2*rho^4*dPf*cos(4*phi)-8*eta*rho^2*P0*m^3*cos(2*phi)+eta*m^2*rho^4*dPf*log(rho^16)*cos(4*phi)+eta*m^2*rho^4*P0*log(1/(rho^16))*cos(4*phi)-24*eta*m*rho^4*dPf*cos(2*phi)+eta*rho^2*P0*m^3*cos(2*phi)*log(rho^32)+24*eta*m*rho^6*dPf*cos(2*phi)+eta*m^2*rho^2*P0*log(rc^8)+eta*rho^6*P0*m^2*log(1/(rc^8))+eta*m*rho^6*dPf*cos(2*phi)*log(1/(rho^32)))/(m^2*rho^4*cos(4*phi)*log(rc^16)+m^2*rho^4*log(rc^32)+rho^6*m*cos(2*phi)*log(1/(rc^32))+rho^2*m^3*cos(2*phi)*log(1/(rc^32))+rho^8*log(rc^8)+m^4*log(rc^8));
-        Stt = (eta*dPf*m^4*log(rho^8*rc^8)+eta*m^2*rho^4*P0*log(1/(rho^32))+eta*m^2*rho^4*dPf*log(rho^32)+eta*m^2*rho^2*dPf*log(rc^8)+eta*rho^6*P0*m^2*log(rc^8)+eta*rho^2*dPf*m^4*log(rc^8)+eta*m^2*rho^2*P0*log(1/(rc^8))+eta*rho^8*dPf*log(1/rc^8*rho^8)+eta*rho^8*P0*log(1/rho^8*rc^8)+16*eta*P0*m^4-24*eta*m^2*rho^2*dPf+16*eta*m^2*rho^4*P0-16*eta*m^2*rho^4*dPf+8*eta*rho^6*dPf*m^2-8*eta*rho^6*P0*m^2-16*eta*dPf*m^4+24*eta*m^2*rho^2*P0-8*eta*rho^2*dPf*m^4+8*eta*rho^2*P0*m^4+56*eta*rho^2*dPf*m^3*cos(2*phi)+8*eta*m^3*dPf*cos(2*phi)-8*eta*m^3*P0*cos(2*phi)+eta*P0*m^4*log(1/(rho^8*rc^8))-24*eta*m*rho^4*P0*cos(2*phi)+8*eta*m^2*rho^2*P0*cos(4*phi)+8*eta*m^2*rho^4*P0*cos(4*phi)+24*eta*m*rho^6*P0*cos(2*phi)-8*eta*m^2*rho^2*dPf*cos(4*phi)-8*eta*m^2*rho^4*dPf*cos(4*phi)-56*eta*rho^2*P0*m^3*cos(2*phi)+eta*m^2*rho^4*dPf*log(rho^16)*cos(4*phi)+eta*m^2*rho^4*P0*log(1/(rho^16))*cos(4*phi)+24*eta*m*rho^4*dPf*cos(2*phi)-24*eta*m*rho^6*dPf*cos(2*phi)+eta*rho^6*dPf*log(1/(rc^8))+eta*rho^6*dPf*m^2*log(1/(rc^8))+eta*rho^2*P0*m^3*cos(2*phi)*log(rho^32*rc^32)+eta*rho^6*P0*log(rc^8)+eta*rho^2*P0*m^4*log(1/(rc^8))+eta*m*rho^6*P0*cos(2*phi)*log(1/rc^32*rho^32)+8*eta*rho^8*dPf-8*eta*rho^8*P0+eta*m*rho^6*dPf*cos(2*phi)*log(1/rho^32*rc^32)+eta*rho^2*dPf*m^3*cos(2*phi)*log(1/(rho^32*rc^32)))/(m^2*rho^4*cos(4*phi)*log(rc^16)+m^2*rho^4*log(rc^32)+rho^6*m*cos(2*phi)*log(1/(rc^32))+rho^2*m^3*cos(2*phi)*log(1/(rc^32))+rho^8*log(rc^8)+m^4*log(rc^8));
-        Srt = eta*m*sin(2*phi)*(-2*rho^6*dPf*log(rc)+2*rho^2*log(rc)*P0*m^2-2*rho^4*log(rc)*P0*m^2+2*rho^4*dPf*log(rc)*m^2+2*m*dPf*rho^2*cos(2*phi)-2*m*P0*rho^2*cos(2*phi)-2*rho^4*dPf*m^2+2*rho^6*log(rc)*P0+2*rho^4*P0*m^2-2*m*rho^4*dPf*cos(2*phi)-m^2*dPf+m^2*P0-3*rho^2*P0*m^2+3*rho^4*P0-3*rho^4*dPf+3*rho^2*dPf*m^2-3*rho^6*P0+3*rho^6*dPf+2*m*rho^4*P0*cos(2*phi)+2*rho^4*dPf*log(rc)-2*rho^2*dPf*log(rc)*m^2-2*rho^4*log(rc)*P0)/log(rc)/(4*m^2*rho^4*cos(2*phi)^2+2*m^2*rho^4-4*rho^6*m*cos(2*phi)-4*rho^2*m^3*cos(2*phi)+rho^8+m^4);
-                
-        Ux  = -1/8*eta*r1*cos(phi)*(11*m*rho^4*dPf-11*m*rho^4*P0+kappa*rho^6*dPf+4*m^3*log(rho)*P0-4*m^3*log(rho)*dPf+5*rho^2*P0*m^2-kappa*rho^6*P0+4*rho^2*P0*m^3-3*kappa*m^3*dPf+3*kappa*m^3*P0-4*rho^2*dPf*m^3+12*m*P0*rho^2-12*rho^2*m*dPf-4*rho^2*m*log(rc)*P0+2*kappa*log(rc)*rho^6*P0+4*rho^2*dPf*log(rc)*m^3+4*kappa*log(rc)*m^3*dPf-20*rho^4*m*dPf*cos(phi)^2+6*rho^4*m*log(rc)*P0+20*m*P0*rho^4*cos(phi)^2+12*dPf*m^2*cos(phi)^2*rho^2-16*m*P0*cos(phi)^2*rho^2-12*P0*m^2*cos(phi)^2*rho^2+16*m*dPf*cos(phi)^2*rho^2+dPf*m^3+4*P0*m^2-rho^6*P0+rho^6*dPf-5*rho^2*dPf*m^2-8*kappa*log(rc)*m*P0*rho^4*cos(phi)^2+8*kappa*log(rc)*m^2*dPf*rho^2+2*kappa*log(rc)*m*P0*rho^4-2*kappa*log(rc)*m^2*P0*rho^2-4*kappa*rho^4*dPf*m*cos(phi)^2+4*kappa*log(rc)*m*dPf*rho^4+4*kappa*m*P0*rho^4*cos(phi)^2-8*rho^4*m*log(rc)*P0*cos(phi)^2+16*cos(phi)^2*dPf*rho^2*log(rho)*m^2+4*rho^4*dPf*m^2-4*rho^4*P0*m^2-5*kappa*rho^2*dPf*m^2+5*kappa*m^2*P0*rho^2+16*cos(phi)^2*m*log(rho)*dPf*rho^4-16*cos(phi)^2*rho^2*P0*log(rho)*m^2-16*cos(phi)^2*m*log(rho)*P0*rho^4+8*kappa*log(rc)*m^2*P0*cos(phi)^2*rho^2-16*kappa*log(rc)*m^2*dPf*cos(phi)^2*rho^2-12*kappa*m^2*P0*cos(phi)^2*rho^2-16*log(rc)*m^2*dPf*cos(phi)^2*rho^2+4*rho^6*dPf*log(rc)+4*rho^4*log(rc)*P0-4*rho^4*dPf*log(rc)+8*log(rc)*m^2*P0*cos(phi)^2*rho^2+12*kappa*m^2*dPf*cos(phi)^2*rho^2-2*rho^6*log(rc)*P0-4*dPf*m^2-4*rho^4*dPf*log(rc)*m^2+4*rho^4*log(rc)*P0*m^2+12*rho^2*dPf*log(rc)*m^2-6*rho^2*log(rc)*P0*m^2-P0*m^3+kappa*m*P0*rho^4-kappa*rho^4*dPf*m-12*dPf*rho^2*log(rho)*m^2+12*rho^2*P0*log(rho)*m^2-4*rho^2*log(rc)*P0*m^3-12*m*log(rho)*dPf*rho^4+12*m*log(rho)*P0*rho^4-2*kappa*log(rc)*m^3*P0+4*rho^2*m*dPf*log(rc)+4*rho^6*P0*log(rho)-4*dPf*rho^6*log(rho)+2*log(rc)*m^3*P0)/rho/log(rc)/G/(-m^2+4*m*rho^2*cos(phi)^2-2*m*rho^2-rho^4);       
-        Uy  = -1/8*eta*r1*sin(phi)*(-9*m*rho^4*dPf+9*m*rho^4*P0-kappa*rho^6*dPf+4*m^3*log(rho)*P0-4*m^3*log(rho)*dPf+7*rho^2*P0*m^2+kappa*rho^6*P0+4*rho^2*P0*m^3-3*kappa*m^3*dPf+3*kappa*m^3*P0-4*rho^2*dPf*m^3-4*m*P0*rho^2+4*rho^2*m*dPf-4*rho^2*m*log(rc)*P0-2*kappa*log(rc)*rho^6*P0+4*rho^2*dPf*log(rc)*m^3+4*kappa*log(rc)*m^3*dPf+20*rho^4*m*dPf*cos(phi)^2-2*rho^4*m*log(rc)*P0-20*m*P0*rho^4*cos(phi)^2+12*dPf*m^2*cos(phi)^2*rho^2+16*m*P0*cos(phi)^2*rho^2-12*P0*m^2*cos(phi)^2*rho^2-16*m*dPf*cos(phi)^2*rho^2+dPf*m^3-4*P0*m^2+rho^6*P0-rho^6*dPf-7*rho^2*dPf*m^2+8*kappa*log(rc)*m*P0*rho^4*cos(phi)^2+8*kappa*log(rc)*m^2*dPf*rho^2-6*kappa*log(rc)*m*P0*rho^4-6*kappa*log(rc)*m^2*P0*rho^2+4*kappa*rho^4*dPf*m*cos(phi)^2+4*kappa*log(rc)*m*dPf*rho^4-4*kappa*m*P0*rho^4*cos(phi)^2+8*rho^4*m*log(rc)*P0*cos(phi)^2+16*cos(phi)^2*dPf*rho^2*log(rho)*m^2-4*rho^4*dPf*m^2+4*rho^4*P0*m^2-7*kappa*rho^2*dPf*m^2+7*kappa*m^2*P0*rho^2-16*cos(phi)^2*m*log(rho)*dPf*rho^4-16*cos(phi)^2*rho^2*P0*log(rho)*m^2+16*cos(phi)^2*m*log(rho)*P0*rho^4+8*kappa*log(rc)*m^2*P0*cos(phi)^2*rho^2-16*kappa*log(rc)*m^2*dPf*cos(phi)^2*rho^2-12*kappa*m^2*P0*cos(phi)^2*rho^2-16*log(rc)*m^2*dPf*cos(phi)^2*rho^2-4*rho^6*dPf*log(rc)-4*rho^4*log(rc)*P0+4*rho^4*dPf*log(rc)+8*log(rc)*m^2*P0*cos(phi)^2*rho^2+12*kappa*m^2*dPf*cos(phi)^2*rho^2+2*rho^6*log(rc)*P0+4*dPf*m^2+4*rho^4*dPf*log(rc)*m^2-4*rho^4*log(rc)*P0*m^2+4*rho^2*dPf*log(rc)*m^2-2*rho^2*log(rc)*P0*m^2-P0*m^3+5*kappa*m*P0*rho^4-5*kappa*rho^4*dPf*m-4*dPf*rho^2*log(rho)*m^2+4*rho^2*P0*log(rho)*m^2-4*rho^2*log(rc)*P0*m^3+4*m*log(rho)*dPf*rho^4-4*m*log(rho)*P0*rho^4-2*kappa*log(rc)*m^3*P0+4*rho^2*m*dPf*log(rc)-4*rho^6*P0*log(rho)+4*dPf*rho^6*log(rho)+2*log(rc)*m^3*P0)/rho/log(rc)/G/(m^2-4*m*rho^2*cos(phi)^2+2*m*rho^2+rho^4);
-
-        Ur  =  1/8*r1*eta*(-4*rho^2*dPf*log(rc)*m^2+4*m^2*log(rho)*dPf-4*m^2*log(rho)*P0-4*rho^2*log(rc)*m*P0*cos(2*phi)-2*rho^4*log(rc)*P0+4*rho^4*dPf*log(rc)+4*rho^2*log(rc)*P0*m^2+4*kappa*log(rc)*m*dPf*rho^2*cos(2*phi)+4*rho^2*log(rc)*m*dPf*cos(2*phi)+2*kappa*log(rc)*m^2*P0-4*kappa*log(rc)*m^2*dPf+2*kappa*log(rc)*rho^4*P0-4*m*P0*cos(2*phi)-4*kappa*rho^2*dPf*m*cos(2*phi)+4*kappa*rho^2*P0*m*cos(2*phi)-2*log(rc)*m^2*P0-3*kappa*P0*m^2+kappa*rho^4*dPf+4*rho^2*log(rc)*P0+3*kappa*dPf*m^2-4*dPf*rho^2*log(rc)-kappa*rho^4*P0+4*m*dPf*cos(2*phi)+P0*m^2-dPf*m^2-8*m*dPf*rho^2*cos(2*phi)+8*m*P0*rho^2*cos(2*phi)-4*rho^4*dPf*log(rho)+4*rho^4*P0*log(rho)-4*kappa*log(rc)*rho^2*P0*m*cos(2*phi)-rho^4*P0+rho^4*dPf-4*rho^2*P0*m^2+4*rho^2*dPf*m^2)/(-2*m*rho^2*cos(2*phi)+rho^4+m^2)^(1/2)/rho/G/log(rc);
-        Ut  = -1/4*r1*eta*m*sin(2*phi)*(2*dPf*rho^2*log(rc)-kappa*rho^2*dPf+rho^2*kappa*P0+2*kappa*log(rc)*dPf*rho^2-rho^2*P0+rho^2*dPf-2*dPf+2*P0-4*rho^2*dPf*log(rho)+4*rho^2*P0*log(rho))/(-2*m*rho^2*cos(2*phi)+rho^4+m^2)^(1/2)/rho/G/log(rc);
-
-        Pf  = P0 + dPf - dPf*log(rho)/log(rc);
-        Sxx =  1/2*(((-2*rho.^2+1+rho.^4).*Srr+(-2*rho.^2-1-rho.^4).*Stt).*cos(2*phi)+(-2*rho.^2+1+rho.^4).*Srr+(2*rho.^2+1+rho.^4).*Stt+(-2*rho.^4 .*sin(2*phi)+2*sin(2*phi)).*Srt)./(-2*rho.^2 .*cos(2*phi)+rho.^4+1);
-        Syy = -1/2*(((2*rho.^2+1+rho.^4).*Srr+(-rho.^4+2*rho.^2-1).*Stt).*cos(2*phi)+(-2*rho.^2-1-rho.^4).*Srr+(-rho.^4+2*rho.^2-1).*Stt+(-2*rho.^4 .*sin(2*phi)+2*sin(2*phi)).*Srt)./(-2*rho.^2 .*cos(2*phi)+rho.^4+1);
-        Sxy =  1/2*((2+2*rho.^4).*Srt.*cos(2*phi)+(-sin(2*phi)+rho.^4 .*sin(2*phi)).*Srr+(sin(2*phi)-rho.^4 .*sin(2*phi)).*Stt-4*Srt.*rho.^2)./(-2*rho.^2 .*cos(2*phi)+rho.^4+1);
-        Pt  = -1/2*(Sxx + Syy) 
-    end   
-    return (ux=Ux, uy=Uy, ur=Ur, ut=Ut, pt=Pt, pf=Pf, sxx=Sxx, syy=Syy, sxy=Sxy)
-end
-
 @views function main(nc, Ωl, Ωη)
 
-    # Independant
+    # Independent
     len      = 20.              # Box size
     ϕ0       = 1e-6
-    # Dependant
+    # Dependent
     r_in     = 1.0        # Inclusion radius 
     r_out    = 10*r_in
     ε̇        = 0.0    # Background strain rate
@@ -242,16 +209,15 @@ end
     K      = 2/3*G_anal*(1+ν_anal)/(1-2ν_anal) 
 
     materials = ( 
-        oneway       = true,
         compressible = true,
         n     = [1.0 1.0  1.0],
-        η0   = [1e0  1e0*1e-6  1e0*1e-6], 
-        ηb    = [K  K*1e6   K*1e-6]./(1-ϕ0),
-        G     = [1e30 1e30 1e30], 
-        Kd    = [1e30 1e30 1e30],
-        Ks    = [1e30 1e30 1e30],
-        KΦ    = [1e30 1e30 1e30],
-        Kf    = [1e30 1e30 1e30],
+        η0   = [1e40  1e40*1e-6  1e40*1e-6], 
+        ηb    = [1e40  1e40*1e6   1e40*1e-6],
+        G     = [G_anal  1e-10 1e-10 ], 
+        Kd    = [K  K*1e6 1*K/1e6 ],
+        Ks    = [K  K*1e6 1*K/1e6 ],
+        KΦ    = [K  K*1e6 1*K/1e6 ],
+        Kf    = [K  K*1e6 1*K/1e6 ],
         k_ηf0 = [1e0 1e0 1e0],
     )
 
@@ -259,9 +225,10 @@ end
     m      = 0.0   # 0 - circle, 0.5 - ellipse, 1 - cut 
     # dependent scales
     Pf_out = 0.    # Fluid pressure on external boundary, Pa
-    dPf   = 1.0   # Fluid pressure on cavity - Po    
-    Δt0   = 1e0
-    nt    = 1
+    dPf    = 1.0   # Fluid pressure on cavity - Po    
+    Δt0    = 1e0
+    nt     = 1
+    params = (r_in=r_in, r_out=r_out, P0=Pf_out, dPf=dPf, m=m, nu=ν_anal, G=G_anal)
 
     # Velocity gradient matrix
     D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
@@ -276,6 +243,7 @@ end
     V   = (x=zeros(size_x...), y=zeros(size_y...))
     η   = (c  =  ones(size_c...), v  =  ones(size_v...) )
     ϕ   = (c=ϕ0.*ones(size_c...), v=ϕ0.*ones(size_c...) )
+    
     ε̇       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
     τ0      = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...) )
     τ       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
@@ -326,7 +294,7 @@ end
     type.Pf[:,1]             .= :Dirichlet
     type.Pf[:,end]           .= :Dirichlet
 
-    # Add a constrant pressure within a circular region
+    # Add a constant pressure within a circular region
     @views type.Pf[inx_c,  iny_c ][(xc.^2 .+ (yc').^2) .<= r_in^2 ] .= :constant
     @views type.Pf[inx_c,  iny_c ][(xc.^2 .+ (yc').^2) .>= r_out^2] .= :constant
     
@@ -336,8 +304,8 @@ end
     @views type.Vy[inx_Vy, iny_Vy][(xc.^2 .+ (yv').^2) .<= r_in^2 ] .= :constant
     @views type.Vy[inx_Vy, iny_Vy][(xc.^2 .+ (yv').^2) .>= r_out^2] .= :constant
     
-    # @views type.Pt[inx_c, iny_c][(xc.^2 .+ (yc').^2) .<= r_in^2] .= :constant
-    # @views type.Pt[inx_c, iny_c][(xc.^2 .+ (yc').^2) .>= r_out^2] .= :constant
+    @views type.Pt[inx_c, iny_c][(xc.^2 .+ (yc').^2) .<= r_in^2 ] .= :constant
+    @views type.Pt[inx_c, iny_c][(xc.^2 .+ (yc').^2) .>= r_out^2] .= :constant
     
     #--------------------------------------------#
 
@@ -372,42 +340,40 @@ end
     Pt_ana = zero(BC.Pf)
     ϵ_Ur   = zero(BC.Pf)
     ϵ_Pf   = zero(BC.Pf)
+    ϵ_Pt   = zero(BC.Pf)
     ϵ_Ux   = zero(BC.Vx)
 
     for i=1:size(BC.Pf,1), j=1:size(BC.Pf,2)
         # coordinate transform
-        ro  = sqrt(xce[i]^2 + yce[j]^2)
-        phi = atan(yce[j], xce[i])
-        sol = Rozhko2008(ro, phi, r_in, r_out, Pf_out, dPf, m, G_anal, ν_anal)
+        sol = Poroelasticity2D_Rozhko2008([xce[i]; yce[j]] ; params)
         BC.Pf[i,j]  = sol.pf
+        # P.f[i,j]    = sol.pf
         Pf_ana[i,j] = sol.pf
-        Pt_ana[i,j] = sol.pf
-        Ur_ana[i,j] = sol.ur
-        Ut_ana[i,j] = sol.ut
+        # P.t[i,j]    = sol.pt*3/2
+        BC.Pt[i,j]  = sol.pt*3/2
+        Pt_ana[i,j] = sol.pt*3/2
+        Ur_ana[i,j] = sol.u_pol[1]
+        Ut_ana[i,j] = sol.u_pol[2]
     end
 
     xvx = LinRange(-L.x/2-Δ.x, L.x/2+Δ.x, nc.x+3)# nc.x+3, nc.y+4
     yvx  = LinRange(-L.y/2-3*Δ.y/2, L.y/2+3*Δ.y/2, nc.y+4)
     for i=1:size(BC.Vx,1), j=1:size(BC.Vx,2)
         # coordinate transform
-        ro  = sqrt(xvx[i]^2 + yvx[j]^2)
-        phi = atan(yvx[j], xvx[i])
-        sol = Rozhko2008(ro, phi, r_in, r_out, Pf_out, dPf, m, G_anal, ν_anal)
-        BC.Vx[i,j] = sol.ux
-        V.x[i,j]   = sol.ux
-        Ux_ana[i,j] = sol.ux
+        sol = Poroelasticity2D_Rozhko2008([xvx[i]; yvx[j]] ; params)
+        BC.Vx[i,j]  = sol.u[1]
+        V.x[i,j]    = sol.u[1]
+        Ux_ana[i,j] = sol.u[1]
     end
 
     xvy = LinRange(-L.x/2-3*Δ.x/2, L.x/2+3*Δ.x/2, nc.x+4)# nc.x+3, nc.y+4
     yvy  = LinRange(-L.y/2-Δ.y, L.y/2+Δ.y, nc.y+3)
     for i=1:size(BC.Vy,1), j=1:size(BC.Vy,2)
         # coordinate transform
-        ro  = sqrt(xvy[i]^2 + yvy[j]^2)
-        phi = atan(yvy[j], xvy[i])
-        sol = Rozhko2008(ro, phi, r_in, r_out, Pf_out, dPf, m, G_anal, ν_anal)
-        BC.Vy[i,j] = sol.uy
-        V.y[i,j]   = sol.uy
-        Uy_ana[i,j] = sol.uy
+        sol = Poroelasticity2D_Rozhko2008([xvy[i]; yvy[j]] ; params)
+        BC.Vy[i,j]  = sol.u[2]
+        V.y[i,j]    = sol.u[2]
+        Uy_ana[i,j] = sol.u[2]
     end
 
     # Equation Fields
@@ -480,117 +446,123 @@ end
         AssembleContinuity2D!(M, V, P, P0, ϕ, phases, materials, number, pattern, type, BC, nc, Δ)
         AssembleFluidContinuity2D!(M, V, P, P0, ϕ, phases, materials, number, pattern, type, BC, nc, Δ)
 
-    # Two-phases operator as block matrix
-    𝑀 = [
-        M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
-        M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
-        M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
-        M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
-    ]
+        # Two-phases operator as block matrix
+        𝑀 = [
+            M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
+            M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
+            M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
+            M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
+        ]
 
-    @info "System symmetry"
-    𝑀diff = 𝑀 - 𝑀'
-    dropzeros!(𝑀diff)
-    @show norm(𝑀diff)
+        @info "System symmetry"
+        𝑀diff = 𝑀 - 𝑀'
+        dropzeros!(𝑀diff)
+        @show norm(𝑀diff)
 
-    #--------------------------------------------#
-    # Direct solver 
-    @time dx = - 𝑀 \ r
+        #--------------------------------------------#
+        # Direct solver 
+        @time dx = - 𝑀 \ r
 
-    #--------------------------------------------#
-    UpdateSolution!(V, P, dx, number, type, nc)
+        #--------------------------------------------#
+        UpdateSolution!(V, P, dx, number, type, nc)
 
-    #--------------------------------------------#
+        #--------------------------------------------#
 
-    # Residual check
-    TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, type, BC, materials, phases, Δ)
-    ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-    ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-    ResidualContinuity2D!(R, V, P, P0, ϕ, phases, materials, number, type, BC, nc, Δ) 
-    ResidualFluidContinuity2D!(R, V, P, P0, ϕ, phases, materials, number, type, BC, nc, Δ) 
+        # Residual check
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, type, BC, materials, phases, Δ)
+        ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
+                    ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
 
-    @info "Residuals"
-    @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
-    @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
-    @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
-    @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
+        ResidualContinuity2D!(R, V, P, P0, ϕ, phases, materials, number, type, BC, nc, Δ) 
+        ResidualFluidContinuity2D!(R, V, P, P0, ϕ, phases, materials, number, type, BC, nc, Δ) 
 
-    #--------------------------------------------#
+        @info "Residuals"
+        @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
+        @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
+        @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
+        @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
 
-    Vxsc = 0.5*(V.x[1:end-1,2:end-1] + V.x[2:end,2:end-1])
-    Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
-    Vs   = sqrt.( Vxsc.^2 .+ Vysc.^2)
-    Vxf  = -materials.k_ηf0[1]*diff(P.f, dims=1)/Δ.x
-    Vyf  = -materials.k_ηf0[1]*diff(P.f, dims=2)/Δ.y
-    Vyfc = 0.5*(Vyf[1:end-1,:] .+ Vyf[2:end,:])
-    Vxfc = 0.5*(Vxf[:,1:end-1] .+ Vxf[:,2:end])
-    Vf   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+        #--------------------------------------------#
 
-    Vr_viz  = zero(Vxsc)
-    Vt_viz  = zero(Vxsc)
-    Pt_viz = copy(P.t)
-    Pf_viz = copy(P.f)
+        Vxsc = 0.5*(V.x[1:end-1,2:end-1] + V.x[2:end,2:end-1])
+        Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
+        Vs   = sqrt.( Vxsc.^2 .+ Vysc.^2)
+        Vxf  = -materials.k_ηf0[1]*diff(P.f, dims=1)/Δ.x
+        Vyf  = -materials.k_ηf0[1]*diff(P.f, dims=2)/Δ.y
+        Vyfc = 0.5*(Vyf[1:end-1,:] .+ Vyf[2:end,:])
+        Vxfc = 0.5*(Vxf[:,1:end-1] .+ Vxf[:,2:end])
+        Vf   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
 
-    for i in 1:length(xce), j in 1:length(yce)
+        Vr_viz  = zero(Vxsc)
+        Vt_viz  = zero(Vxsc)
+        Pt_viz = copy(P.t)
+        Pf_viz = copy(P.f)
 
-        r = sqrt.(xce[i].^2 .+ yce[j].^2)
-        t = atan.(yce[j], xce[i])
+        for i in 1:length(xce), j in 1:length(yce)
 
-        J = [cos(t) sin(t);    
-             -sin(t) cos(t)]
-        V_cart = [Vxsc[i,j]; Vysc[i,j]]
-        V_pol  =  J*V_cart
+            r = sqrt.(xce[i].^2 .+ yce[j].^2)
+            t = atan.(yce[j], xce[i])
 
-        Vr_viz[i,j] = V_pol[1]
-        Vt_viz[i,j] = V_pol[2]
+            J = [cos(t) sin(t);    
+                -sin(t) cos(t)]
+            V_cart = [Vxsc[i,j]; Vysc[i,j]]
+            V_pol  =  J*V_cart
 
-        if (xce[i].^2 .+ yce[j].^2) <= r_in^2 ||  (xce[i].^2 .+ yce[j].^2) >= r_out^2
-            Vr_viz[i,j] = NaN
-            Vt_viz[i,j] = NaN
-            Pf_viz[i,j] = NaN
-            Pt_viz[i,j] = NaN
-            Ur_ana[i,j] = NaN
-            Ut_ana[i,j] = NaN
-        else
-            ϵ_Ur[i,j] = abs(Ur_ana[i,j] - Vr_viz[i,j] )
-            ϵ_Pf[i,j] = abs(Pf_ana[i,j] - P.f[i,j])
+            Vr_viz[i,j] = V_pol[1]
+            Vt_viz[i,j] = V_pol[2]
+
+            if (xce[i].^2 .+ yce[j].^2) <= r_in^2 ||  (xce[i].^2 .+ yce[j].^2) >= r_out^2
+                Vr_viz[i,j] = NaN
+                Vt_viz[i,j] = NaN
+                Pf_viz[i,j] = NaN
+                Pt_viz[i,j] = NaN
+                Ur_ana[i,j] = NaN
+                Ut_ana[i,j] = NaN
+            else
+                ϵ_Ur[i,j] = abs(Ur_ana[i,j] - Vr_viz[i,j] )
+                ϵ_Pf[i,j] = abs(Pf_ana[i,j] - P.f[i,j])
+                ϵ_Pt[i,j] = abs(Pt_ana[i,j]*3/2 - P.t[i,j])
+            end
+            
         end
-        
-    end
 
-    for i=1:size(BC.Vx,1), j=1:size(BC.Vx,2)
-        ro  = sqrt(xvx[i]^2 + yvx[j]^2)
-        if ro <= r_in || ro >= r_out
-            # Vx[i,j]     = NaN
-        else
-            ϵ_Ux[i,j] = abs(Ux_ana[i,j] - V.x[i,j])
+        for i=1:size(BC.Vx,1), j=1:size(BC.Vx,2)
+            ro  = sqrt(xvx[i]^2 + yvx[j]^2)
+            if ro <= r_in || ro >= r_out
+                # Vx[i,j]     = NaN
+            else
+                ϵ_Ux[i,j] = abs(Ux_ana[i,j] - V.x[i,j])
+            end
         end
-    end
 
-    @show mean(ϵ_Ur)
-    @show mean(ϵ_Ux)
-    @show mean(ϵ_Pf)
+        @show mean(ϵ_Ur)
+        @show mean(ϵ_Ux)
+        @show mean(ϵ_Pf)
+        @show mean(ϵ_Pt)
 
-    p1 = heatmap(xc, yc, Vs[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Vs")
-    p1 = heatmap(xv, yc, V.x[inx_Vx,iny_Vx]', aspect_ratio=1, title="Ux", xlims=(-5,5), ylims=(-5,5))
-    p2 = heatmap(xc, yv, V.y[inx_Vy,iny_Vy]', aspect_ratio=1, title="Uy", xlims=(-5,5), ylims=(-5,5))
-    p1 = heatmap(xce, yce, Vr_viz', aspect_ratio=1, title="Ur", c=:jet)
-    p2 = heatmap(xce, yce, Vt_viz', aspect_ratio=1, title="Ut", c=:jet)
-    p3 = heatmap(xc, yc, Pt_viz[inx_c,iny_c]',   aspect_ratio=1, title="Pt", c=:jet)
-    p4 = heatmap(xc, yc, Pf_viz[inx_c,iny_c]',   aspect_ratio=1, title="Pf", c=:jet)
-    display(plot(p4, p3, p1, p2))
+        p1 = heatmap(xc, yc, Vs[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Vs")
+        p1 = heatmap(xv, yc, V.x[inx_Vx,iny_Vx]', aspect_ratio=1, title="Ux", xlims=(-5,5), ylims=(-5,5))
+        p2 = heatmap(xc, yv, V.y[inx_Vy,iny_Vy]', aspect_ratio=1, title="Uy", xlims=(-5,5), ylims=(-5,5))
+        p1 = heatmap(xce, yce, Vr_viz', aspect_ratio=1, title="Ur", c=:jet)
+        p2 = heatmap(xce, yce, Vt_viz', aspect_ratio=1, title="Ut", c=:jet)
+        p3 = heatmap(xc, yc, Pt_viz[inx_c,iny_c]',   aspect_ratio=1, title="Pt", c=:jet)
+        p4 = heatmap(xc, yc, Pf_viz[inx_c,iny_c]',   aspect_ratio=1, title="Pf", c=:jet)
+        display(plot(p4, p3, p1, p2))
 
-    ymid = Int64(floor(nc.y/2))
-    p5 = plot(xlabel="x", ylabel="Pf")
-    p5 = scatter!(xc, P.f[2:end-1, ymid], label="numerics")
-    p5 = plot!(xc, BC.Pf[2:end-1, ymid], label="analytics")
-    p6 = plot(xlabel="x", ylabel="Ur")
-    p6 = scatter!(xc, Vr_viz[2:end-1, ymid].*Δ.t, label="numerics")
-    p6 = plot!(xc, Ur_ana[2:end-1, ymid], label="analytics")
-    # p6 = scatter!(xv, V.x[inx_Vx,iny_Vx][:,ymid].*Δ.t, label="numerics", markershape=:x)
-    # p6 = plot!(xv, Ux_ana[inx_Vx,iny_Vx][:,ymid], label="analytics")
+        ymid = Int64(floor(nc.y/2))
+        p5 = plot(xlabel="x", ylabel="Pf")
+        p5 = scatter!(xc, P.f[2:end-1, ymid], label="numerics")
+        p5 = plot!(xc, Pf_ana[2:end-1, ymid], label="analytics")
+        p6 = plot(xlabel="x", ylabel="Pt")
+        p6 = scatter!(xc, P.t[2:end-1, ymid], label="numerics")
+        p6 = plot!(xc, Pt_ana[2:end-1, ymid], label="analytics")
+        p7 = plot(xlabel="x", ylabel="Ur")
+        p7 = scatter!(xc, Vr_viz[2:end-1, ymid].*Δ.t, label="numerics")
+        p7 = plot!(xc, Ur_ana[2:end-1, ymid], label="analytics")
+        # p6 = scatter!(xv, V.x[inx_Vx,iny_Vx][:,ymid].*Δ.t, label="numerics", markershape=:x)
+        # p6 = plot!(xv, Ux_ana[inx_Vx,iny_Vx][:,ymid], label="analytics")
 
-    display(plot(p5, p6))
+        display(plot(p5, p6, p7, layout=(3,1)))
 
     end
 
@@ -602,7 +574,7 @@ end
 ##################################
 function Run()
 
-    nc = (x=100, y=100)
+    nc = (x=200, y=200)
 
     # Mode 0   
     Ωl = 0.1

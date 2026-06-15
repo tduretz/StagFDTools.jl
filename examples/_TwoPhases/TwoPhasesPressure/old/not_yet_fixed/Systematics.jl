@@ -7,12 +7,12 @@ using DifferentiationInterface
     Ωr     = 0.1             # Ratio inclusion radius / len
     Ωηi    = 1e-4            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     η0    = 1.              # Shear viscosity
     len    = 1.              # Box size
     P0     = 1.              # Initial ambiant pressure
     ϕ0     = 1e-1
-    # Dependant
+    # Dependent
     ηb0    = Ωη * η0        # Bulk viscosity
     k_ηf0  = (len.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
     r      = Ωr * len        # Inclusion radius

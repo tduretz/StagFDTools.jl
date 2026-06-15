@@ -2,63 +2,52 @@ using StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, Plots, LinearAlgebr
 import Statistics:mean
 @views function main(nc, Ωl, Ωη)
 
-    nt  = 100
-    Δt0 = 1e9 * 10
+    nt  = 1 # 40
+    ηi      = 1.0                # viscous viscosity
+    Gi      = 1.0
+    Δt0 = ηi/Gi/4.0/1.0
+    Ginc    = Gi/(6.0)
     viscoelastic = true
 
     # nt  = 1
-    # Δt0 = 1e9 * 10
+    # Δt0 = 5e9
     # viscoelastic = false
 
     # Adimensionnal numbers
-    Ωr     = 0.1*1             # Ratio inclusion radius / len
-    Ωηi    = 1e-4            # Ratio (inclusion viscosity) / (matrix viscosity)
+    Ωr     = 0.1             # Ratio inclusion radius / len
+    Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     η0    = 1.              # Shear viscosity
-    r      = 1.0              # Box size
-    P0     = 1.              # Initial ambiant pressure
-    ϕ0     = 1e-1
-    # Dependant
+    r      = 0.1             # Inclusion size
+    τi     = 1.              # Initial ambiant pressure
+    ϕi     = 0.001
+    # Dependent
     ηb0    = Ωη * η0        # Bulk viscosity
     k_ηf0  = (r.^2 * Ωl^2) / (ηb0 + 4/3 * η0) # Permeability / fluid viscosity
-    len    = r/Ωr            # Inclusion radius
-    ηs_inc = 1 ./ Ωηi * η0  # Inclusion shear viscosity
-    ε̇      = Ωp * P0 / η0   # Background strain rate
+    len    = r / Ωr          # Inclusion radius
+    ηs_inc = 1 ./ Ωηi * η0       # Inclusion shear viscosity
+    ε̇      = Ωp * τi / η0   # Background strain rate
 
     # Velocity gradient matrix
     D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
 
-    if viscoelastic
     # Material parameters
     materials = ( 
         oneway       = false,
         compressible = true,
         n     = [1.0  1.0],
-        η0   = [η0  ηs_inc], 
-        ηb    = [ηb0  ηb0 ]./(1-ϕ0),
-        G     = [1e-7 1e-7], 
+        n_CK  = [1.0  1.0 ],
+        η0   = [ηi  ηi], 
+        ηb    = [ηb0  ηb0 ]./(1-ϕi),
+        G     = [Gi Ginc], 
         Kd    = [1e-6 1e-6],
         Ks    = [1e-6 1e-6],
         KΦ    = [1e-6 1e-6],
         Kf    = [1e-5 1e-5],
         k_ηf0 = [k_ηf0 k_ηf0],
     )
-    else
-    materials = ( 
-        oneway       = false,
-        compressible = true,
-        n     = [1.0  1.0],
-        η0   = [η0  ηs_inc], 
-        ηb    = [ηb0  ηb0 ]./(1-ϕ0),
-        G     = [1e30 1e30], 
-        Kd    = [1e30 1e30],
-        Ks    = [1e30 1e30],
-        KΦ    = [1e30 1e30],
-        Kf    = [1e30 1e30],
-        k_ηf0 = [k_ηf0 k_ηf0],
-    )
-    end
+   
 
     @show materials
     @show materials.η0 ./ materials.G
@@ -69,9 +58,9 @@ import Statistics:mean
     @show materials.ηb  ./ materials.KΦ
     @show materials.η0 ./ materials.Kf
     @show materials.ηb  ./ materials.Kf
-    @show r^2/k_ηf0/materials.Kd[1]
+    @show r^2/k_ηf0/materials.Ks[1]
 
-    error()
+    # error()
     
     # Resolution
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -140,8 +129,13 @@ import Statistics:mean
     R   = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...))
     V   = (x=zeros(size_x...), y=zeros(size_y...))
     η   = (c  =  ones(size_c...), v  =  ones(size_v...) )
-    ϕ   = (c=ϕ0.*ones(size_c...), v=ϕ0.*ones(size_c...) )
-    
+    ϕ   = (c=ϕi.*ones(size_c...), v=ϕi.*ones(size_v...) )
+    ϕ0  = (c=ϕi.*ones(size_c...), v=ϕi.*ones(size_v...) )
+
+    ln1mϕ   = (c=log(1-ϕi).*ones(size_c...), v=log(1-ϕi).*ones(size_v...) )
+    ln1mϕ0  = (c=log(1-ϕi).*ones(size_c...), v=log(1-ϕi).*ones(size_v...) )
+
+
     ε̇       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
     τ0      = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...) )
     τ       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
@@ -171,23 +165,21 @@ import Statistics:mean
     V.x[inx_Vx,iny_Vx] .= D_BC[1,1]*xv .+ D_BC[1,2]*yc' 
     V.y[inx_Vy,iny_Vy] .= D_BC[2,1]*xc .+ D_BC[2,2]*yv'
 
-    
     Xc = xc .+ 0*yc'
     Yc = 0*xc .+ yc'
     Xv = xv .+ 0*yv'
     Yv = 0*xv .+ yv'
-    phases.c[inx_c, iny_c][abs.(Yc) .< r] .= 2
-    phases.v[inx_v, iny_v][abs.(Yv) .< r] .= 2
-
-    # α  = 30.
-    # ax = 2.0
+    α  = 30.
+    # ax = 2
     # ay = 1/2
-    # X_tilt = cosd(α).*Xc .- sind(α).*Yc
-    # Y_tilt = sind(α).*Xc .+ cosd(α).*Yc
-    # phases.c[inx_c, iny_c][(X_tilt.^2 ./ax.^2 .+ (Y_tilt).^2 ./ay^2) .< r^2 ] .= 2
-    # X_tilt = cosd(α).*Xv .- sind(α).*Yv
-    # Y_tilt = sind(α).*Xv .+ cosd(α).*Yv
-    # phases.v[inx_v, iny_v][(X_tilt.^2 ./ax.^2 .+ (Y_tilt).^2 ./ay^2) .< r^2 ] .= 2
+    ax = 1
+    ay = 1
+    X_tilt = cosd(α).*Xc .- sind(α).*Yc
+    Y_tilt = sind(α).*Xc .+ cosd(α).*Yc
+    phases.c[inx_c, iny_c][(X_tilt.^2 ./ax.^2 .+ (Y_tilt).^2 ./ay^2) .< r^2 ] .= 2
+    X_tilt = cosd(α).*Xv .- sind(α).*Yv
+    Y_tilt = sind(α).*Xv .+ cosd(α).*Yv
+    phases.v[inx_v, iny_v][(X_tilt.^2 ./ax.^2 .+ (Y_tilt).^2 ./ay^2) .< r^2 ] .= 2
 
     # Boundary condition values
     BC = ( Vx = zeros(size_x...), Vy = zeros(size_y...), Pt = zeros(size_c...), Pf = zeros(size_c...))
@@ -222,6 +214,17 @@ import Statistics:mean
         τ0.xx .= τ.xx
         τ0.yy .= τ.yy
         τ0.xy .= τ.xy
+        # ϕ0.c  .= ϕ.c
+
+        ϕ.c .= 1.0 .- exp.(ln1mϕ.c)
+        @show extrema(ϕ.c)
+
+        # error(0)
+
+        if it>1
+            Δt0 = 1e4
+            Δ   = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
+        end
 
         # Residual check
         TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, type, BC, materials, phases, Δ)
@@ -290,8 +293,8 @@ import Statistics:mean
         Kvv  = Jvv
 
         @time begin 
-            γ = 1e8
-            Γ = spdiagm(γ*ones(nPt))
+            # γ = 1e-8
+            # Γ = spdiagm(γ*ones(nPt))
             # Pre-conditionning (~Jacobi)
             Jpv_t  = Jpv  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfv  
             Jpp_t  = Jpp  - Jppf*spdiagm(1 ./ diag(Jpf  ))*Jpfp  #.+ Γ
@@ -300,7 +303,7 @@ import Statistics:mean
             Jpf_h  = cholesky(Hermitian(SparseMatrixCSC(Jpf)), check = false  )        # Cholesky factors
             Jvv_th = cholesky(Hermitian(SparseMatrixCSC(Jvv_t)), check = false)        # Cholesky factors
             Jpp_th = spdiagm(1 ./diag(Jpp_t));             # trivial inverse
-            @views for itPH=1:50
+            @views for itPH=1:15
                 rv    .= -( Jvv*dv  + Jvp*dpt             - fv  )
                 rpt   .= -( Jpv*dv  + Jpp*dpt  + Jppf*dpf - fpt )
                 rpf   .= -( Jpfv*dv + Jpfp*dpt + Jpf*dpf  - fpf )
@@ -352,6 +355,17 @@ import Statistics:mean
         @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
 
         #--------------------------------------------#
+        # Post process 
+        @time for i in eachindex(ϕ.c)
+            KΦ = materials.KΦ[phases.c[i]]
+            ηΦ = materials.ηb[phases.c[i]] 
+            ϕ.c[i] = ϕ0.c[i] .+ Δ.t*( 1/KΦ * ((P.f[i] - P0.f[i])/Δ.t - (P.t[i] - P0.t[i])/Δ.t) + 1/ηΦ*(P.f[i] - P.t[i]) )
+            # ln1mϕ.c[i] = ln1mϕ0.c[i] .+ Δ.t/(1 - ϕ.c[i]) *( 1/KΦ * ((P.f[i] - P0.f[i])/Δ.t + (P.t[i] - P0.t[i])/Δ.t) + 1/ηΦ*(P.f[i] - P.t[i]) )
+            # ϕ.c[i] = 1.0 - exp(ln1mϕ.c[i])
+        end
+        ϕ.v[inx_v, iny_v] .= 0.25*(ϕ.c[1:end-1,1:end-1] .+ ϕ.c[1:end-1,2:end-0] .+ ϕ.c[2:end-0,1:end-1] .+ ϕ.c[2:end-0,2:end-0] )
+
+        @show extrema(ϕ.c)
 
         Vxsc = 0.5*(V.x[1:end-1,2:end-1] + V.x[2:end,2:end-1])
         Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
@@ -362,30 +376,40 @@ import Statistics:mean
         Vxfc = 0.5*(Vxf[:,1:end-1] .+ Vxf[:,2:end])
         Vf   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
 
-        p1 = heatmap(xc, yc, Vs[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Vs")
-        p2 = heatmap(xv[2:end-1], yv[2:end-1], Vf[2:end-1,2:end-1]', aspect_ratio=1, xlim=extrema(xc), title="Vf")
-        p3 = heatmap(xc, yc, P.t[inx_c,iny_c]',   aspect_ratio=1, xlim=extrema(xc), title="Pt")
+        Vxfc ./=Vf*10
+        Vyfc ./=Vf*10
+
+        # p1 = heatmap(xc, yc, Vs[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="Vs")
+        p1 = heatmap(xv, yc, V.x[inx_Vx,iny_Vx]', aspect_ratio=1, xlim=extrema(xc), title="Vf")
+
+        p2 = heatmap(xc, yc, ϕ.c[inx_c,iny_c]', aspect_ratio=1, xlim=extrema(xc), title="ϕ")
+
+        # p3 = heatmap(xc, yc, τII[inx_c,iny_c]',   aspect_ratio=1, xlim=extrema(xc), title="Pt", clims=(-3,3))
+       
+        st = 20
+        p3 = quiver(Xc[1:st:end,1:st:end], Yc[1:st:end,1:st:end], quiver=(Vxsc[1:st:end,1:st:end],Vysc[1:st:end,1:st:end]), c=:black,  aspect_ratio=1, xlim=extrema(xc), title="Pt", clims=(-3,3))
+
         # divV = diff(V.x[2:end-1,3:end-2], dims=1)/Δ.x  + diff(V.y[3:end-2,2:end-1], dims=2)/Δ.y
         # p3 = heatmap(xc, yc, divV',   aspect_ratio=1, xlim=extrema(xc), title="Pt")
-        p4 = heatmap(xc, yc, P.f[inx_c,iny_c]',   aspect_ratio=1, xlim=extrema(xc), title="Pf")
-        display(plot(p1, p2, p3, p4))
+        p4 = heatmap(xc, yc, P.f[inx_c,iny_c]',   aspect_ratio=1, xlim=extrema(xc), title="Pf", clims=(-3,3))
+        p4 = quiver!(Xc[1:st:end,1:st:end], Yc[1:st:end,1:st:end], quiver=(Vxfc[1:st:end,1:st:end],Vyfc[1:st:end,1:st:end]), c=:black,  aspect_ratio=1, xlim=extrema(xc), ylim=extrema(yc), title="Pt", clims=(-3,3))
+
+        display(plot(p1, p2, p3, layout=(2,2)))
 
         # P.t .-= mean(P.t)
         # P.f .-= mean(P.f)
 
-        @show extrema(P.f[phases.c.==1]), maximum(P.f[phases.c.==1]) - minimum(P.f[phases.c.==1])
-        @show extrema(P.t[phases.c.==1]), maximum(P.t[phases.c.==1]) - minimum(P.t[phases.c.==1])
-
         probes.Pti[it]  = mean(P.t[phases.c.==2])
         probes.Pfi[it]  = mean(P.f[phases.c.==2])
         probes.Pei[it]  = mean(P.t[phases.c.==2] .- P.f[phases.c.==2])
-        probes.ΔPt[it]  = maximum(P.t[phases.c.==1]) - minimum(P.t[phases.c.==1])
-        probes.ΔPf[it]  = maximum(P.f[phases.c.==1]) - minimum(P.f[phases.c.==1])
-        probes.ΔPe[it]  = maximum(P.t[phases.c.==1] .- P.f[phases.c.==1]) - minimum(P.t[phases.c.==1] .- P.f[phases.c.==1]) 
+        probes.ΔPt[it]  = maximum(P.t) - minimum(P.t)
+        probes.ΔPf[it]  = maximum(P.f) - minimum(P.f)
+        probes.ΔPe[it]  = maximum(P.t .- P.f) - minimum(P.t .- P.f) 
         probes.Pe[it]   = norm(P.t .- P.f)
         probes.Pt[it]   = norm(P.t)
         probes.Pf[it]   = norm(P.f)
         probes.t[it]    = it*Δ.t
+
 
         @show mean(P.t[phases.c.==2])
         @show mean(P.f[phases.c.==2])
@@ -396,9 +420,9 @@ import Statistics:mean
     #--------------------------------------------#
 
     if viscoelastic
-        save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_Layer3.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
+        save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic3.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
     else
-        save("./examples/_TwoPhases/TwoPhasesPressure/ViscousLimit_Layer3.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
+        save("./examples/_TwoPhases/TwoPhasesPressure/ViscousLimit3.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "x", (c=xc, v=xv), "y", (c=yc, v=yv), "P", P, "phases", phases)
     end
     return P, Δ, (c=xc, v=xv), (c=yc, v=yv)
 end
@@ -408,7 +432,7 @@ function Run()
     nc = (x=250, y=250)
 
     # Mode 0   
-    Ωl = 10^(-1.7)
+    Ωl = 10^(-1.7)*10
     Ωη = 10^(2)
     main(nc,  Ωl, Ωη)
     

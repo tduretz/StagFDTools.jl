@@ -34,13 +34,13 @@ end
     Ωr     = 0.1             # Ratio inclusion radius / L
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     ηsi    = 1.              # Shear viscosity
     L      = 1.              # Box size
     Pi     = 1.              # Initial ambiant pressure
     Φi     = 1e-2            # Reference
     n_CK   = 3.0
-    # Dependant
+    # Dependent
     @show Ωl, Ωr, L
     δ      = Ωl * Ωr * L     # δ = δ/r * r/L where L = 1
     ηbi    = Ωη * ηsi        # Bulk viscosity
@@ -49,10 +49,10 @@ end
     ηs_inc = Ωηi * ηsi       # Inclusion shear viscosity
     ε̇      = Ωp * Pi / ηsi   # Background strain rate
     # Time integration
-    nt     = 300
+    nt     = 120
     Δt0    = 1e-3#1 / ε̇ / nc.x / 2  * 4
 
-    # @show Δt0, ε̇
+    # @show Δt0
     # error()
     
     # Velocity gradient matrix
@@ -76,7 +76,7 @@ end
         ρf    = [1.0  1.0 ],
         Kd    = [1e0 1e0]*1,
         Ks    = [1e0 1e0]*100,
-        KΦ    = [1e0 1e0]*100,
+        KΦ    = [1e0 1e0]*10,
         Kf    = [1e0 1e0]*100,
         k_ηf0 = [k_ηΦ/Φi^n_CK k_ηΦ/Φi^n_CK],
         ψ     = [10.    10.  ],
@@ -416,8 +416,8 @@ end
         # # divV = diff(V.x[2:end-1,3:end-2], dims=1)/Δ.x  + diff(V.y[3:end-2,2:end-1], dims=2)/Δ.y
         # # p3 = heatmap(xc, yc, divV',   aspect_ratio=1, xlim=extrema(xc), title="Pt")
         
-        # cmap = (CairoMakie.Reverse(:matter), 1)
-        cmap = :jet1
+        cmap = (CairoMakie.Reverse(:matter), 1)
+        # cmap = :jet1
         st  = 15
         ind = st:st:size(xc,1)-st
 
@@ -504,13 +504,13 @@ end
 
 function Run()
 
-    nc = (x=100, y=100)
+    nc = (x=200, y=200)
 
     # Mode 0   
     # Ωl = 10^(-1.7) # ---> δ/r
     # Ωl = 10^(-1.0)
     Ωη = 10^(2)
-    Ωl = 1.0 #0.2
+    Ωl = 0.2
     main(nc,  Ωl, Ωη);
     
 end

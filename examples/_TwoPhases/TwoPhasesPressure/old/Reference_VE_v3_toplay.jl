@@ -18,13 +18,13 @@ import Statistics:mean
     Ωr     = 0.1             # Ratio inclusion radius / L
     Ωηi    = 1e-1            # Ratio (inclusion viscosity) / (matrix viscosity)
     Ωp     = 1.              # Ratio (ε̇bg * ηs) / P0
-    # Independant
+    # Independent
     ηsi    = 1.              # Shear viscosity
     L      = 1.              # Box size
     Pi     = 1.              # Initial ambiant pressure
     Φi     = 1e-2            # Reference
     n_CK   = 3.0
-    # Dependant
+    # Dependent
     @show Ωl, Ωr, L
     δ      = Ωl * Ωr * L     # δ = δ/r * r/L where L = 1
     ηbi    = Ωη * ηsi        # Bulk viscosity

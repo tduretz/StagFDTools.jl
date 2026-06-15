@@ -126,6 +126,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     Ks::T              = Float64[]
     KΦ::T              = Float64[]
     Kf::T              = Float64[]
+    Φ0::T               = Float64[]
     m::T               = Float64[]
     n_CK::T            = Float64[]
     k_ηf0::T           = Float64[]
@@ -283,6 +284,7 @@ function initialize_materials_TwoPhases(nphases::Integer;
         Ks    = 1e50 * ones(nphases),
         KΦ    = 1e50 * ones(nphases),
         Kf    = 1e50 * ones(nphases),
+        Φ0    = 1e-2 * ones(nphases),
         m     = zeros(nphases),
         n_CK  = 3.0*ones(nphases),
         k_ηf0 = 2.220394736842105*ones(nphases),

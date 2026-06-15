@@ -15,7 +15,7 @@ using DifferentiationInterface
     ϵ_nl  = 1e-8
     α     = LinRange(0.05, 1.0, 5)
 
-    # Dependant
+    # Dependent
     r_in     = 1.0        # Inclusion radius 
     r_out    = 10*r_in
     ε̇        = 0.0    # Background strain rate
