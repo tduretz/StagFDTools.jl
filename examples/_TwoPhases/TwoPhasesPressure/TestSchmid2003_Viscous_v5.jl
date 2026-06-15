@@ -2,6 +2,8 @@ using StagFDTools, StagFDTools.TwoPhases
 using JLD2, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, ExactFieldSolutions, GridGeometryUtils
 import Statistics:mean
 
+# ! Made inclusion viscosity 1e-2  
+
 @views function main(nc)
 
     # Linear solver
@@ -13,7 +15,7 @@ import Statistics:mean
     sc  = (σ=1e0, t=1e0, L=1e0)
 
     # Parameters of the analytical solution
-    params = (mm = 1.0, mc = 100, rc = 2.0, gr = 0.0, er = 1.0)
+    params = (mm = 1.0, mc = 1e-2, rc = 2.0, gr = 0.0, er = 1.0)
 
     # Time steps
     nt     = 1
