@@ -1,5 +1,7 @@
 # StagFDTools.jl
 
+![CI](https://github.com/tduretz/StagFDTools.jl/actions/workflows/ci.yml/badge.svg)
+
 This package aims at generating flexible FD stencils that can interoperate with AD tools for Jacobian generation. In particular, the aims are:
 - generic treatment of BCs
 - generation of equation numbering
