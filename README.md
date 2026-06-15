@@ -1,6 +1,6 @@
 # StagFDTools.jl
 
-[![CI](https://img.shields.io/github/actions/workflow/status/tduretz/StagFDTools.jl/ci.yml?label=CPU%20Unit%20Tests)](https://github.com/tduretz/StagFDTools.jl/actions/workflows/ci.yml/badge.svg)
+[![CI](https://img.shields.io/github/actions/workflow/status/tduretz/StagFDTools.jl/CI.yml?label=CI)](https://github.com/tduretz/StagFDTools/actions/workflows/CI.yml)
 
 This package aims at generating flexible FD stencils that can interoperate with AD tools for Jacobian generation. In particular, the aims are:
 - generic treatment of BCs
