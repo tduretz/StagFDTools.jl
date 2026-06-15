@@ -1,4 +1,4 @@
-# StagFDTools
+# StagFDTools.jl
 
 This package aims at generating flexible FD stencils that can interoperate with AD tools for Jacobian generation. In particular, the aims are:
 - generic treatment of BCs
@@ -64,10 +64,10 @@ see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Dure
 
 ### Poisson / Diffusion and sparsity examples
 
-### Diffusion (backward Euler)
+#### Diffusion (backward Euler)
 ![image](results/Diffusion_BackwardEuler.svg)
 
-### Diffusion (Crank-Nicolson)
+#### Diffusion (Crank-Nicolson)
 ![image](results/Diffusion_CrankNicolson.svg)
 
 ####  Flag boundary nodes and constant nodes (e.g. inner BC or free surface)
@@ -82,7 +82,7 @@ see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Dure
  :Dirichlet  :Dirichlet  :Dirichlet  :Dirichlet  :Dirichlet
 ```
 
-#### Generation of a 5-point stencil including a symmetry test
+#### Generation of a 5-point stencil & check for symmetry
 ```julia 
 [ Info: 5-point stencil
 12×12 ExtendableSparseMatrixCSC{Float64, Int64} with 54 stored entries:
@@ -113,7 +113,7 @@ see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Dure
   ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅ 
 ```
 
-## Generation of a 9-point stencil including a symmetry test
+#### Generation of a 9-point stencil & check for symmetry
 ```julia
 [ Info: 9-point stencil
 12×12 ExtendableSparseMatrixCSC{Float64, Int64} with 54 stored entries:
