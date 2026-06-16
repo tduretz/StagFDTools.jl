@@ -27,7 +27,7 @@ end
         return Φ, dΦdt, ηΦ
     end
 
-    r0       = 1.0
+    r0       = one(Φ)  # typed to match Φ so r0 doesn't change type after first iter
     for iter=1:10
         r, dresdΦ = ad_value_and_derivative(PorosityResidual, Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, λ̇, sinψ, Δt)
         if iter==1 r0 = abs(r) + 1e-10 end
@@ -67,10 +67,10 @@ function ΔP_Trial(x, Pt, Pf, divVs, divqD, λ̇, Pt0, Pf0, Φ0, ηΦ, m, KΦ, K
     ]
 end
 
-function ΔP(Pt_trial, Pf_trial, divVs, divqD, λ̇, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, sinψ, Δt)
+function ΔP(Pt_trial, Pf_trial, divVs, divqD, λ̇::Tλ, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, sinψ, Δt) where Tλ
 
-    x   = @SVector[0.0, 0.0]
-    r0  = 1.0
+    x   = @SVector[zero(Tλ), zero(Tλ)]  # typed to match λ̇ so J\R doesn't change x's type
+    r0  = one(Tλ)
     tol = 1e-13
 
     for iter=1:10
@@ -187,7 +187,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
         plastic_correction = true
         # This is the proper return mapping with plasticity
         for iter=1:10
-            R, J = ad_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, Pt, Pf, divVs, divqD, Φ, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, materials.single_phase)
+            R, J = fd_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, Pt, Pf, divVs, divqD, Φ, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, materials.single_phase)
 
             x -= J \ R
             nr = mynorm(R)
@@ -331,8 +331,8 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
 
             # # TODO: adapt to phase ratios
             # # Tangent operator used for Newton Linearisation
-            # jac = ad_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
-            τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+            τ_vec, jac = fd_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+            # τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
             # jac = ad_jacobian(ε̇vec -> StressVector_P2!(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ), ε̇vec)
             # τ_vec = StressVector_P2!(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
             
@@ -476,7 +476,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
 
             # TODO: adapt to phase ratios
             # Tangent operator used for Newton Linearisation
-            τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
+            # τ_vec, jac = fd_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+            τ_vec, jac = fd_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
+            # τ_vec, jac = ad_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
             η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local = LocalRheology_P(ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0[1], materials, phases.v[i,j], Δ)
             @views 𝐷_ctl.v[i,j] .= jac
 
