@@ -10,7 +10,7 @@ import Statistics:mean
     visualization = false
 
     # Linear solver
-    solver      = :LU
+    solver      = :GCR
     GCR_restart = 25
     GCR_maxit   = 2000
 
@@ -234,6 +234,8 @@ import Statistics:mean
     err  = (x = zeros(niter), y = zeros(niter), pt = zeros(niter), pf = zeros(niter))
     to   = TimerOutput()
 
+    solver_ready = false
+
     for it=1:nt
 
         @printf("\nStep %04d\n", it)
@@ -323,8 +325,9 @@ import Statistics:mean
             
             @info "Solver"
             # Prepare work space (symbolic factorization)
-            if iter==1 && it==1 && solver == :GCR
+            if !solver_ready && solver == :GCR
                 solver_cache = KSP_GCR_TwoPhases_setup( M_PC; restart=GCR_restart, maxit=GCR_maxit)
+                solver_ready = true
             end
 
             # Sparse-direct-iterative solver
