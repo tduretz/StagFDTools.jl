@@ -288,6 +288,7 @@ end
     Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
     # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
     J̃vv = Jvv - Jvp * Dpp * Jpv
+    # J̃vv = 1/2 .* (J̃vv .+ J̃vv')
 
     Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
     Jvv_f = cholesky!(Juu_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
