@@ -10,7 +10,7 @@ import Statistics:mean
     visualization = true
 
     # Linear solver
-    solver      = :LU
+    solver      = :GCR
     GCR_restart = 25
     GCR_maxit   = 2000
 
@@ -314,8 +314,8 @@ import Statistics:mean
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
-                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
                 @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
                 @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
                 @timeit to "Reduction" begin
@@ -334,12 +334,16 @@ import Statistics:mean
             @timeit to "Linear solve" begin
                 two_phases_mechanical_solver!(dx, M, r, M_PC;
                     solver=solver, solver_cache=solver_cache,
-                    ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true )
+                    ηb=1e5, ϵ_l=1e-6, niter_l=10, restart=10, noisy=false )
             end
 
             #--------------------------------------------#
-            imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-            UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
+            @timeit to "Line search" begin
+                imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
+                UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
+                # α_best = BackTrackingLineSearch!(rvec, α, dx, R0, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ; α_init=1.0, β=0.5, c=1e-4)
+                # UpdateSolution!(V, P, α_best*dx, number, type, nc)
+            end
 
         end
 
@@ -350,8 +354,8 @@ import Statistics:mean
         #--------------------------------------------#
 
         # Include plasticity corrections
-        P.t .= P.t .+ ΔP.t
-        P.f .= P.f .+ ΔP.f
+        P.t  .= P.t .+ ΔP.t
+        P.f  .= P.f .+ ΔP.f
         εp  .+= ε̇.II*Δ.t
         
     #     # τxyc = av2D(τ.xy)
@@ -427,12 +431,13 @@ import Statistics:mean
             Colorbar(fig[2, 2], hm, label = L"$P^f$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
 
             ax  = Axis(fig[2,3], xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error")
-            scatter!(ax, 1:niter, log10.(err.x[1:niter]./err.x[1]) )
-            scatter!(ax, 1:niter, log10.(err.y[1:niter]./err.x[1]) )
-            scatter!(ax, 1:niter, log10.(err.pt[1:niter]./err.pt[1]) )
-            scatter!(ax, 1:niter, log10.(err.pf[1:niter]./err.pf[1]) )
+            scatter!(ax, 1:niter, log10.(err.x[1:niter]./err.x[1]), label="Vx" )
+            scatter!(ax, 1:niter, log10.(err.y[1:niter]./err.y[1]), label="Vy" )
+            scatter!(ax, 1:niter, log10.(err.pt[1:niter]./err.pt[1]), label="Pt" )
+            scatter!(ax, 1:niter, log10.(err.pf[1:niter]./err.pf[1]), label="Pf" )
             ylims!(ax, -10, 1.1)
-            
+            Legend(fig[2, 4], ax)
+
             ax    = Axis(fig[3,1], aspect=DataAspect(), title=L"$\Phi$ [-]", xlabel=L"x", ylabel=L"y")
             field = (Φ.c)[inx_c,iny_c]
             hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=(4.96e-2, 5.04e-2))

@@ -209,7 +209,7 @@ end
     Jpp = PtPt
     Jpq = PtPf
     Jqp = PfPt # added
-    Jqu = [PfVx PfVy]
+    # Jqu = [PfVx PfVy]
     Jqq = PfPf
 
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
@@ -226,7 +226,7 @@ end
     J̃vv = Jvv - Jvp * Dpp * Jpv
 
     Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    Juu_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jvv_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
     ndofu = size(Jvp, 1)
     ndofp = size(Jvp, 2)
@@ -243,7 +243,7 @@ end
     iq = (ndofu + ndofp + 1):N
 
     return (;
-        Jqq_f_sym, Juu_f_sym,
+        Jqq_f_sym, Jvv_f_sym,
         restart, maxit,
         f, v, s, fu=view(f, iu), fp=view(f, ip), fq=view(f, iq),
         su=view(s, iu), sp=view(s, ip), sq=view(s, iq),
@@ -259,7 +259,7 @@ end
     x::Vector{Float64}, A::SparseMatrixCSC{Float64, Int64}, b::Vector{Float64}, noisy::Bool, M, cache;
     abstol::Float64=KSP_ABSTOL, reltol=1e-6, ηb=1e5
 )
-    (;  Jqq_f_sym, Juu_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
+    (;  Jqq_f_sym, Jvv_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
         du, dp, dq, r̃u, r̃p, tmpp, tmpq, tmpq2) = cache
 
     # Construct PC
@@ -282,7 +282,7 @@ end
     J̃pp = Jpp - Jpq * Dqq * Jqp
     incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
     if incomp
-        @info "incomp"
+        @info "incomp $(extrema(J̃pp))"
     end
     ndofp = size(J̃pp,1)
     Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
@@ -291,7 +291,8 @@ end
     # J̃vv = 1/2 .* (J̃vv .+ J̃vv')
 
     Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    Jvv_f = cholesky!(Juu_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jvv_f = cholesky!(Jvv_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+
     Jpp_f = Dpp #cholesky(Hermitian(SparseMatrixCSC(J̃pp)), check=false) # PC is diagonal !
     #-----------------------------------
 
