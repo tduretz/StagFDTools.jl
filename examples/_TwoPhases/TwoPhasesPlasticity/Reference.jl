@@ -20,7 +20,7 @@ import Statistics:mean
     α      = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    nt     = 20
+    nt     = 1# 30
     Δt0    = 1e10/sc.t 
 
     rad     = 2e3/sc.L 
@@ -339,10 +339,10 @@ import Statistics:mean
 
             #--------------------------------------------#
             @timeit to "Line search" begin
-                imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-                UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
-                # α_best = BackTrackingLineSearch!(rvec, α, dx, R0, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ; α_init=1.0, β=0.5, c=1e-4)
-                # UpdateSolution!(V, P, α_best*dx, number, type, nc)
+                # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
+                # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ )
+                UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 
         end
@@ -542,7 +542,7 @@ import Statistics:mean
     #--------------------------------------------#
 
     display(to)
-    # save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix.jld2", "probes", probes)
+    homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix.jld2", "probes", probes)
 
     return 
 end
