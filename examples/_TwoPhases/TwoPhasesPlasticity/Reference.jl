@@ -8,22 +8,25 @@ import Statistics:mean
 
     homo          = false
     visualization = true
+    free_clims    = false
 
     # Linear solver
     solver      = :GCR
     GCR_restart = 25
     GCR_maxit   = 2000
+    ϵ_l         = 1e-8
+    Pic2Newt    = 0.1   # more than 1.0 - always Newton
 
     # Non-linear solver
-    niter  = 25
+    niter  = 100
     ϵ_nl   = 1e-8
     α      = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    nt     = 1# 30
+    nt     = 40
     Δt0    = 1e10/sc.t 
 
-    rad     = 2e3/sc.L 
+    rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
     Pf_ini  = 1e6/sc.σ
     ε̇       = 2e-15.*sc.t
@@ -59,9 +62,9 @@ import Statistics:mean
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
-    materials.plasticity.ψ   .= [ 10.,     10. ]
+    materials.plasticity.ψ   .= [ 10.,     10. ] .* 1
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
-    materials.plasticity.ηvp .= [0e18,    0e18 ]./sc.σ/sc.t
+    materials.plasticity.ηvp .= [1e18,    1e18 ]./sc.σ/sc.t .* 0
     preprocess!(materials)
 
     Φ0      = 0.05
@@ -84,16 +87,20 @@ import Statistics:mean
     type.Vx[inx_Vx,iny_Vx]  .= :in       
     type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
     type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
-    type.Vx[inx_Vx,2]       .= :Dirichlet_tangent
-    type.Vx[inx_Vx,end-1]   .= :Dirichlet_tangent
+    type.Vx[inx_Vx,2]       .= :Neumann_tangent
+    type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
     # -------- Vy -------- #
     type.Vy[inx_Vy,iny_Vy]  .= :in       
-    type.Vy[2,iny_Vy]       .= :Dirichlet_tangent
-    type.Vy[end-1,iny_Vy]   .= :Dirichlet_tangent
+    type.Vy[2,iny_Vy]       .= :Neumann_tangent
+    type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
     type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
     type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
     # -------- Pt -------- #
     type.Pt[2:end-1,2:end-1] .= :in
+    type.Pt[1,:]             .= :Neumann 
+    type.Pt[end,:]           .= :Neumann 
+    type.Pt[:,1]             .= :Neumann
+    type.Pt[:,end]           .= :Neumann
     # -------- Pf -------- #
     type.Pf[2:end-1,2:end-1] .= :in
     type.Pf[1,:]             .= :Neumann 
@@ -259,8 +266,9 @@ import Statistics:mean
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
-        
+        iter, ϵ0, ϵ = 0, 0.0, 0.0
 
+        # Newton-Raphson iterations
         for iter=1:niter
 
             @printf("     Step %04d --- Iteration %04d\n", it, iter)
@@ -291,7 +299,9 @@ import Statistics:mean
             println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
             println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
             println("min/max ΔP.f - ",  extrema(ΔP.f[inx_c,iny_c]))
-            if max(err.x[iter], err.y[iter], err.pt[iter], err.pf[iter]) < ϵ_nl 
+            ϵ = max(err.x[iter], err.y[iter], err.pt[iter], err.pf[iter])
+            (iter == 1) && (ϵ0 = ϵ)
+            if ϵ < ϵ_nl 
                 println("Converged")
                 break 
             end
@@ -322,8 +332,10 @@ import Statistics:mean
                     reduce_sparse_matrix!(M_PC, M_PC_threads)
                 end
             end
-            
-            @info "Solver"
+
+            Newton = (ϵ/ϵ0 < Pic2Newt) ? true : false 
+
+            @info "Solver - Newton = $(Newton)"
             # Prepare work space (symbolic factorization)
             if !solver_ready && solver == :GCR
                 solver_cache = KSP_GCR_TwoPhases_setup( M_PC; restart=GCR_restart, maxit=GCR_maxit)
@@ -332,9 +344,12 @@ import Statistics:mean
 
             # Sparse-direct-iterative solver
             @timeit to "Linear solve" begin
-                two_phases_mechanical_solver!(dx, M, r, M_PC;
+                Newton && two_phases_mechanical_solver!(dx, M, r, M_PC;
                     solver=solver, solver_cache=solver_cache,
-                    ηb=1e5, ϵ_l=1e-6, niter_l=10, restart=10, noisy=false )
+                    ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
+                !Newton && two_phases_mechanical_solver!(dx, M_PC, r, M_PC;
+                    solver=solver, solver_cache=solver_cache,
+                    ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
             end
 
             #--------------------------------------------#
@@ -418,14 +433,16 @@ import Statistics:mean
 
             ax    = Axis(fig[1,3], aspect=DataAspect(), title=L"$\bar{P}$ [MPa]", xlabel=L"x", ylabel=L"y")
             field = (P.t)[inx_c,iny_c].*sc.σ./1e6
-            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=(-4,4))
+            clims = free_clims ? extrema(field) : (-4,4) 
+            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=clims)
             contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[1, 4], hm, label = L"$\bar{P}$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
 
             ax    = Axis(fig[2,1], aspect=DataAspect(), title=L"$P^f$ [MPa]", xlabel=L"x", ylabel=L"y")
             field = (P.f)[inx_c,iny_c].*sc.σ./1e6
-            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=(-2,3))
+            clims = free_clims ? extrema(field) : (-2,3) 
+            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=clims)
             contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[2, 2], hm, label = L"$P^f$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
@@ -440,7 +457,8 @@ import Statistics:mean
 
             ax    = Axis(fig[3,1], aspect=DataAspect(), title=L"$\Phi$ [-]", xlabel=L"x", ylabel=L"y")
             field = (Φ.c)[inx_c,iny_c]
-            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=(4.96e-2, 5.04e-2))
+            clims = free_clims ? extrema(field) : (4.96e-2, 5.04e-2) 
+            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=clims)
             contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[3, 2], hm, label = L"$\Phi$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
@@ -494,14 +512,14 @@ import Statistics:mean
         #     τxyc0 = av2D(τ0.xy)
         #     τII0  = sqrt.( 0.5.*(τ0.xx[inx_c,iny_c].^2 + τ0.yy[inx_c,iny_c].^2 + (-τ0.xx[inx_c,iny_c]-τ0.yy[inx_c,iny_c]).^2) .+ τxyc0[inx_c,iny_c].^2 )
 
-            # ax    = Axis(fig[3,2], aspect=DataAspect(), title=L"$P^e - \tau$", xlabel=L"P^e", ylabel=L"\tau")
-            # Pe    = (P.t .- P.f)[inx_c,iny_c].*sc.σ
-            # τII   = (τ.II)[inx_c,iny_c].*sc.σ
-            # # P_ax       = LinRange(minimum(Pe), maximum(Pe), 100)
-            # P_ax       = LinRange(0, 2*mean(Pe), 100)
-            # τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
-            # lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
-            # scatter!(ax, Pe[:]/1e6, τII[:]/1e6, color=:black )
+        #     ax    = Axis(fig[3,2], aspect=DataAspect(), title=L"$P^e - \tau$", xlabel=L"P^e", ylabel=L"\tau")
+        #     Pe    = (P.t .- P.f)[inx_c,iny_c].*sc.σ
+        #     τII   = (τ.II)[inx_c,iny_c].*sc.σ
+        #     # P_ax       = LinRange(minimum(Pe), maximum(Pe), 100)
+        #     P_ax       = LinRange(0, 2*mean(Pe), 100)
+        #     τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
+        #     lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
+        #     scatter!(ax, Pe[:]/1e6, τII[:]/1e6, color=:black )
 
         #     Pe    = (P0.t .- P0.f)[inx_c,iny_c].*sc.σ
         #     τII   = τII0.*sc.σ

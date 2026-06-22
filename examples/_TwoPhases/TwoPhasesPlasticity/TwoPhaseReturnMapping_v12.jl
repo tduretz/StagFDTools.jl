@@ -100,15 +100,18 @@ function residual_two_phase_trial(x, ε̇II_eff, Pt_trial, Pf_trial, Φ_trial, d
     f       = F(τII, Pt, Pf, λ̇, α1, c, sinϕ, cosϕ, ηvp) 
 
     # Porosity rate
-    dΦdt    = PorosityRate(Φ0, Pt, Pf, λ̇, Pt0, Pf0, p)[1]
+    dΦdt    = PorosityRate(Φ, Pt, Pf, λ̇, Pt0, Pf0, p)[1]
 
-    # Form 1 - requires one additional solve: here it's done by hand
-    ΔP = SA[
-        KΦ .* sinψ .* Δt .* Φ_trial .* ηΦ .* λ̇ .* (-Kf + Ks) ./ (-Kf .* KΦ .* Δt .* Φ_trial + Kf .* KΦ .* Δt - Kf .* Φ_trial .* ηΦ + Kf .* ηΦ + Ks .* KΦ .* Δt .* Φ_trial + Ks .* Φ_trial .* ηΦ + KΦ .* Φ_trial .* ηΦ),
-        Kf .* KΦ .* sinψ .* Δt .* ηΦ .* λ̇ ./ (Kf .* KΦ .* Δt .* Φ_trial - Kf .* KΦ .* Δt + Kf .* Φ_trial .* ηΦ - Kf .* ηΦ - Ks .* KΦ .* Δt .* Φ_trial - Ks .* Φ_trial .* ηΦ - KΦ .* Φ_trial .* ηΦ)
-    ]
-    rpt = Pt - (Pt_trial + ΔP[1])
-    rpf = Pf - (Pf_trial + ΔP[2])
+    # Φ1 = Φ0 + dΦdt*Δt
+
+
+    # # Form 1 - requires one additional solve: here it's done by hand
+    # ΔP = SA[
+    #     KΦ .* sinψ .* Δt .* Φ1 .* ηΦ .* λ̇ .* (-Kf + Ks) ./ (-Kf .* KΦ .* Δt .* Φ1 + Kf .* KΦ .* Δt - Kf .* Φ1 .* ηΦ + Kf .* ηΦ + Ks .* KΦ .* Δt .* Φ1 + Ks .* Φ1 .* ηΦ + KΦ .* Φ1 .* ηΦ),
+    #     Kf .* KΦ .* sinψ .* Δt .* ηΦ .* λ̇ ./ (Kf .* KΦ .* Δt .* Φ1 - Kf .* KΦ .* Δt + Kf .* Φ1 .* ηΦ - Kf .* ηΦ - Ks .* KΦ .* Δt .* Φ1 - Ks .* Φ1 .* ηΦ - KΦ .* Φ1 .* ηΦ)
+    # ]
+    # rpt = Pt - (Pt_trial + ΔP[1])
+    # rpf = Pf - (Pf_trial + ΔP[2])
 
     # !!!! It would be better to have this version working 
     # Form 2 - requires one additional solve: one more nested AD loop
@@ -117,13 +120,14 @@ function residual_two_phase_trial(x, ε̇II_eff, Pt_trial, Pf_trial, Φ_trial, d
     # rpf = Pf - (Pf_trial + ΔP[2])
 
     # Form 3 - needs to build full continuity does not give the correct P trial dependence
-    # dPfdt   = (Pf - Pf0) / Δt
-    # dlnρfdt = dPfdt / Kf
-    # dPsdt   = ((Pt - Φ*Pf)/(1-Φ) - (Pt0 - Φ0*Pf0)/(1-Φ0))/Δt
-    # # dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
+    dPfdt   = (Pf - Pf0) / Δt
+    dPtdt   = (Pt - Pt0) / Δt 
+    dlnρfdt = dPfdt / Kf
+    # dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
     # dlnρsdt = 1/Ks * dPsdt 
-    # rpt = dlnρsdt - dΦdt/(1-Φ) + divVs
-    # rpf = Φ*dlnρfdt + dΦdt     + Φ*divVs + divqD
+    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
+    rpt = dlnρsdt - dΦdt/(1-Φ) + divVs
+    rpf = Φ*dlnρfdt + dΦdt     + Φ*divVs + divqD
 
     return @SVector[ 
         ε̇II_eff   -  τII/2/ηve - λ̇/2*(f>=eps),
@@ -152,7 +156,7 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
     α1        = !p.single_phase
 
     # Initial residual
-    r, r0, tol = 0.0, 0.0, 1e-13
+    nr, nr0, tol, r = 0.0, 0.0, 1e-13, 1
 
     # Check yield
     f       = F(τII_trial, Pt_trial, Pf_trial, λ̇_trial, α1, c, sinϕ, cosϕ, ηvp) 
@@ -169,11 +173,11 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
             # display(J.derivs[1])
             x -= J\r
             if iter==1 
-                r0 = norm(J)
+                nr0 = norm(J)
             end
-            r = norm(J)/r0
-            # @show iter, r
-            if r<tol
+            nr = norm(r)/nr0
+            # @show iter, nr, r
+            if nr<tol
                 break
             end
         end
@@ -181,10 +185,58 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
 
     τII, Pt, Pf, λ̇, Φ1   = x[1], x[2], x[3], x[4], x[5]
 
-    # #  # Recompute components and get out of here
+    # Recompute components and get out of here
     τ = @. ε̇_eff * τII / ε̇II_eff
 
-    return @SVector[τ[1], τ[2], τ[3], Pt, Pf, λ̇, Φ1, r]
+    #### All checks!!!
+    typeof(λ̇)==Float64 && @info "Post solve residual"
+    typeof(λ̇)==Float64 && @show r
+
+    KΦ, ηΦ, sinψ, Δt = p.KΦ, p.ηΦ, p.sinψ, p.Δt
+    Kf, Ks = p.Kf, p.Ks 
+
+    #### Check residual with trial state pressures: it is also zero !!!
+    typeof(λ̇)==Float64 && @info "Trial pressure formulation: general form"
+    dPtdt   = (Pt_trial - Pt0) / Δt
+    dPfdt   = (Pf_trial - Pf0) / Δt
+    dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf_trial - Pt_trial)
+    Φ       = Φ_trial
+    dlnρfdt = dPfdt / Kf
+    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
+    f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
+    f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
+    typeof(f1)==Float64 && @show f1, f2
+
+    ### Check residuals with corrected pressures: should be zero !
+
+    # General form
+    typeof(λ̇)==Float64 && @info "True pressure formulation: general form"
+    dPtdt   = (Pt - Pt0) / Δt
+    dPfdt   = (Pf - Pf0) / Δt
+    dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf - Pt) + λ̇*sinψ
+    Φ       = Φ0 + Δt * dΦdt 
+    dlnρfdt = dPfdt / Kf
+    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
+    f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
+    f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
+    typeof(f1)==Float64 && @show f1, f2
+
+    # Specific form 
+    typeof(λ̇)==Float64 && @info "True pressure formulation: specific form 1"
+    Kd = (1-Φ)*(1/KΦ + 1/Ks)^-1
+    α  = 1 - Kd/Ks
+    B  = (1/Kd - 1/Ks) / (1/Kd - 1/Ks + Φ*(1/Kf - 1/Ks))
+    f1 = divVs     + 1/Kd*(dPtdt -   α*dPfdt) - 1/(1-Φ)*λ̇*sinψ + (Pt-Pf)/((1-Φ)*ηΦ)
+    f2 = divqD     - α/Kd*(dPtdt - 1/B*dPfdt) + 1/(1-Φ)*λ̇*sinψ - (Pt-Pf)/((1-Φ)*ηΦ)
+    typeof(f1)==Float64 && @show f1, f2
+
+    # Specific form (rederived)
+    typeof(λ̇)==Float64 && @info "True pressure formulation: specific form 2"
+    f1 = divVs    + (1/Ks)/(1-Φ) * (dPtdt - Φ*dPfdt) + (1/KΦ)/(1-Φ) * (dPtdt - dPfdt) + (Pt-Pf)/((1-Φ)*ηΦ) - 1/(1-Φ)*λ̇*sinψ
+    f2 = divqD    - (dPtdt - dPfdt)/KΦ + Φ*dPfdt/Kf + Φ*divVs - (Pt-Pf)/ηΦ + λ̇*sinψ
+    typeof(f1)==Float64 && @show f1, f2
+
+    return @SVector[τ[1], τ[2], τ[3], Pt, Pf, λ̇, Φ1, nr]
 end
 
 function two_phase_return_mapping()
@@ -197,8 +249,8 @@ function two_phase_return_mapping()
     divqD = -0*1e-14 .*sc.t
 
     # Initial conditions
-    Pt   = 1e7/sc.σ
-    Pf   = 1e7/sc.σ 
+    Pt   = 1e6/sc.σ
+    Pf   = 1e6/sc.σ 
     τ    = SA[0.0, -0.0, 0]./sc.σ
     Φ    = 0.05 
 
@@ -280,7 +332,7 @@ function two_phase_return_mapping()
         # Stress evaluation
         @time σ  = StressVector_trial(ϵ̇, divVs, divqD, τ0, Pt0, Pf0, Φ0, params)
         τ, Pt, Pf  = SA[σ[1], σ[2], σ[3]], σ[4], σ[5]
-        λ̇, Φ, r = σ[6], σ[7], σ[8]
+        λ̇, Φ, nr = σ[6], σ[7], σ[8]
         # @show τ, Pt, Pf, Φ
 
         # Consistent tangent by deriving stress w.r.t. input vector 
@@ -297,7 +349,7 @@ function two_phase_return_mapping()
         probes.Pe[it] = Pt - Pf
         probes.λ̇[it]  = λ̇ 
         probes.Φ[it]  = Φ
-        probes.r[it]  = r
+        probes.r[it]  = nr
     end
 
     function figure()

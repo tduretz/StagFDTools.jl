@@ -7,4 +7,4 @@ end
 
 # F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
 
-F(τII, Pt, Pf, Φ, c, cosϕ, sinϕ, λ̇, ηvp, α1) = τII - (Pt - α1*Pf)*sinϕ - c*cosϕ - λ̇*ηvp
+F(τII, Pt, Pf, Φ, c, cosϕ, sinϕ, λ̇, ηvp, α) = τII - (Pt - Pf)*sinϕ - c*cosϕ - λ̇*ηvp

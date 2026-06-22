@@ -352,11 +352,14 @@ end
     invΔy   = get_invΔy(Δ)
     Δt      = Δ.t
 
+    Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+
     # Density - currently explicit in time (= using old fluid density)
     ρ0f  = ρfi
     ρfg  = SVector{2}(materials.g[2] * 0.5 * (ρ0f[2,i] + ρ0f[2,i+1]) for i ∈ 1:2)  
-    Pf   = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
-    Pt   = SetBCPf1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pf   = SetBCPf1(Pf_loc,  type.pf, bcv.pf, Δ, ρfg)
+    Pt   = SetBCPf1(Pt_loc,  type.pt, bcv.pt, Δ, ρfg)
+    Pfc  = SetBCPf1(Pfc_loc, type.pf, bcv.pf, Δ, ρfg)
 
     dPtdt   = @. (Pt .- Pt0) / Δt
     dPfdt   = @. (Pf .- Pf0) / Δt
@@ -382,32 +385,13 @@ end
     
     dlnρfdt = dPfdt[2,2] / Kf[2,2]
 
-    # Interpolate porosity to velocity nodes
-    Φxⁿ = SVector{2}(
-        (Φ[1,2]^n_CK[1,2] + Φ[2,2]^n_CK[2,2]) * 0.5,
-        (Φ[2,2]^n_CK[2,2] + Φ[3,2]^n_CK[3,2]) * 0.5,
-    )
-    
-    Φyⁿ = SVector{2}(
-        (Φ[2,1]^n_CK[2,1] + Φ[2,2]^n_CK[2,2]) * 0.5,
-        (Φ[2,2]^n_CK[2,2] + Φ[2,3]^n_CK[2,3]) * 0.5,
-    )
-
     # Fluid conductivity
-    kμ_xx = SVector{2}(0.5 * (kμ[i+1,2] + kμ[i,2]) for i ∈ 1:2)
-    kμ_yy = SVector{2}(0.5 * (kμ[2,i+1] + kμ[2,i]) for i ∈ 1:2)
-
+    kμ_xx = SVector(Base.@ntuple 2 i-> 0.5 * (kμ[i,2]*Φ[i,2]^n_CK[i,2] + kμ[i+1,2]*Φ[i+1,2]^n_CK[i+1,2]))
+    kμ_yy = SVector(Base.@ntuple 2 i-> 0.5 * (kμ[2,i]*Φ[2,i]^n_CK[2,i] + kμ[2,i+1]*Φ[2,i+1]^n_CK[2,i+1]))
+    
     # Darcy flux
-    qx = SVector{2}( -kμ_xx[i] * Φxⁿ[i] * ( (Pf[i+1,2] - Pf[i,2]) * invΔx          ) for i ∈ 1:2)
-    qy = SVector{2}( -kμ_yy[i] * Φyⁿ[i] * (((Pf[2,i+1] - Pf[2,i]) * invΔy) - ρfg[i]) for i ∈ 1:2)
-
-    # # Fluid conductivity
-    # kμ_xx = SVector{2}(0.5 * (kμ[i+1,2]*Φ[i+1,2]^n_CK[i+1,2] + kμ[i,2]*Φ[i,2]^n_CK[i,2]) for i ∈ 1:2)
-    # kμ_yy = SVector{2}(0.5 * (kμ[2,i+1]*Φ[2,i+1]^n_CK[2,i+1] + kμ[2,i]*Φ[2,i]^n_CK[2,i]) for i ∈ 1:2)
-
-    # # Darcy flux
-    # qx = SVector{2}( -kμ_xx[i] * ( (Pf[i+1,2] - Pf[i,2]) * invΔx          ) for i ∈ 1:2)
-    # qy = SVector{2}( -kμ_yy[i] * (((Pf[2,i+1] - Pf[2,i]) * invΔy) - ρfg[i]) for i ∈ 1:2)
+    qx = SVector{2}( -kμ_xx[i] * ( (Pfc[i+1,2] - Pfc[i,2]) * invΔx          ) for i ∈ 1:2)
+    qy = SVector{2}( -kμ_yy[i] * (((Pfc[2,i+1] - Pfc[2,i]) * invΔy) - ρfg[i]) for i ∈ 1:2)
 
     # Divergence of Darcy flux and solid velocity
     divqD = ( (  qx[2] -   qx[1]) * invΔx + (  qy[2] -   qy[1]) * invΔy)

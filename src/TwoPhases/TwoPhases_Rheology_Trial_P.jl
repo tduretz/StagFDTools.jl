@@ -317,13 +317,13 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
 
             # Darcy flux
             k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
-            kx_μ_xx = SVector{2, Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
+            kx_μ_xx = SVector{2,   Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
             k_μ_yy  = k_μ_xx
-            ky_μ_yy = SVector{2, Float64}( @. (k_μ_yy[2,j] + k_μ_yy[2,j+1]) / 2 for j=1:2 )
-            ∂Pf∂x   = SVector{2, Float64}( @. (Pf[i+1,2] - Pf[i,2] ) / Δ.x for i=1:2 )
-            ∂Pf∂y   = SVector{2, Float64}( @. (Pf[2,j+1] - Pf[2,j] ) / Δ.y for j=1:2 )
-            qDx     =  SVector{2, Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
-            qDy     =  SVector{2, Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
+            ky_μ_yy = SVector{2,   Float64}( @. (k_μ_yy[2,j] + k_μ_yy[2,j+1]) / 2 for j=1:2 )
+            ∂Pf∂x   = SVector{2,   Float64}( @. (Pf[i+1,2] - Pf[i,2] ) / Δ.x for i=1:2 )
+            ∂Pf∂y   = SVector{2,   Float64}( @. (Pf[2,j+1] - Pf[2,j] ) / Δ.y for j=1:2 )
+            qDx     = SVector{2,   Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
+            qDy     = SVector{2,   Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
             divqD   = ((qDx[2] - qDx[1]) / Δ.x + (qDy[2] - qDy[1]) / Δ.y)
             
             ##################################
