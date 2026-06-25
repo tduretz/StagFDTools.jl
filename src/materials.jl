@@ -7,6 +7,7 @@ Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+    soft::T = Float64[]
 end
 Base.@kwdef struct DruckerPrager{T} <: AbstractPlasticity
     C::T = Float64[]
@@ -17,6 +18,7 @@ Base.@kwdef struct DruckerPrager{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+    soft::T = Float64[]
 end
 
 Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
@@ -28,6 +30,7 @@ Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+    soft::T = Float64[]
 end
 
 Base.@kwdef struct DruckerHyperbolic{T} <: AbstractPlasticity
@@ -40,6 +43,7 @@ Base.@kwdef struct DruckerHyperbolic{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+    soft::T = Float64[]
 end
 
 Base.@kwdef struct DruckerAniso{T} <: AbstractPlasticity
@@ -52,6 +56,7 @@ Base.@kwdef struct DruckerAniso{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+    soft::T = Float64[]
 end
 
 Base.@kwdef struct Tensile{T} <: AbstractPlasticity
@@ -63,6 +68,7 @@ Base.@kwdef struct Tensile{T} <: AbstractPlasticity
     cosϕ::T = Float64[]
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
+    soft::T = Float64[]
 end
 
 Base.@kwdef struct Golchin2021{T} <: AbstractPlasticity
@@ -148,7 +154,8 @@ initialize(::Type{VonMises}, n::Integer) = VonMises(
     ηvp=zeros(n),
     sinϕ=zeros(n),
     sinψ=zeros(n),
-    cosψ=zeros(n)
+    cosψ=zeros(n),
+    soft=zeros(n),
 )
 
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
@@ -159,7 +166,8 @@ initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
     cosϕ=ones(n),
     sinϕ=zeros(n),
     sinψ=zeros(n),
-    cosψ=zeros(n)
+    cosψ=zeros(n),
+    soft=zeros(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
@@ -170,7 +178,8 @@ initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
     cosϕ=ones(n),
     sinϕ=zeros(n),
     sinψ=zeros(n),
-    cosψ=zeros(n)
+    cosψ=zeros(n),
+    soft=zeros(n),
 )
 
 initialize(::Type{DruckerHyperbolic}, n::Integer) = DruckerHyperbolic(
@@ -182,7 +191,8 @@ initialize(::Type{DruckerHyperbolic}, n::Integer) = DruckerHyperbolic(
     cosϕ=ones(n),
     sinϕ=zeros(n),
     sinψ=zeros(n),
-    cosψ=zeros(n)
+    cosψ=zeros(n),
+    soft=zeros(n),
 )
 
 initialize(::Type{DruckerAniso}, n::Integer) = DruckerAniso(
@@ -194,7 +204,8 @@ initialize(::Type{DruckerAniso}, n::Integer) = DruckerAniso(
     cosϕ=ones(n),
     sinϕ=zeros(n),
     sinψ=zeros(n),
-    cosψ=zeros(n)
+    cosψ=zeros(n),
+    soft=zeros(n),
 )
 
 initialize(::Type{Golchin2021}, n::Integer) = Golchin2021(

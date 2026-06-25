@@ -938,7 +938,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, sp, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -950,7 +950,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, sp, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -963,7 +963,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
     return imin
 end
 
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, sp, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
 
     _ones = @SVector ones(4)
     s = 1
@@ -1029,8 +1029,8 @@ end
                 ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, Pt[i, j])
 
                 # Tangent operator used for Newton Linearisation
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ)
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], sp.c[i, j], materials, phase_ratios.c[i, j], Δ)
+                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], sp.c[i, j], materials, phase_ratios.c[i, j], Δ)
                 _, η_local, λ̇_local, τII_local = stress_state
 
                 @views 𝐷_ctl.c[i, j] .= jac
@@ -1121,8 +1121,8 @@ end
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, sp.v[i,j], materials, phase_ratios.v[i, j], Δ)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, sp.v[i,j], materials, phase_ratios.v[i, j], Δ)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac

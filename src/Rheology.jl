@@ -1,6 +1,5 @@
 using ForwardDiff
 
-
 function line(p, K, dt, η_ve, ψ, p1, t1)
     p2 = p1 + K * dt * sind(ψ)  # introduce sinϕ ?
     t2 = t1 - η_ve
@@ -255,6 +254,8 @@ function AnalyticalReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ, 
         τII -= λ̇ * ηve
         P += comp * λ̇ * sinψ * Δt / β
         F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
+        # fric = tand(asind( 1/P * (τII - C * cosϕ - λ̇ * ηvp)  ))
+        # @show fric
         (F > 1e-10) && error("Failed return mapping")
     end
     return τII, P, λ̇
@@ -276,41 +277,52 @@ end
 
 
 # Return mapping --------------------------------------------
-return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
+return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::VonMises, phases)
+    C = if pl.soft[phases]==1.0
+        C = sp*pl.C[phases]
+    else
+        C = C[phases]
+    end
     return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
         pl.C[phases], pl.cosϕ[phases], 0.0, 0.0, pl.ηvp[phases])
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::DruckerPrager, phases)
+    C = if pl.soft[phases]==1.0
+        sp*pl.C[phases]
+        # @show sp*pl.C[phases]
+    else
+        pl.C[phases]
+    end
     return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,
-        pl.C[phases], pl.cosϕ[phases], pl.sinϕ[phases], pl.sinψ[phases], pl.ηvp[phases])
+        C, pl.cosϕ[phases], pl.sinϕ[phases], pl.sinψ[phases], pl.ηvp[phases])
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPrager1, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::DruckerPrager1, phases)
     p = (C=pl.C[phases], cosϕ=pl.cosϕ[phases], sinϕ=pl.sinϕ[phases], sinψ=pl.sinψ[phases], cosψ=pl.cosψ[phases], ηvp=pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, DruckerPrager1())
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerHyperbolic, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::DruckerHyperbolic, phases)
     p = (C=pl.C[phases], cosϕ=pl.cosϕ[phases], sinϕ=pl.sinϕ[phases], sinψ=pl.sinψ[phases], cosψ=pl.cosψ[phases], σT=pl.σT[phases], ηvp=pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, DruckerHyperbolic())
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Golchin2021, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::Golchin2021, phases)
     Pt = -pl.σT[phases]
     p = (M=pl.M[phases], N=pl.N[phases], Pt, Pc=pl.Pc[phases], α=pl.a[phases], β=pl.b[phases], γ=pl.c[phases], ηvp=pl.ηvp[phases])
     return NonLinearReturnMapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, p, Golchin2021())
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Kiss2023, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::Kiss2023, phases)
     return Kiss2023ReturnMapping(τII, P, ηvep, comp, β, Δt,
         pl.C[phases], pl.ϕ[phases], pl.ψ[phases], pl.ηvp[phases],
         pl.σT[phases], pl.δσT[phases], pl.P1[phases], pl.τ1[phases], pl.P2[phases], pl.τ2[phases])
 end
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::Tensile, phases)
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δt, comp, pl::Tensile, phases)
     return TensileReturnMapping(τII, P, ηvep, comp, β, Δt, pl.σT[phases], pl.ηvp[phases])
 end
 
@@ -350,7 +362,7 @@ function PhaseAverage(a_average, averaging)
     return a_avg
 end
 
-function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
+function LocalRheology(ε̇, Dkk, P0, sp, materials, phase_ratios, Δ)
 
     nphases = length(materials.n)
     phase_avg = materials.phase_avg
@@ -400,7 +412,7 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
         ηvep = τII / 2 / ε̇II
 
         # Viscoplastic return mapping
-        τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases)
+        τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, sp, Δ.t, comp, materials.plasticity, phases)
 
         # Effective viscosity
         ηvep = τII / (2 * ε̇II)
@@ -420,8 +432,8 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, materials, phase_ratios, Δ) where {N,T}
-    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, materials, phase_ratios, Δ)
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, sp, materials, phase_ratios, Δ) where {N,T}
+    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, sp, materials, phase_ratios, Δ)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
         2 * η * ε̇[3],
