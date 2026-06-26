@@ -90,7 +90,7 @@ function SetPhaseRatios!(phase_ratios, phase_weights, m, xce, yce, xve, yve, Δ,
     end
 end
 
-function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
+function compute_grid_fields!(G, β, ρ, ξ, C, materials, phase_ratios, nc, nphases)
     nxc, nyc = size(G.c)
     @inbounds for j in 1:nyc, i in 1:nxc
         if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
@@ -98,6 +98,7 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
             Gc = 0.0
             ρc = 0.0
             ξc = 0.0
+            Cc = 0.0
             pr = phase_ratios.c[i, j]
             for p = 1:nphases
                 r = pr[p]
@@ -105,61 +106,76 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
                 Gc += r * materials.G[p]
                 ρc += r * materials.ρ[p]
                 ξc += r * materials.ξ0[p]
+                Cc += r * materials.plasticity.C[p]
             end
             β.c[i, j] = βc
             G.c[i, j] = Gc
             ρ.c[i, j] = ρc
             ξ.c[i, j] = ξc
+            C.c[i, j] = Cc
         else
             β.c[i, j] = 0.0
             G.c[i, j] = 0.0
             ρ.c[i, j] = 0.0
             ξ.c[i, j] = 0.0
+            C.c[i, j] = 0.0
         end
     end
 
     @inbounds for j in 1:nyc
-        G.c[1, j] = G.c[2, j]
+        G.c[1,   j] = G.c[2, j]
         G.c[nxc, j] = G.c[nxc-1, j]
-        β.c[1, j] = β.c[2, j]
+        β.c[1,   j] = β.c[2, j]
         β.c[nxc, j] = β.c[nxc-1, j]
-        ρ.c[1, j] = ρ.c[2, j]
+        ρ.c[1,   j] = ρ.c[2, j]
         ρ.c[nxc, j] = ρ.c[nxc-1, j]
-        ξ.c[1, j] = ξ.c[2, j]
+        ξ.c[1,   j] = ξ.c[2, j]
         ξ.c[nxc, j] = ξ.c[nxc-1, j]
+        C.c[1,   j] = C.c[2, j]
+        C.c[nxc, j] = C.c[nxc-1, j]
     end
     @inbounds for i in 1:nxc
-        G.c[i, 1] = G.c[i, 2]
+        G.c[i,   1] = G.c[i, 2]
         G.c[i, nyc] = G.c[i, nyc-1]
-        β.c[i, 1] = β.c[i, 2]
+        β.c[i,   1] = β.c[i, 2]
         β.c[i, nyc] = β.c[i, nyc-1]
-        ρ.c[i, 1] = ρ.c[i, 2]
+        ρ.c[i,   1] = ρ.c[i, 2]
         ρ.c[i, nyc] = ρ.c[i, nyc-1]
-        ξ.c[i, 1] = ξ.c[i, 2]
+        ξ.c[i,   1] = ξ.c[i, 2]
         ξ.c[i, nyc] = ξ.c[i, nyc-1]
+        C.c[i,   1] = C.c[i, 2]
+        C.c[i, nyc] = C.c[i, nyc-1]
     end
 
     nxv, nyv = size(G.v)
     @inbounds for j in 1:nyv, i in 1:nxv
         if 1 < i < nc.x + 3 && 1 < j < nc.y + 3
             Gv = 0.0
+            Cv = 0.0 
             pr = phase_ratios.v[i, j]
             for p = 1:nphases
                 Gv += pr[p] * materials.G[p]
+                Cv += pr[p] * materials.plasticity.C[p]
             end
             G.v[i, j] = Gv
+            C.v[i, j] = Cv
         else
             G.v[i, j] = 0.0
+            C.v[i, j] = 0.0
         end
     end
 
     @inbounds for j in 1:nyv
-        G.v[1, j] = G.v[2, j]
+        G.v[1,   j] = G.v[2,     j]
         G.v[nxv, j] = G.v[nxv-1, j]
+        C.v[1,   j] = C.v[2,     j]
+        C.v[nxv, j] = C.v[nxv-1, j]
     end
     @inbounds for i in 1:nxv
-        G.v[i, 1] = G.v[i, 2]
+        G.v[i,   1] = G.v[i,     2]
         G.v[i, nyv] = G.v[i, nyv-1]
+        C.v[i,   1] = C.v[i,     2]
+        C.v[i, nyv] = C.v[i, nyv-1]
     end
     return nothing
 end
