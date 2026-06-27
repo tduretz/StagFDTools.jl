@@ -42,7 +42,7 @@ end
                           
     # Material parameters
     nphases                    = 4
-    materials                  = initialize_materials( nphases, compressible = true, plasticity = DruckerPrager )
+    materials                  = initialize_materials( nphases, compressible = true, Dzz=-0.0*ε̇yy, plasticity = DruckerPrager )
     materials.n               .= [  1.0,    1.0,     1.0,    1.0]             # Power law exponent
     materials.η0              .= [ 1e48,   1e28,    1e10,   1e48]./sc.σ./sc.t # Reference viscosity 
     materials.G               .= [ 1e10,    1e9,    1e60,   1e10]./sc.σ       # Shear modulus
@@ -694,5 +694,5 @@ end
 
 let
     # main((x = 150, y = 250), 1000, 30) # matches friction
-    main((x = 100, y = 200), 100, 60)
+    main((x = 100, y = 200), 100, 30)
 end

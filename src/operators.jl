@@ -1,3 +1,5 @@
+using StaticArrays
+
 for type in (:SMatrix, :MMatrix)
     @eval begin
         Base.@propagate_inbounds @inline inn(A::($type){M,N})    where {M,N} = ($type){M-2,N-2}(A[i + 1, j + 1] for i in 1:M-2, j in 1:N-2)
@@ -18,22 +20,19 @@ end
 # @albert-de-montserrat: could we make the size of the SVector below variable?
 # Ideally it's 2 when working on momentum balance
 # But it's one (or scalar) when computing local rheology. 
-@inline function deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
-    ε̇kk = SVector{2}( @. Dxx + Dyy           )
+@inline function deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy, Dzz)
+    ε̇kk = SVector{2}( @. Dxx + Dyy + Dzz     )
     ε̇xx = SVector{2}( @. Dxx - 1/3*ε̇kk       ) 
     ε̇yy = SVector{2}( @. Dyy - 1/3*ε̇kk       ) 
     ε̇xy = SVector{2}( @. 1/2 * ( Dxy + Dyx ) ) 
     return ε̇xx, ε̇yy, ε̇xy, ε̇kk
 end
 
-
-using StaticArrays
-
 @inline function deviatoric_strain_rate(Dxx::SVector{N,T},
                                         Dxy::SVector{N,T},
                                         Dyx::SVector{N,T},
-                                        Dyy::SVector{N,T}) where {N,T}
-    ε̇kk = Dxx .+ Dyy
+                                        Dyy::SVector{N,T}, Dzz::Float64) where {N,T}
+    ε̇kk = Dxx .+ Dyy .+ Dzz
     ε̇xx = Dxx .- (1/3) .* ε̇kk
     ε̇yy = Dyy .- (1/3) .* ε̇kk
     ε̇xy = (1/2) .* (Dxy .+ Dyx)
@@ -41,8 +40,8 @@ using StaticArrays
     return ε̇xx, ε̇yy, ε̇xy, ε̇kk
 end
 
-@inline function deviatoric_strain_rate(Dxx::T, Dxy::T, Dyx::T, Dyy::T) where {T}
-    ε̇kk = Dxx + Dyy
+@inline function deviatoric_strain_rate(Dxx::T, Dxy::T, Dyx::T, Dyy::T, Dzz::Float64) where {T}
+    ε̇kk = Dxx + Dyy + Dzz
     ε̇xx = Dxx - (1/3)*ε̇kk
     ε̇yy = Dyy - (1/3)*ε̇kk
     ε̇xy = (1/2)*(Dxy + Dyx)

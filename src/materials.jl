@@ -98,7 +98,7 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
-    σT::T = Float64[]
+    σT::T  = Float64[]
     δσT::T = Float64[]
     P1::T = Float64[]
     τ1::T = Float64[]
@@ -117,6 +117,7 @@ Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
     B::T               = Float64[]
     plasticity::P      = NoPlasticity()
     compressible::Bool = false
+    Dzz::Float64       = 0.0
     phase_avg::Symbol  = :arithmetic
 end
 
@@ -132,7 +133,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     Ks::T              = Float64[]
     KΦ::T              = Float64[]
     Kf::T              = Float64[]
-    Φ0::T               = Float64[]
+    Φ0::T              = Float64[]
     m::T               = Float64[]
     n_CK::T            = Float64[]
     k_ηf0::T           = Float64[]
@@ -143,6 +144,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     single_phase       = false
     conservative       = false
     compressible::Bool = false
+    Dzz::Float64       = 0.0
     phase_avg::Symbol  = :arithmetic
 end
 
@@ -259,7 +261,8 @@ initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 
 function initialize_materials(nphases::Integer;
     plasticity=NoPlasticity(),
-    compressible::Bool=false,
+    compressible::Bool=false, 
+    Dzz::Float64=0.0,
     phase_avg::Symbol=:arithmetic)
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials(
@@ -272,6 +275,7 @@ function initialize_materials(nphases::Integer;
         B=ones(nphases),
         plasticity=initialize(P, nphases),
         compressible=compressible,
+        Dzz=Dzz,
         phase_avg=phase_avg
     )
 end
@@ -279,6 +283,7 @@ end
 function initialize_materials_TwoPhases(nphases::Integer;
     plasticity=NoPlasticity(),
     compressible::Bool = true,
+    Dzz::Float64=0.0,
     single_phase::Bool = false,
     oneway::Bool       = false,
     linearizeΦ::Bool   = false,
