@@ -1,7 +1,7 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-@views function main(nc)
+@views function main(nc, nt, n_nt)
 
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
@@ -13,7 +13,7 @@ import Statistics:mean
     # Linear solver
     solver      = :GCR
     GCR_restart = 25
-    GCR_maxit   = 2000
+    GCR_maxit   = 100
     ϵ_l         = 1e-8
     Pic2Newt    = 0.1   # more than 1.0 - always Newton
 
@@ -23,8 +23,7 @@ import Statistics:mean
     α      = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    nt     = 10 #40
-    Δt0    = 1e10/sc.t 
+    Δt0    = 1e10/sc.t / n_nt 
 
     rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
@@ -409,6 +408,10 @@ import Statistics:mean
 
         @info τ_ini*sc.σ
         @show τxx_ini*sc.σ, τyy_ini*sc.σ
+
+        fname = @sprintf("PoroVEP_%03d.jld2",  it)
+        save("./examples/_TwoPhases/TwoPhasesPlasticity/results/$(fname)", "X", X, "sc", sc, "probes", probes,
+        "λ̇", λ̇, "P", P, "τ", τ, "ε̇", ε̇, "V", V, "η", η, "Φ", Φ, "εp", εp, "niter", niter, "err", err ) 
       
         # Visualise
         function figure()
@@ -567,10 +570,25 @@ end
 
 function Run()
 
-    nc = (x=150, y=100)
+    # Does not complete successfully - crashes at step 9
+    n_nx = 16
+    n_nt = 1
+
+    nc   = (x=n_nx*50, y=n_nx*25)
+    nt   = 40*n_nt
 
     # Mode 0   
-    main(nc);
+    main(nc, nt, n_nt);
+
+    # # Resolution test dt
+    # n_nx = 4
+    # n_nt = 8
+
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = Int64(40*n_nt)
+
+    # # Mode 0   
+    # main(nc, nt, n_nt);
     
 end
 

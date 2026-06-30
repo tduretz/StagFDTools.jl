@@ -5,30 +5,6 @@ function StrainRateTrial(τII, Pt, Pf, ηve, ηΦ, KΦ, Ks, Kf, C, cosϕ, sinϕ,
     return ε̇II_trial
 end
 
-# F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
-
-function residual_two_phase_trial(x, divVs, divqD, Δt, Pt0, Pf0, Φ0, ηΦ, KΦ, Ks, Kf)
-     
-    Pt, Pf, Φ = x[1], x[2], x[3]
-
-    # Porosity rate
-    dPtdt   = (Pt - Pt0) / Δt
-    dPfdt   = (Pf - Pf0) / Δt
-    dΦdt    = (dPfdt - dPtdt)/KΦ + (Pf - Pt)/ηΦ
-
-    dlnρfdt = dPfdt / Kf
-    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
-
-    f_sol = dlnρsdt   - dΦdt/(1-Φ) +   divVs
-    f_liq = (Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD)/ηΦ
-
-    return @SVector [ 
-        f_sol,
-        f_liq,
-        Φ    - (Φ0 + dΦdt*Δt),
-    ]
-end
-
 function residual_two_phase(x, ηve, Δt, ε̇II_eff, Pt_trial, Pf_trial, Φ_trial, Pt0, Pf0, Φ0, ηΦ, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, single_phase )
      
     # eps   = -1e-20
@@ -193,16 +169,6 @@ function LocalRheology(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, phases
 
     return ηvep, λ̇, Pt, Pf, τII, Φ, f
 end
-
-
-
-
-
-
-
-
-
-
 
 function residual_two_phase_div_pressure(x, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ηΦ, Δt)
     
