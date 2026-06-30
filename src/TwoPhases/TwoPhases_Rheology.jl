@@ -5,7 +5,7 @@ function StrainRateTrial(τII, Pt, Pf, ηve, ηΦ, KΦ, Ks, Kf, C, cosϕ, sinϕ,
     return ε̇II_trial
 end
 
-F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
+# F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
 
 function residual_two_phase_trial(x, divVs, divqD, Δt, Pt0, Pf0, Φ0, ηΦ, KΦ, Ks, Kf)
      
@@ -164,7 +164,7 @@ function LocalRheology(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, phases
             end
             r = norm(R)/r0
 
-            R = residual_two_phase( x, (ηve), (Δ.t), (ε̇II_eff), (Pt), (Pf), (Φ), (Pt0), (Pf0), (Φ0), (ηΦ), (KΦ), (Ks), (Kf), (C), (cosϕ), (sinϕ), (sinψ), (ηvp), (materials.single_phase))
+            # R = residual_two_phase( x, (ηve), (Δ.t), (ε̇II_eff), (Pt), (Pf), (Φ), (Pt0), (Pf0), (Φ0), (ηΦ), (KΦ), (Ks), (Kf), (C), (cosϕ), (sinϕ), (sinψ), (ηvp), (materials.single_phase))
 
             # @show iter, J.val
             # @show R
@@ -362,14 +362,15 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
 
     _ones = @SVector ones(5)
 
-    D_test = @MMatrix zeros(5,5)
-    C           = @MMatrix zeros(5,5)
-    C[diagind(C)] .= 1.0
+    ## ALTERNATIVE VIA DIVERGENCES: Pressure block
+    # D_test = @MMatrix zeros(5,5)
+    # C           = @MMatrix zeros(5,5)
+    # C[diagind(C)] .= 1.0
 
     # Loop over centroids
     # @show "CENTROIDS"
     for j=2:size(ε̇.xx,2)-1, i=2:size(ε̇.xx,1)-1
- 
+        # Local stencil
         Vx     = SMatrix{2,3}(      V.x[ii,jj] for ii in i:i+1,   jj in j:j+2)
         Vy     = SMatrix{3,2}(      V.y[ii,jj] for ii in i:i+2,   jj in j:j+1)
         bcx    = SMatrix{2,3}(    BC.Vx[ii,jj] for ii in i:i+1,   jj in j:j+2)
@@ -380,60 +381,52 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
         Pf_loc = SMatrix{3,3}(      P.f[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
         typepf = SMatrix{3,3}(  type.Pf[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
         bcpf   = SMatrix{3,3}(    BC.Pf[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
-
-        # BCs
-        Vx  = SetBCVx1(Vx, typex, bcx, Δ)
-        Vy  = SetBCVy1(Vy, typey, bcy, Δ)
-        Pf  = SetBCPf1(Pf_loc, typepf, bcpf, Δ)
-
-        # Kinematics
-        Dxx = ∂x_inn(Vx) / Δ.x 
-        Dyy = ∂y_inn(Vy) / Δ.y 
-        Dxy = ∂y(Vx) / Δ.y
-        Dyx = ∂x(Vy) / Δ.x
-        
-        Dkk = Dxx .+ Dyy
-        ε̇xx = @. Dxx - Dkk ./ 3
-        ε̇yy = @. Dyy - Dkk ./ 3
-        ε̇xy = @. (Dxy + Dyx) ./ 2
-        ε̇̄xy = av(ε̇xy)
-
-        qDx   = materials.k_ηf0[1] .*  ∂x_inn(Pf) / Δ.x 
-        qDy   = materials.k_ηf0[1] .*  ∂y_inn(Pf) / Δ.y
+        # Solid velocity gradient tensor
+        Vx     = SetBCVx1(Vx, typex, bcx, Δ)
+        Vy     = SetBCVy1(Vy, typey, bcy, Δ)
+        Pf     = SetBCPf1(Pf_loc, typepf, bcpf, Δ)
+        # Solid velocity gradient tensor
+        Dxx    = ∂x_inn(Vx) / Δ.x 
+        Dyy    = ∂y_inn(Vy) / Δ.y 
+        Dxy    = ∂y(Vx) / Δ.y
+        Dyx    = ∂x(Vy) / Δ.x
+        # Solid strain rate and divergence 
+        Dkk    = Dxx .+ Dyy
+        ε̇xx   = @. Dxx - Dkk ./ 3
+        ε̇yy   = @. Dyy - Dkk ./ 3
+        ε̇xy   = @. (Dxy + Dyx) ./ 2
+        ε̇̄xy   = av(ε̇xy)
+        # Darcy flux & divergence
+        qDx   = .- materials.k_ηf0[1] .*  ∂x_inn(Pf) / Δ.x 
+        qDy   = .- materials.k_ηf0[1] .*  ∂y_inn(Pf) / Δ.y
         divqD = (∂x(qDx) + ∂y(qDy))[1]
-       
         # Visco-elasticity
         G      = materials.G[phases.c[i,j]]
         τ̄xy0   = av(τxy0)
         ε̇vec   = @SVector([ε̇xx[1]+τ0.xx[i,j]/(2*G[1]*Δ.t), ε̇yy[1]+τ0.yy[i,j]/(2*G[1]*Δ.t), ε̇̄xy[1]+τ̄xy0[1]/(2*G[1]*Δ.t), P.t[i,j], P.f[i,j]])
         τ0_loc = @SVector([τ0.xx[i,j], τ0.yy[i,j], τ̄xy0[1]])
-
         ##################################
-
         # Tangent operator used for Newton Linearisation
         stress_state, τ_vec, jac = ad_value_and_jacobian_first(StressVector!, ε̇vec, Dkk[1], divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], τ0_loc, materials, phases.c[i,j], Δ)
         _, η_local, λ̇_local, τII_local, Φ_local, f_local = stress_state
-
         @views 𝐷_ctl.c[i,j] .= jac
-
         ##################################
+        ## ALTERNATIVE VIA DIVERGENCES: Pressure block
+        # KΦ      = materials.KΦ[phases.c[i,j]]
+        # Ks      = materials.Ks[phases.c[i,j]]
+        # Kf      = materials.Kf[phases.c[i,j]]
+        # ηΦ      = materials.ξ0[phases.c[i,j]]
+        # x = @SVector[Dkk[1], divqD]
+        # Jp = ad_jacobian(Pressures, x, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], KΦ, Ks, Kf, ηΦ, Δ.t)
 
-        # Pressure block
-        KΦ      = materials.KΦ[phases.c[i,j]]
-        Ks      = materials.Ks[phases.c[i,j]]
-        Kf      = materials.Kf[phases.c[i,j]]
-        ηΦ      = materials.ξ0[phases.c[i,j]]
-        x = @SVector[Dkk[1], divqD]
-        Jp = ad_jacobian(Pressures, x, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], KΦ, Ks, Kf, ηΦ, Δ.t)
+        # @views C[4:5,4:5] .=  inv(Jp[1:2,1:2])
 
-        @views C[4:5,4:5] .=  inv(Jp[1:2,1:2])
+        # ε̇vec   = @SVector([ε̇xx[1]+τ0.xx[i,j]/(2*G[1]*Δ.t), ε̇yy[1]+τ0.yy[i,j]/(2*G[1]*Δ.t), ε̇̄xy[1]+τ̄xy0[1]/(2*G[1]*Δ.t), Dkk[1], divqD])
+        # _, _, jac2 = ad_value_and_jacobian_first(StressVector_div!, ε̇vec, Dkk[1], divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], τ0_loc, materials, phases.c[i,j], Δ)
 
-        ε̇vec   = @SVector([ε̇xx[1]+τ0.xx[i,j]/(2*G[1]*Δ.t), ε̇yy[1]+τ0.yy[i,j]/(2*G[1]*Δ.t), ε̇̄xy[1]+τ̄xy0[1]/(2*G[1]*Δ.t), Dkk[1], divqD])
-        _, _, jac2 = ad_value_and_jacobian_first(StressVector_div!, ε̇vec, Dkk[1], divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], τ0_loc, materials, phases.c[i,j], Δ)
+        # @views D_test .= jac2
 
-        @views D_test .= jac2
-
-        𝐷_ctl.c[i,j] .= D_test * C
+        # 𝐷_ctl.c[i,j] .= D_test * C
 
         # display(𝐷_ctl.c[i,j])
         # display(D_test * C)
@@ -448,14 +441,11 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
         # end
 
         ##################################
-
         # Tangent operator used for Picard Linearisation
         𝐷.c[i,j] .= diagm(2 * η_local * _ones)
         𝐷.c[i,j][4,4] = 1
         𝐷.c[i,j][5,5] = 1
-
         ##################################
-
         # Update stress
         τ.xx[i,j] = τ_vec[1]
         τ.yy[i,j] = τ_vec[2]
@@ -474,6 +464,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
     # Loop over vertices
     # @show "VERTICES" 
     for j=3:size(ε̇.xy,2)-2, i=3:size(ε̇.xy,1)-2
+        # Local stencil
         Vx      = SMatrix{3,2}(      V.x[ii,jj] for ii in i-1:i+1,   jj in j-1+1:j+1)
         Vy      = SMatrix{2,3}(      V.y[ii,jj] for ii in i-1+1:i+1, jj in j-1:j+1  )
         bcx     = SMatrix{3,2}(    BC.Vx[ii,jj] for ii in i-1:i+1,   jj in j-1+1:j+1)
@@ -487,89 +478,79 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η , V, P, ΔP, P
         Φ0_loc  = SMatrix{2,2}(     Φ0.c[ii,jj] for ii in i-1:i+0,   jj in j-1:j+0)
         Pt0_loc = SMatrix{2,2}(     P0.t[ii,jj] for ii in i-1:i+0,   jj in j-1:j+0)
         Pf0_loc = SMatrix{2,2}(     P0.f[ii,jj] for ii in i-1:i+0,   jj in j-1:j+0)
-
         Pfex    = SMatrix{4,4}(      P.f[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
         typepf  = SMatrix{4,4}(  type.Pf[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
         bcpf    = SMatrix{4,4}(    BC.Pf[ii,jj] for ii in i-2:i+1,   jj in j-2:j+1)
-
-        Vx     = SetBCVx1(Vx, typex, bcx, Δ)
-        Vy     = SetBCVy1(Vy, typey, bcy, Δ)
-        Pf     = SetBCPf1(Pfex, typepf, bcpf, Δ)
-
-        Dxx    = ∂x(Vx) / Δ.x
-        Dyy    = ∂y(Vy) / Δ.y
-        Dxy    = ∂y_inn(Vx) / Δ.y
-        Dyx    = ∂x_inn(Vy) / Δ.x
-
-        Dkk   = @. Dxx + Dyy
-        ε̇xx   = @. Dxx - Dkk / 3
-        ε̇yy   = @. Dyy - Dkk / 3
-        ε̇xy   = @. (Dxy + Dyx) /2
-        ε̇̄xx   = av(ε̇xx)
-        ε̇̄yy   = av(ε̇yy)
-
-        qDx   = materials.k_ηf0[1] .*  ∂x_inn(Pf) / Δ.x 
-        qDy   = materials.k_ηf0[1] .*  ∂y_inn(Pf) / Δ.y
-        divqD = (∂x(qDx) + ∂y(qDy))
-        
-        divqD̄ = av(divqD)[1]
-        
+        # Set BCs
+        Vx      = SetBCVx1(Vx, typex, bcx, Δ)
+        Vy      = SetBCVy1(Vy, typey, bcy, Δ)
+        Pf      = SetBCPf1(Pfex, typepf, bcpf, Δ)
+        # Solid velocity gradient tensor
+        Dxx     = ∂x(Vx) / Δ.x
+        Dyy     = ∂y(Vy) / Δ.y
+        Dxy     = ∂y_inn(Vx) / Δ.y
+        Dyx     = ∂x_inn(Vy) / Δ.x
+        # Solid strain rate and divergence 
+        Dkk     = @. Dxx + Dyy
+        ε̇xx     = @. Dxx - Dkk / 3
+        ε̇yy     = @. Dyy - Dkk / 3
+        ε̇xy     = @. (Dxy + Dyx) /2
+        ε̇̄xx     = av(ε̇xx)
+        ε̇̄yy     = av(ε̇yy)
+        # Darcy flux & divergence
+        qDx     = .- materials.k_ηf0[1] .*  ∂x_inn(Pf) / Δ.x 
+        qDy     = .- materials.k_ηf0[1] .*  ∂y_inn(Pf) / Δ.y
+        divqD   = (∂x(qDx) + ∂y(qDy))
+        divqD̄   = av(divqD)[1]
         # Visco-elasticity
-        G     = materials.G[phases.v[i,j]]
-        τ̄xx0  = av(τxx0)
-        τ̄yy0  = av(τyy0)
-        P̄t    = av(  Pt)
-        P̄f    = av(  Pf)
-        ε̇vec  = @SVector([ε̇̄xx[1]+τ̄xx0[1]/(2*G[1]*Δ.t), ε̇̄yy[1]+τ̄yy0[1]/(2*G[1]*Δ.t), ε̇xy[1]+τ0.xy[i,j]/(2*G[1]*Δ.t), P̄t[1], P̄f[1]])
+        G       = materials.G[phases.v[i,j]]
+        τ̄xx0    = av(τxx0)
+        τ̄yy0    = av(τyy0)
+        P̄t      = av(  Pt)
+        P̄f      = av(  Pf)
+        ε̇vec    = @SVector([ε̇̄xx[1]+τ̄xx0[1]/(2*G[1]*Δ.t), ε̇̄yy[1]+τ̄yy0[1]/(2*G[1]*Δ.t), ε̇xy[1]+τ0.xy[i,j]/(2*G[1]*Δ.t), P̄t[1], P̄f[1]])
         τ0_loc  = @SVector([τ̄xx0[1], τ̄yy0[1], τ0.xy[i,j]])
-
-        D̄kk   = av(Dkk)
-        ϕ̄0    = av(Φ0_loc)
-        P̄t0   = av(Pt0_loc)
-        P̄f0   = av(Pf0_loc)
-
+        D̄kk     = av(Dkk)
+        ϕ̄0      = av(Φ0_loc)
+        P̄t0     = av(Pt0_loc)
+        P̄f0     = av(Pf0_loc)
         ##################################
-
         # Tangent operator used for Newton Linearisation
         stress_state, τ_vec, jac = ad_value_and_jacobian_first(StressVector!, ε̇vec, D̄kk[1], divqD̄, P̄t0[1], P̄f0[1], ϕ̄0[1], τ0_loc, materials, phases.v[i,j], Δ)
         _, η_local, λ̇_local, _, _, _ = stress_state
-
         @views 𝐷_ctl.v[i,j] .= jac
+        ##################################
+        ## ALTERNATIVE VIA DIVERGENCES: Pressure block
+        # KΦ      = materials.KΦ[phases.v[i,j]]
+        # Ks      = materials.Ks[phases.v[i,j]]
+        # Kf      = materials.Kf[phases.v[i,j]]
+        # ηΦ      = materials.ξ0[phases.v[i,j]]
+        # x = @SVector[D̄kk[1], divqD̄]
+        # Jp = ad_jacobian(Pressures, x, P̄t0[1], P̄f0[1], ϕ̄0[1], KΦ, Ks, Kf, ηΦ, Δ.t)
+
+        # @views C[4:5,4:5] .=  inv(Jp[1:2,1:2])
+
+        # ε̇vec  = @SVector([ε̇̄xx[1]+τ̄xx0[1]/(2*G[1]*Δ.t), ε̇̄yy[1]+τ̄yy0[1]/(2*G[1]*Δ.t), ε̇xy[1]+τ0.xy[i,j]/(2*G[1]*Δ.t), D̄kk[1], divqD̄])
+        # _, _, jac2 = ad_value_and_jacobian_first(StressVector_div!, ε̇vec, D̄kk[1], divqD̄, P̄t0[1], P̄f0[1], ϕ̄0[1], τ0_loc, materials, phases.v[i,j], Δ)
+
+        # @views D_test .= jac2
+
+        # # Derr = (𝐷_ctl.v[i,j] .- D_test * C)
+        # # if norm(Derr)>1e-10
+        # #     display(𝐷_ctl.v[i,j])
+        # #     display(D_test * C)
+        # #     display(Derr)
+        # #     error()
+        # # end
+
+        # 𝐷_ctl.v[i,j] .= D_test * C
 
         ##################################
-
-        # Pressure block
-        KΦ      = materials.KΦ[phases.v[i,j]]
-        Ks      = materials.Ks[phases.v[i,j]]
-        Kf      = materials.Kf[phases.v[i,j]]
-        ηΦ      = materials.ξ0[phases.v[i,j]]
-        x = @SVector[D̄kk[1], divqD̄]
-        Jp = ad_jacobian(Pressures, x, P̄t0[1], P̄f0[1], ϕ̄0[1], KΦ, Ks, Kf, ηΦ, Δ.t)
-
-        @views C[4:5,4:5] .=  inv(Jp[1:2,1:2])
-
-        ε̇vec  = @SVector([ε̇̄xx[1]+τ̄xx0[1]/(2*G[1]*Δ.t), ε̇̄yy[1]+τ̄yy0[1]/(2*G[1]*Δ.t), ε̇xy[1]+τ0.xy[i,j]/(2*G[1]*Δ.t), D̄kk[1], divqD̄])
-        _, _, jac2 = ad_value_and_jacobian_first(StressVector_div!, ε̇vec, D̄kk[1], divqD̄, P̄t0[1], P̄f0[1], ϕ̄0[1], τ0_loc, materials, phases.v[i,j], Δ)
-
-        @views D_test .= jac2
-
-        # Derr = (𝐷_ctl.v[i,j] .- D_test * C)
-        # if norm(Derr)>1e-10
-        #     display(𝐷_ctl.v[i,j])
-        #     display(D_test * C)
-        #     display(Derr)
-        #     error()
-        # end
-
-        𝐷_ctl.v[i,j] .= D_test * C
-
-        ##################################
-
         # Tangent operator used for Picard Linearisation
         𝐷.v[i,j] .= diagm(2 * η_local * _ones)
         𝐷.v[i,j][4,4] = 1
         𝐷.v[i,j][5,5] = 1
-
+        ##################################
         # Update stress
         τ.xy[i,j] = τ_vec[3]
         ε̇.xy[i,j] = ε̇xy[1]

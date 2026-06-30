@@ -23,7 +23,7 @@ import Statistics:mean
     α      = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    nt     = 40
+    nt     = 10 #40
     Δt0    = 1e10/sc.t 
 
     rad     = 1e3/sc.L 
