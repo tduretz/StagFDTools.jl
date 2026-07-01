@@ -7,7 +7,7 @@ import Statistics:mean
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
-    visualization = true
+    visualization = false
     free_clims    = false
 
     # Linear solver
@@ -292,7 +292,7 @@ import Statistics:mean
             err.x[iter]  = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             err.y[iter]  = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
             err.pt[iter] = @views norm(R.pt[inx_c,iny_c])/sqrt(nPt)
-            err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPf)
+            err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPt)
             println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
             println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
             println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
@@ -420,8 +420,8 @@ import Statistics:mean
             eps  = 1e-10
 
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
-            # field = λ̇.v[inx_v,iny_v] ./ sc.t
-            field = R.x[inx_v,iny_v] ./ sc.t
+            field = λ̇.v[inx_v,iny_v] ./ sc.t
+            # field = R.x[inx_v,iny_v] ./ sc.t
 
             hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
@@ -581,12 +581,12 @@ function Run()
 
     ###################################
 
-    # # Does not complete successfully - crashes at step 10
-    # n_nx = 16
-    # n_nt = 1
-    # nc   = (x=n_nx*50, y=n_nx*25)
-    # nt   = 40*n_nt
-    # main(nc, nt, n_nt);
+    # Does not complete successfully - crashes at step 10
+    n_nx = 16
+    n_nt = 1
+    nc   = (x=n_nx*50, y=n_nx*25)
+    nt   = 40*n_nt
+    main(nc, nt, n_nt);
 
     ###################################
 
@@ -599,12 +599,12 @@ function Run()
 
     ###################################
 
-    # # with eta_vp
-    n_nx = 1
-    n_nt = 1
-    nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 40*n_nt
-    main(nc, nt, n_nt; ηvp=1e18);
+    # # # with eta_vp
+    # n_nx = 1
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = 40*n_nt
+    # main(nc, nt, n_nt; ηvp=1e18);
     
 end
 

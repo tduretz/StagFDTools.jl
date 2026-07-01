@@ -105,7 +105,7 @@ end
 
     # Stress
     σxx = SVector{2}(
-        (𝐷.c[i][1,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][1,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][1,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][1,4] + (1 - 𝐷.c[i][4,4])) * Pt[i,2] + 𝐷.c[i][1,5] * Pf[i,2] - Ptc[i]
+        (𝐷.c[i][1,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][1,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][1,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][1,4] + 1 - 𝐷.c[i][4,4]) * Pt[i,2] + (𝐷.c[i][1,5] - 𝐷.c[i][4,5]) * Pf[i,2] - Ptc[i]
         for i in 1:2
     )
     τxy = SVector{2}(
@@ -215,7 +215,7 @@ end
 
     # Stress
     σyy = SVector{2}(
-        (𝐷.c[i][2,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][2,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][2,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][2,4] + (1 - 𝐷.c[i][4,4])) * Pt[2,i] + 𝐷.c[i][2,5] * Pf[2,i] - Ptc[i]
+        (𝐷.c[i][2,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][2,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][2,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][2,4] + 1 - 𝐷.c[i][4,4]) * Pt[2,i] + (𝐷.c[i][2,5] - 𝐷.c[i][4,5]) * Pf[2,i] - Ptc[i]
         for i in 1:2
     )
     τxy = SVector{2}(
@@ -1509,7 +1509,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rh
 
         # Accept any decrease
         if ϕtrial < ϕ0
-            @show "LS success"
+            @show "LS success: α = $(α) "
             swap_solution!(V, P, Vi, Pi)
             return α, ϕtrial, true
         end
