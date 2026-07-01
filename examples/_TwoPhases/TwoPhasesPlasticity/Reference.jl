@@ -1,12 +1,12 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-@views function main(nc, nt, n_nt)
+@views function main(nc, nt, n_nt; 
+    homo=false, niter=100, Φini=5e-2, ηvp=0.0)
 
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
-    homo          = false
     visualization = true
     free_clims    = false
 
@@ -15,10 +15,9 @@ import Statistics:mean
     GCR_restart = 25
     GCR_maxit   = 100
     ϵ_l         = 1e-8
-    Pic2Newt    = 0.1   # more than 1.0 - always Newton
+    Pic2Newt    = 1.1#0.1   # more than 1.0 - always Newton
 
     # Non-linear solver
-    niter  = 100
     ϵ_nl   = 1e-8
     α      = LinRange(0.05, 1.0, 5)
 
@@ -63,10 +62,10 @@ import Statistics:mean
     materials.plasticity.ϕ   .= [ 35.,     35. ]
     materials.plasticity.ψ   .= [ 10.,     10. ] .* 1
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
-    materials.plasticity.ηvp .= [1e18,    1e18 ]./sc.σ/sc.t .* 0
+    materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
     preprocess!(materials)
 
-    Φ0      = 0.05
+    Φ0      = Φini
     # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
@@ -421,7 +420,9 @@ import Statistics:mean
             eps  = 1e-10
 
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
-            field = λ̇.v[inx_v,iny_v] ./ sc.t
+            # field = λ̇.v[inx_v,iny_v] ./ sc.t
+            field = R.x[inx_v,iny_v] ./ sc.t
+
             hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
@@ -456,6 +457,7 @@ import Statistics:mean
             scatter!(ax, 1:niter, log10.(err.pt[1:niter]./err.pt[1]), label="Pt" )
             scatter!(ax, 1:niter, log10.(err.pf[1:niter]./err.pf[1]), label="Pf" )
             ylims!(ax, -10, 1.1)
+            xlims!(ax, 0, 20)
             Legend(fig[2, 4], ax)
 
             ax    = Axis(fig[3,1], aspect=DataAspect(), title=L"$\Phi$ [-]", xlabel=L"x", ylabel=L"y")
@@ -570,25 +572,39 @@ end
 
 function Run()
 
-    # Does not complete successfully - crashes at step 10
-    n_nx = 16
-    n_nt = 1
+    # # Homogeneous test
+    # n_nx = 1
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = 40*n_nt
+    # main(nc, nt, n_nt, homo=true, niter=2)
 
-    nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 40*n_nt
+    ###################################
 
-    # Mode 0   
-    main(nc, nt, n_nt);
+    # # Does not complete successfully - crashes at step 10
+    # n_nx = 16
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = 40*n_nt
+    # main(nc, nt, n_nt);
+
+    ###################################
 
     # # Resolution test dt
     # n_nx = 4
     # n_nt = 8
-
     # nc   = (x=n_nx*50, y=n_nx*25)
     # nt   = Int64(40*n_nt)
-
-    # # Mode 0   
     # main(nc, nt, n_nt);
+
+    ###################################
+
+    # # with eta_vp
+    n_nx = 1
+    n_nt = 1
+    nc   = (x=n_nx*50, y=n_nx*25)
+    nt   = 40*n_nt
+    main(nc, nt, n_nt; ηvp=1e18);
     
 end
 

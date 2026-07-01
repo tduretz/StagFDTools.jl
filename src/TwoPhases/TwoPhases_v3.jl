@@ -352,7 +352,8 @@ end
     invΔy   = get_invΔy(Δ)
     Δt      = Δ.t
 
-    Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+    # Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+    Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+0*ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
 
     # Density - currently explicit in time (= using old fluid density)
     ρ0f  = ρfi

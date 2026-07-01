@@ -252,10 +252,10 @@ function two_phase_return_mapping()
     Pt   = 1e6/sc.σ
     Pf   = 1e6/sc.σ 
     τ    = SA[0.0, -0.0, 0]./sc.σ
-    Φ    = 0.05 
+    Φ    = 5e-2 
 
     # Parameters
-    nt = 30
+    nt = 40
     
     params = (
         G       = 3e10/sc.σ,
@@ -377,6 +377,9 @@ function two_phase_return_mapping()
         ax5 = Axis(fig[5,1], title="Residual",  xlabel=L"$t$ [yr]",  ylabel=L"$r$", xlabelsize=20, ylabelsize=20)    
         scatter!(ax5, probes.t[1:nt]*sc.t, log10.(probes.r[1:nt]))
         display(fig)
+
+        benchmark && save("./examples/_TwoPhases/TwoPhasesPlasticity/results/VEP_loading_homogeneous_1D_2D.jld2", "data", data, "probes", probes, "sc", sc)
+
     end
     with_theme(figure, theme_latexfonts())
 end

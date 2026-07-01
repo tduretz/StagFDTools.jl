@@ -246,6 +246,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
     G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK = rheo
     invΔx, invΔy, Δt = 1 / Δ.x, 1 / Δ.y, Δ.t
 
+
     ########################### Loop over centroids ###########################
     Threads.@threads for j=2:size(ε̇.xx,2)-1
         for i=2:size(ε̇.xx,1)-1
