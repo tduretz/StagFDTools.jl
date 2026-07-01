@@ -274,7 +274,7 @@ end
         materials.g[2] * 0.5 * (ρ0f[2,2] + ρ0f[2,3]),
     )   
     Pf   = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
-    Pt   = SetBCPf1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pt   = SetBCPt1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
 
     dPtdt = @. (Pt - Pt0) / Δt
     dPfdt = @. (Pf - Pf0) / Δt
@@ -359,7 +359,7 @@ end
     ρ0f  = ρfi
     ρfg  = SVector{2}(materials.g[2] * 0.5 * (ρ0f[2,i] + ρ0f[2,i+1]) for i ∈ 1:2)  
     Pf   = SetBCPf1(Pf_loc,  type.pf, bcv.pf, Δ, ρfg)
-    Pt   = SetBCPf1(Pt_loc,  type.pt, bcv.pt, Δ, ρfg)
+    Pt   = SetBCPt1(Pt_loc,  type.pt, bcv.pt, Δ, ρfg)
     Pfc  = SetBCPf1(Pfc_loc, type.pf, bcv.pf, Δ, ρfg)
 
     dPtdt   = @. (Pt .- Pt0) / Δt

@@ -242,6 +242,9 @@ end
 
 function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
 
+    fill!(ΔP.t, 0.0)
+    fill!(ΔP.f, 0.0)
+    
     _ones = @SVector ones(5)
     G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK = rheo
     invΔx, invΔy, Δt = 1 / Δ.x, 1 / Δ.y, Δ.t
@@ -282,9 +285,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
             Vx  = SetBCVx1(Vx_loc, typex, bcx, Δ)
             Vy  = SetBCVy1(Vy_loc, typey, bcy, Δ)
             Pf  = SetBCPf1(Pf_loc,  typepf, bcpf, Δ, ρfg)
-            Pt  = SetBCPf1(Pt_loc,  typept, bcpt, Δ, ρfg)
+            Pt  = SetBCPt1(Pt_loc,  typept, bcpt, Δ, ρfg)
             Pf0 = SetBCPf1(Pf0_loc, typepf, bcpf, Δ, ρfg)
-            Pt0 = SetBCPf1(Pt0_loc, typepf, bcpf, Δ, ρfg)
+            Pt0 = SetBCPt1(Pt0_loc, typept, bcpt, Δ, ρfg)
 
             # Porosity
             Φ_loc = if materials.linearizeΦ
@@ -420,9 +423,9 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0
             Vx  = SetBCVx1(Vx_loc,  typex, bcx, Δ)
             Vy  = SetBCVy1(Vy_loc,  typey, bcy, Δ)
             Pf  = SetBCPf1(Pf_loc,  typepf, bcpf, Δ, ρfg)
-            Pt  = SetBCPf1(Pt_loc,  typept, bcpt, Δ, ρfg)
+            Pt  = SetBCPt1(Pt_loc,  typept, bcpt, Δ, ρfg)
             Pf0 = SetBCPf1(Pf0_loc, typepf, bcpf, Δ, ρfg)
-            Pt0 = SetBCPf1(Pt0_loc, typept, bcpt, Δ, ρfg)
+            Pt0 = SetBCPt1(Pt0_loc, typept, bcpt, Δ, ρfg)
 
             # Porosity
             Φ_loc = if materials.linearizeΦ
