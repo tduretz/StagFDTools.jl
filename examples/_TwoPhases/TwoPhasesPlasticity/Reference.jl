@@ -293,7 +293,7 @@ import Statistics:mean
             err.x[iter]  = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             err.y[iter]  = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
             err.pt[iter] = @views norm(R.pt[inx_c,iny_c])/sqrt(nPt)
-            err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPt)
+            err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPf)
             println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
             println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
             println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
