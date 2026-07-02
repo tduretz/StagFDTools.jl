@@ -132,10 +132,10 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     k_ηf0::T           = Float64[]
     B::T               = Float64[]
     plasticity::P      = NoPlasticity()
-    linearizeΦ         = false 
-    oneway             = false
-    single_phase       = false
-    conservative       = false
+    linearizeΦ::Bool   = false
+    oneway::Bool       = false
+    single_phase::Bool = false
+    conservative::Bool = false
     compressible::Bool = false
     phase_avg::Symbol  = :arithmetic
 end

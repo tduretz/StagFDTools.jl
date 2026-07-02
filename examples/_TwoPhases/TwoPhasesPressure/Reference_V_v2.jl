@@ -230,7 +230,9 @@ end
     P0      = (t=zeros(size_c...), f=zeros(size_c...))
     ΔP      = (t=zeros(size_c...), f=zeros(size_c...))
     ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
-    ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+    div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
     P       = (t=zeros(size_c...), f=zeros(size_c...))
     
     xv  = LinRange(-L.x/2, L.x/2, nc.x+1)
@@ -312,7 +314,8 @@ end
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+
             end
             @timeit to "Residual" begin
                 @time ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)

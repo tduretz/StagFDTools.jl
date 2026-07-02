@@ -88,6 +88,7 @@ end
     Dyy_v = SVector{2}(∂V̄y∂y[2, i] for i = 1:2)
     ∂Vy∂x = ∂x(Vy) * invΔx
     Dyx_v = SVector{2}(∂Vy∂x[2, i] for i = 2:3)
+
     # Deviatoric strain rate
     ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
     ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v)
@@ -105,7 +106,7 @@ end
 
     # Stress
     σxx = SVector{2}(
-        (𝐷.c[i][1,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][1,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][1,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][1,4] + (1 - 𝐷.c[i][4,4])) * Pt[i,2] + 𝐷.c[i][1,5] * Pf[i,2] - Ptc[i]
+        (𝐷.c[i][1,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][1,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][1,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][1,4] + 1 - 𝐷.c[i][4,4]) * Pt[i,2] + (𝐷.c[i][1,5] - 𝐷.c[i][4,5]) * Pf[i,2] - Ptc[i]
         for i in 1:2
     )
     τxy = SVector{2}(
@@ -215,7 +216,7 @@ end
 
     # Stress
     σyy = SVector{2}(
-        (𝐷.c[i][2,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][2,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][2,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][2,4] + (1 - 𝐷.c[i][4,4])) * Pt[2,i] + 𝐷.c[i][2,5] * Pf[2,i] - Ptc[i]
+        (𝐷.c[i][2,1] - 𝐷.c[i][4,1]) * ϵ̇xx_c[i] + (𝐷.c[i][2,2] - 𝐷.c[i][4,2]) * ϵ̇yy_c[i] + (𝐷.c[i][2,3] - 𝐷.c[i][4,3]) * ϵ̇xy_c[i] + (𝐷.c[i][2,4] + 1 - 𝐷.c[i][4,4]) * Pt[2,i] + (𝐷.c[i][2,5] - 𝐷.c[i][4,5]) * Pf[2,i] - Ptc[i]
         for i in 1:2
     )
     τxy = SVector{2}(
@@ -274,7 +275,7 @@ end
         materials.g[2] * 0.5 * (ρ0f[2,2] + ρ0f[2,3]),
     )   
     Pf   = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
-    Pt   = SetBCPf1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pt   = SetBCPt1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
 
     dPtdt = @. (Pt - Pt0) / Δt
     dPfdt = @. (Pf - Pf0) / Δt
@@ -352,11 +353,15 @@ end
     invΔy   = get_invΔy(Δ)
     Δt      = Δ.t
 
+    # Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+    Pfc_loc  = SMatrix{3,3}((Pf_loc[i, j]+0*ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+
     # Density - currently explicit in time (= using old fluid density)
     ρ0f  = ρfi
     ρfg  = SVector{2}(materials.g[2] * 0.5 * (ρ0f[2,i] + ρ0f[2,i+1]) for i ∈ 1:2)  
-    Pf   = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
-    Pt   = SetBCPf1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pf   = SetBCPf1(Pf_loc,  type.pf, bcv.pf, Δ, ρfg)
+    Pt   = SetBCPt1(Pt_loc,  type.pt, bcv.pt, Δ, ρfg)
+    Pfc  = SetBCPf1(Pfc_loc, type.pf, bcv.pf, Δ, ρfg)
 
     dPtdt   = @. (Pt .- Pt0) / Δt
     dPfdt   = @. (Pf .- Pf0) / Δt
@@ -380,31 +385,15 @@ end
     # #     @show Pf0
     # # end
     
-  
     dlnρfdt = dPfdt[2,2] / Kf[2,2]
 
-    # Interpolate porosity to velocity nodes
-    Φxⁿ = SVector{2}(
-        (Φ[1,2]^n_CK[1,2] + Φ[2,2]^n_CK[2,2]) * 0.5,
-        (Φ[2,2]^n_CK[2,2] + Φ[3,2]^n_CK[3,2]) * 0.5,
-    )
-    
-    Φyⁿ = SVector{2}(
-        (Φ[2,1]^n_CK[2,1] + Φ[2,2]^n_CK[2,2]) * 0.5,
-        (Φ[2,2]^n_CK[2,2] + Φ[2,3]^n_CK[2,3]) * 0.5,
-    )
-
-    # This allocates? why?
-    # Φxⁿ = SVector{2}(0.5 * (Φ[i,2]^n_CK[i,2] + Φ[i+1,2]^n_CK[i+1,2]) for i ∈ 1:2)
-    # Φyⁿ = SVector{2}(0.5 * (Φ[2,i]^n_CK[2,i] + Φ[2,i+1]^n_CK[2,i+1]) for i ∈ 1:2)
-
     # Fluid conductivity
-    kμ_xx = SVector{2}(0.5 * (kμ[i+1,2] + kμ[i,2]) for i ∈ 1:2)
-    kμ_yy = SVector{2}(0.5 * (kμ[2,i+1] + kμ[2,i]) for i ∈ 1:2)
-
+    kμ_xx = SVector(Base.@ntuple 2 i-> 0.5 * (kμ[i,2]*Φ[i,2]^n_CK[i,2] + kμ[i+1,2]*Φ[i+1,2]^n_CK[i+1,2]))
+    kμ_yy = SVector(Base.@ntuple 2 i-> 0.5 * (kμ[2,i]*Φ[2,i]^n_CK[2,i] + kμ[2,i+1]*Φ[2,i+1]^n_CK[2,i+1]))
+    
     # Darcy flux
-    qx = SVector{2}( -kμ_xx[i] * Φxⁿ[i] * ( (Pf[i+1,2] - Pf[i,2]) * invΔx          ) for i ∈ 1:2)
-    qy = SVector{2}( -kμ_yy[i] * Φyⁿ[i] * (((Pf[2,i+1] - Pf[2,i]) * invΔy) - ρfg[i]) for i ∈ 1:2)
+    qx = SVector{2}( -kμ_xx[i] * ( (Pfc[i+1,2] - Pfc[i,2]) * invΔx          ) for i ∈ 1:2)
+    qy = SVector{2}( -kμ_yy[i] * (((Pfc[2,i+1] - Pfc[2,i]) * invΔy) - ρfg[i]) for i ∈ 1:2)
 
     # Divergence of Darcy flux and solid velocity
     divqD = ( (  qx[2] -   qx[1]) * invΔx + (  qy[2] -   qy[1]) * invΔy)
@@ -1392,7 +1381,8 @@ function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo
         P.t .= Pi.t
         P.f .= Pi.f
         UpdateSolution!(V, P, α[i].*dx, number, type, nc)
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+
         ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
         ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
@@ -1407,71 +1397,68 @@ function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo
     return imin
 end
 
-function GlobalResidual!(α, dx, R, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-    UpdateSolution!(V, P, α.*dx, number, type, nc)
-    TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
-    ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-    ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-    ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-    ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+function swap_solution!(V1, P1, V0, P0)
+    V1.x .= V0.x
+    V1.y .= V0.y
+    P1.t .= P0.t
+    P1.f .= P0.f
 end
 
-@inline fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) = @views (norm(R.x[inx_Vx,iny_Vx])/sqrt(length(R.x[inx_Vx,iny_Vx])))^2 + (norm(R.y[inx_Vy,iny_Vy])/sqrt(length(R.y[inx_Vy,iny_Vy])))^2 + 1*(norm(R.pt[inx_c,iny_c])/length(R.pt[inx_c,iny_c]))^2 + 1*(norm(R.pf[inx_c,iny_c])/length(R.pf[inx_c,iny_c]))^2
+function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
+    α0=1.0, ρ=0.5, αmin=1e-2,  maxiter=5,)
 
-function BackTrackingLineSearch!(rvec, α, dx, R0, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ; α_init=1.0, β=0.5, c=1e-4)
-    
+    τ0, P0, Φ0, ρ0 = old
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
-    Vi.x .= V.x 
-    Vi.y .= V.y 
-    Pi.t .= P.t
-    Pi.f .= P.f
+    # Save current state
+    swap_solution!(Vi, Pi, V, P)
 
-    α = α_init
-    GlobalResidual!(0.0, dx, R0, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-    
-    f0_norm_sq = fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) 
+    # Merit function
+    merit() = @views norm(R.x[inx_Vx,iny_Vx])/length(R.x[inx_Vx,iny_Vx]) + norm(R.y[inx_Vy,iny_Vy])/length(R.y[inx_Vy,iny_Vy]) + norm(R.pt[inx_c,iny_c])/length(R.pt[inx_c,iny_c]) + norm(R.pf[inx_c,iny_c])/length(R.pf[inx_c,iny_c])
 
-    k = 0
-    max_iters = 5
+    ϕ0 = merit()
 
-    for iter in 1:max_iters
-    # # while f_norm_sq >= (1 - c * α * slope) * f0_norm_sq
+    α = α0
 
-        k    += 1
+    for k = 1:maxiter
 
-        V.x .= Vi.x 
+        # Restore original solution
+        V.x .= Vi.x
         V.y .= Vi.y
         P.t .= Pi.t
         P.f .= Pi.f
 
-        GlobalResidual!(  α, dx, R, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-        
-        f_norm_sq = fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) 
+        # Trial update
+        UpdateSolution!(V, P, α .* dx, number, type, nc)
 
-        slope = -2 * ( sum(R0.x[inx_Vx,iny_Vx].*R.x[inx_Vx,iny_Vx]) + sum(R0.y[inx_Vy,iny_Vy].*R.y[inx_Vy,iny_Vy]) + 1*sum(R0.pt[inx_c,iny_c].*R.pt[inx_c,iny_c]) + 1*sum(R0.pf[inx_c,iny_c].*R.pf[inx_c,iny_c]) )
-    
-         if f_norm_sq <= (1 - c * α * slope) * f0_norm_sq
-            break        
+        # Recompute constitutive state
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
+
+        # Recompute residual
+        ResidualMomentum2D_x!( R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )
+        ResidualMomentum2D_y!( R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )
+        ResidualContinuity2D!( R, V, P, ΔP, old, rheo, materials, number, type, BC, nc, Δ )
+        ResidualFluidContinuity2D!( R, V, P, ΔP, old, rheo, materials, number, type, BC, nc, Δ )
+
+        ϕtrial = merit()
+
+        # Accept any decrease
+        if ϕtrial < ϕ0
+            @show "LS success: α = $(α) "
+            swap_solution!(V, P, Vi, Pi)
+            return α, ϕtrial, true
         end
 
-        # @show α, f_norm_sq, f0_norm_sq, (1 - c * α * slope) * f0_norm_sq
+        α *= ρ
 
-
-        @show α, f_norm_sq, f0_norm_sq, f_norm_sq/f0_norm_sq
-
-        α *= β
-
+        if α < αmin
+            break
+        end
     end
 
-    V.x .= Vi.x 
-    V.y .= Vi.y
-    P.t .= Pi.t
-    P.f .= Pi.f
+    swap_solution!(V, P, Vi, Pi)
 
-    @info k, α
-
-    return α
+    return αmin, ϕ0, false
 end
 
 function reduce_sparse_matrix!(K, K_loc)

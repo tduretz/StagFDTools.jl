@@ -6,6 +6,7 @@ using DifferentiationInterface, ForwardDiff
 include("AD.jl")
 export ad_gradient, ad_value_and_gradient, ad_derivative, ad_value_and_derivative
 export ad_jacobian, ad_value_and_jacobian, ad_partial_gradients, ad_value_and_jacobian_first
+export fd_value_and_jacobian, fd_value_and_derivative
 export Const, Duplicated, forwarddiff_gradients!, forwarddiff_gradient, forwarddiff_jacobian
 
 include("operators.jl")

@@ -198,10 +198,10 @@ end
 @views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000, ηb=1e5)
 
     # Construct PC
-    VxVx = sparse(M.Vx.Vx); VxVy = sparse(M.Vx.Vy); VxPt = sparse(M.Vx.Pt)
-    VyVx = sparse(M.Vy.Vx); VyVy = sparse(M.Vy.Vy); VyPt = sparse(M.Vy.Pt)
-    PtVx = sparse(M.Pt.Vx); PtVy = sparse(M.Pt.Vy); PtPt = sparse(M.Pt.Pt); PtPf = sparse(M.Pt.Pf)
-    PfVx = sparse(M.Pf.Vx); PfVy = sparse(M.Pf.Vy); PfPt = sparse(M.Pf.Pt); PfPf = sparse(M.Pf.Pf)
+    VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
+    VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
+    PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
+    PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
     
     Jvv = [VxVx VxVy; VyVx VyVy]
     Jvp = [VxPt; VyPt]
@@ -209,7 +209,7 @@ end
     Jpp = PtPt
     Jpq = PtPf
     Jqp = PfPt # added
-    Jqu = [PfVx PfVy]
+    # Jqu = [PfVx PfVy]
     Jqq = PfPf
 
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
@@ -226,10 +226,10 @@ end
     J̃vv = Jvv - Jvp * Dpp * Jpv
 
     Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    Juu_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jvv_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
-    ndofu = size(Jvp, 1)
-    ndofp = size(Jvp, 2)
+    ndofu = size(M.Vx.Vx, 1) + size(M.Vy.Vy, 1)
+    ndofp = size(M.Pt.Pt, 2)
     N     = ndofu + ndofp + ndofp
 
     f = zeros(Float64, N)
@@ -243,7 +243,7 @@ end
     iq = (ndofu + ndofp + 1):N
 
     return (;
-        Jqq_f_sym, Juu_f_sym,
+        Jqq_f_sym, Jvv_f_sym,
         restart, maxit,
         f, v, s, fu=view(f, iu), fp=view(f, ip), fq=view(f, iq),
         su=view(s, iu), sp=view(s, ip), sq=view(s, iq),
@@ -259,14 +259,14 @@ end
     x::Vector{Float64}, A::SparseMatrixCSC{Float64, Int64}, b::Vector{Float64}, noisy::Bool, M, cache;
     abstol::Float64=KSP_ABSTOL, reltol=1e-6, ηb=1e5
 )
-    (;  Jqq_f_sym, Juu_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
+    (;  Jqq_f_sym, Jvv_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
         du, dp, dq, r̃u, r̃p, tmpp, tmpq, tmpq2) = cache
 
     # Construct PC
-    VxVx = sparse(M.Vx.Vx); VxVy = sparse(M.Vx.Vy); VxPt = sparse(M.Vx.Pt)
-    VyVx = sparse(M.Vy.Vx); VyVy = sparse(M.Vy.Vy); VyPt = sparse(M.Vy.Pt)
-    PtVx = sparse(M.Pt.Vx); PtVy = sparse(M.Pt.Vy); PtPt = sparse(M.Pt.Pt); PtPf = sparse(M.Pt.Pf)
-    PfVx = sparse(M.Pf.Vx); PfVy = sparse(M.Pf.Vy); PfPt = sparse(M.Pf.Pt); PfPf = sparse(M.Pf.Pf)
+    VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
+    VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
+    PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
+    PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
     
     Jvv = [VxVx VxVy; VyVx VyVy]
     Jvp = [VxPt; VyPt]
@@ -282,15 +282,20 @@ end
     J̃pp = Jpp - Jpq * Dqq * Jqp
     incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
     if incomp
-        @info "incomp"
+        @info "incomp $(extrema(J̃pp))"
     end
     ndofp = size(J̃pp,1)
     Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
     # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
     J̃vv = Jvv - Jvp * Dpp * Jpv
+    # J̃vv = 1/2 .* (J̃vv .+ J̃vv')
 
     Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    Jvv_f = cholesky!(Juu_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jvv_f = cholesky!(Jvv_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+
+    # Jqq_f = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    # Jvv_f = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+
     Jpp_f = Dpp #cholesky(Hermitian(SparseMatrixCSC(J̃pp)), check=false) # PC is diagonal !
     #-----------------------------------
 
@@ -307,7 +312,7 @@ end
         return 0
     end
 
-    its = 0
+    its  = 0
     ncyc = 0
 
     while its < maxit
@@ -371,7 +376,7 @@ end
             Vnorm2[k] = den
             its += 1
         end
-        its += 1
+        its  += 1
         ncyc += 1
     end
 

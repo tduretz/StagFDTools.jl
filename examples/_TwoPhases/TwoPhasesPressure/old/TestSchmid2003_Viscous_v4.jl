@@ -163,7 +163,9 @@ import Statistics:mean
     P0      = (t = zeros(size_c...), f = zeros(size_c...))
     ΔP      = (t = zeros(size_c...), f = zeros(size_c...))
     ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
-    ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+    div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
     dx = zeros(nVx + nVy + nPt + nPf)
     r  = zeros(nVx + nVy + nPt + nPf)
 
