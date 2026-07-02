@@ -17,7 +17,7 @@ function linear_tol(r, r0, iter; α=9)
 end
 
 function mechanical_solver!(dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC;
-    solver=:PH, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true
+    solver=:PH, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true, maxit=1000
 )
     if solver == :PH
         # Decoupled Powell & Hestenes using LU as PC
@@ -29,7 +29,7 @@ function mechanical_solver!(dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_P
     elseif solver == :GCR
         # Coupled GCR with Cholesky as PC
         𝐌 = [M.Vx.Vx M.Vx.Vy M.Vx.Pt; M.Vy.Vx M.Vy.Vy M.Vy.Pt; M.Pt.Vx M.Pt.Vy M.Pt.Pt]
-        KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb=1e5, ϵ_l=ϵ_l, restart=20)
+        KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb=1e5, ϵ_l=ϵ_l, restart=20, maxit=maxit)
     end
 end
 
@@ -77,54 +77,125 @@ function KSP_GCR_Stokes!(
         tmpp = zeros(eltype(x), ndofp)
         fusc = zeros(eltype(x), ndofu)
 
+        Vnorm2 = zeros(restart)
+
         its = 0
+
+
+        # while its < maxit
+
+        #     for k = 1:restart
+
+        #         its += 1
+
+        #         fill!(s, 0.0)
+        #         @. tmpp = Pinv * fp
+
+        #         mul!(tmpu, Kup, tmpp)
+        #         @. fusc = fu - tmpu
+
+        #         ldiv!(su, Kf, fusc)
+
+        #         mul!(tmpp, Kpu, su)
+
+        #         @. sp += Pinv * (fp - tmpp)
+
+        #         mul!(v, M, s)
+
+        #         for j = 1:k-1
+        #             hj = dot(v, VV[:, j])
+        #             BLAS.axpy!(-hj, VV[:, j], v)
+        #             BLAS.axpy!(-hj, SS[:, j], s)
+        #         end
+
+        #         nrm = norm(v)
+
+        #         @. v /= nrm
+        #         @. s /= nrm
+
+        #         α = dot(f, v)
+
+        #         BLAS.axpy!(α, s, x)
+        #         BLAS.axpy!(-α, v, f)
+
+        #         if norm(fu) / sqrt(ndofu) < ϵ_l &&
+        #            norm(fp) / sqrt(ndofp) < ϵ_l
+
+        #             noisy && println("KSP converged in $its iterations")
+        #             return its
+        #         end
+
+        #         copyto!(VV[:, k], v)
+        #         copyto!(SS[:, k], s)
+
+        #     end
+        # end
 
         while its < maxit
 
             for k = 1:restart
-
-                its += 1
-
-                fill!(s, 0.0)
-                @. tmpp = Pinv * fp
-
-                mul!(tmpu, Kup, tmpp)
-                @. fusc = fu - tmpu
-
-                ldiv!(su, Kf, fusc)
-
+        
+                # --------------------------------------------------
+                # Apply block preconditioner s = PC^{-1} f
+                # --------------------------------------------------
+        
+                @. sp = Pinv * fp
+        
+                mul!(tmpu, Kup, sp)
+                @. tmpu = fu - tmpu
+        
+                ldiv!(su, Kf, tmpu)
+        
                 mul!(tmpp, Kpu, su)
-
-                @. sp += Pinv * (fp - tmpp)
-
+                @. sp = Pinv * (fp - tmpp)
+        
+                # --------------------------------------------------
+                # Assemble search direction s
+                # --------------------------------------------------
+        
+                copyto!(view(s, 1:ndofu), su)
+                copyto!(view(s, ndofu+1:N), sp)
+        
+                # v = A*s
                 mul!(v, M, s)
-
-                for j = 1:k-1
-                    hj = dot(v, VV[:, j])
-                    BLAS.axpy!(-hj, VV[:, j], v)
-                    BLAS.axpy!(-hj, SS[:, j], s)
+        
+                # --------------------------------------------------
+                # Modified Gram-Schmidt
+                # --------------------------------------------------
+        
+                for j = 1:(k-1)
+        
+                    Vj = view(VV, :, j)
+                    Sj = view(SS, :, j)
+        
+                    β = dot(Vj, v) / Vnorm2[j]
+        
+                    BLAS.axpy!(-β, Vj, v)
+                    BLAS.axpy!(-β, Sj, s)
+        
                 end
-
-                nrm = norm(v)
-
-                @. v /= nrm
-                @. s /= nrm
-
-                α = dot(f, v)
-
+        
+                den = dot(v, v)
+        
+                α = dot(f, v) / den
+        
                 BLAS.axpy!(α, s, x)
                 BLAS.axpy!(-α, v, f)
-
+        
                 if norm(fu) / sqrt(ndofu) < ϵ_l &&
                    norm(fp) / sqrt(ndofp) < ϵ_l
-
+        
                     noisy && println("KSP converged in $its iterations")
                     return its
                 end
-
-                copyto!(VV[:, k], v)
-                copyto!(SS[:, k], s)
-
+        
+                copyto!(view(VV, :, k), v)
+                copyto!(view(SS, :, k), s)
+        
+                Vnorm2[k] = den
+        
+                its += 1
+        
             end
         end
 

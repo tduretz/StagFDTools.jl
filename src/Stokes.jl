@@ -203,6 +203,7 @@ end
 function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, materials, type, bcv, Δ)
     
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0
+    Dzz = materials.Dzz
 
     # BC
     Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
@@ -241,8 +242,8 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
     ∂Vy∂x = ∂x(Vy) * invΔx
     Dyx_v = SVector{2}(∂Vy∂x[2, i] for i = 2:3)
     # Deviatoric strain rate
-    ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
-    ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v)
+    ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c, Dzz)
+    ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v, Dzz)
     # Effective visco-elastic strain rate
     Gc = SVector{2}(G_loc.c[i, 1] for i = 1:2)
     Gv = SVector{2}(G_loc.v[1, i] for i = 1:2)
@@ -285,6 +286,7 @@ end
 function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, materials, type, bcv, Δ)
 
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0 
+    Dzz = materials.Dzz
  
     # BC
     Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
@@ -324,8 +326,8 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
     Dyx_v = SVector{2}(∂Vy∂x[i, 2] for i = 1:2)
 
     # Deviatoric strain rate
-    ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
-    ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v)
+    ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c, Dzz)
+    ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v, Dzz)
 
     # Effective visco-elastic strain rate
     Gc = SVector{2}(G_loc.c[1, i] for i = 1:2)
@@ -362,7 +364,7 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
     end
 
     # Residual
-    fy = (σyy[2] - σyy[1]) * invΔy
+    fy  = (σyy[2] - σyy[1]) * invΔy
     fy += (τxy[2] - τxy[1]) * invΔx
     fy += ρg
     fy *= -Δ.x * Δ.y
@@ -377,7 +379,7 @@ function Continuity(Vx, Vy, Pt, Pt0, D, β, ξ, materials, type_loc, bcv_loc, Δ
     invΔy = 1 / Δ.y
     invΔt = 1 / Δ.t
     comp = materials.compressible
-    f = ((Vx[2, 2] - Vx[1, 2]) * invΔx + (Vy[2, 2] - Vy[2, 1]) * invΔy) + comp * β * (Pt[1] - Pt0) * invΔt + comp * Pt[1] / ξ
+    f = ((Vx[2, 2] - Vx[1, 2]) * invΔx + (Vy[2, 2] - Vy[2, 1]) * invΔy + materials.Dzz) + comp * β * (Pt[1] - Pt0) * invΔt + comp * Pt[1] / ξ
     return f
 end
 
@@ -938,7 +940,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, sp, C, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -950,7 +952,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, sp, C, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -963,9 +965,10 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
     return imin
 end
 
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, sp, C, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
 
     _ones = @SVector ones(4)
+    Dzz   = materials.Dzz 
     s = 1
     invΔx, invΔy = 1 / Δ.x, 1 / Δ.y
 
@@ -1021,7 +1024,7 @@ end
                 Dyx = (∂x(V̄y)*invΔx)[1]
 
                 # Deviatoric strain rate
-                ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
+                ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy, Dzz)
 
                 # Effective visco-elastic strain rate
                 _2GΔt = inv(2 * G.c[i, j] * Δ.t)
@@ -1029,8 +1032,8 @@ end
                 ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, Pt[i, j])
 
                 # Tangent operator used for Newton Linearisation
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ)
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], sp.c[i, j], C.c[i, j], materials, phase_ratios.c[i, j], Δ)
+                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], sp.c[i, j], C.c[i, j], materials, phase_ratios.c[i, j], Δ)
                 _, η_local, λ̇_local, τII_local = stress_state
 
                 @views 𝐷_ctl.c[i, j] .= jac
@@ -1113,7 +1116,7 @@ end
             Dyx = (∂x(Vy)*invΔx)[:, 2:end-1][1]
 
             # Deviatoric strain rate
-            ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
+            ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy, Dzz)
 
             # Effective visco-elastic strain rate
             _2GΔt = inv(2 * G.v[i, j] * Δ.t)
@@ -1121,8 +1124,8 @@ end
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, sp.v[i,j], C.v[i, j], materials, phase_ratios.v[i, j], Δ)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, sp.v[i,j], C.v[i, j], materials, phase_ratios.v[i, j], Δ)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac

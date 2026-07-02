@@ -210,7 +210,7 @@ using TimerOutputs
         iter, ϵ0, ϵ = 0, 0.0, 0.0
         niter = 10
 
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
+        compute_grid_fields!(G, β, ρ, ξ, C, materials, phase_ratios, nc, nphases)
 
         # @time 
         while iter<niter
@@ -221,7 +221,7 @@ using TimerOutputs
             #--------------------------------------------#
             # Residual check        
             @timeit to "Residual" begin
-                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, sp, C, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
                 @show extrema(λ̇.c[inx_c, iny_c])
                 @show extrema(λ̇.v[inx_v, iny_v])
                 ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
@@ -282,7 +282,7 @@ using TimerOutputs
             #--------------------------------------------#
             # Line search & solution update
             # @timeit to "Line search" 
-            @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+            @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, sp, C, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
             UpdateSolution!(V, Pt, α[imin] * dx, number, type, nc)
 
         end
