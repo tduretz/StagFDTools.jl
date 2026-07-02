@@ -7,7 +7,7 @@ import Statistics:mean
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
-    visualization = false
+    visualization = true
     free_clims    = false
 
     # Linear solver
@@ -15,14 +15,14 @@ import Statistics:mean
     GCR_restart = 25
     GCR_maxit   = 100
     ϵ_l         = 1e-8
-    Pic2Newt    = 1.1#0.1   # more than 1.0 - always Newton
+    Pic2Newt    = 0.8#0.1   # more than 1.0 - always Newton
 
     # Non-linear solver
-    ϵ_nl   = 1e-8
-    α      = LinRange(0.05, 1.0, 5)
+    ϵ_nl    = 1e-8
+    α       = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    Δt0    = 1e10/sc.t / n_nt 
+    Δt0     = 1e10/sc.t / n_nt 
 
     rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
@@ -167,6 +167,7 @@ import Statistics:mean
     𝐷_ctl   = (c = D_ctl_c, v = D_ctl_v)
 
     λ̇       = (c  = zeros(size_c...), v  = zeros(size_v...) )
+
     phases  = (c= ones(Int64, size_c...), v= ones(Int64, size_v...), x =ones(Int64, size_x...), y=ones(Int64, size_y...) )  # phase on velocity points
     P       = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
     Pi      = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
@@ -174,6 +175,8 @@ import Statistics:mean
     ΔP      = (t = zeros(size_c...), f = zeros(size_c...))
     ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+    div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
 
     ξ0      = (c  =  ones(size_c...), v  =  ones(size_v...) )
     m       = (c=zeros(size_c...),)
@@ -276,7 +279,7 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
             end
             @timeit to "Residual" begin
                 @time ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
@@ -354,7 +357,8 @@ import Statistics:mean
             @timeit to "Line search" begin
                 # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
                 # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
-                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ )
+                αmax   = Newton ? 1.0 : 3.0
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
                 UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 
@@ -581,12 +585,12 @@ function Run()
 
     ###################################
 
-    # Does not complete successfully - crashes at step 10
-    n_nx = 16
-    n_nt = 1
-    nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 40*n_nt
-    main(nc, nt, n_nt);
+    # # Does not complete successfully - crashes at step 10
+    # n_nx = 16
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = 40*n_nt
+    # main(nc, nt, n_nt);
 
     ###################################
 
@@ -599,12 +603,12 @@ function Run()
 
     ###################################
 
-    # # # with eta_vp
-    # n_nx = 1
-    # n_nt = 1
-    # nc   = (x=n_nx*50, y=n_nx*25)
-    # nt   = 40*n_nt
-    # main(nc, nt, n_nt; ηvp=1e18);
+    # # with eta_vp
+    n_nx = 1
+    n_nt = 1
+    nc   = (x=n_nx*50, y=n_nx*25)
+    nt   = 40*n_nt
+    main(nc, nt, n_nt; ηvp=1e18);
     
 end
 

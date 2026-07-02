@@ -88,6 +88,7 @@ end
     Dyy_v = SVector{2}(∂V̄y∂y[2, i] for i = 1:2)
     ∂Vy∂x = ∂x(Vy) * invΔx
     Dyx_v = SVector{2}(∂Vy∂x[2, i] for i = 2:3)
+
     # Deviatoric strain rate
     ε̇xx_c, ε̇yy_c, ε̇xy_c, ε̇kk_c = deviatoric_strain_rate(Dxx_c, Dxy_c, Dyx_c, Dyy_c)
     ε̇xx_v, ε̇yy_v, ε̇xy_v, ε̇kk_v = deviatoric_strain_rate(Dxx_v, Dxy_v, Dyx_v, Dyy_v)
@@ -1380,7 +1381,8 @@ function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo
         P.t .= Pi.t
         P.f .= Pi.f
         UpdateSolution!(V, P, α[i].*dx, number, type, nc)
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+
         ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
         ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
@@ -1395,73 +1397,6 @@ function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo
     return imin
 end
 
-function GlobalResidual!(α, dx, R, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-    UpdateSolution!(V, P, α.*dx, number, type, nc)
-    TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
-    ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-    ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-    ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-    ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-end
-
-@inline fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) = @views (norm(R.x[inx_Vx,iny_Vx])/sqrt(length(R.x[inx_Vx,iny_Vx])))^2 + (norm(R.y[inx_Vy,iny_Vy])/sqrt(length(R.y[inx_Vy,iny_Vy])))^2 + 1*(norm(R.pt[inx_c,iny_c])/length(R.pt[inx_c,iny_c]))^2 + 1*(norm(R.pf[inx_c,iny_c])/length(R.pf[inx_c,iny_c]))^2
-
-# function BackTrackingLineSearch!(rvec, α, dx, R0, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ; α_init=1.0, β=0.5, c=1e-4)
-    
-#     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
-
-#     Vi.x .= V.x 
-#     Vi.y .= V.y 
-#     Pi.t .= P.t
-#     Pi.f .= P.f
-
-#     α = α_init
-#     GlobalResidual!(0.0, dx, R0, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-    
-#     f0_norm_sq = fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) 
-
-#     k = 0
-#     max_iters = 5
-
-#     for iter in 1:max_iters
-#     # # while f_norm_sq >= (1 - c * α * slope) * f0_norm_sq
-
-#         k    += 1
-
-#         V.x .= Vi.x 
-#         V.y .= Vi.y
-#         P.t .= Pi.t
-#         P.f .= Pi.f
-
-#         GlobalResidual!(  α, dx, R, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-        
-#         f_norm_sq = fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) 
-
-#         slope = -2 * ( sum(R0.x[inx_Vx,iny_Vx].*R.x[inx_Vx,iny_Vx]) + sum(R0.y[inx_Vy,iny_Vy].*R.y[inx_Vy,iny_Vy]) + 1*sum(R0.pt[inx_c,iny_c].*R.pt[inx_c,iny_c]) + 1*sum(R0.pf[inx_c,iny_c].*R.pf[inx_c,iny_c]) )
-    
-#          if f_norm_sq <= (1 - c * α * slope) * f0_norm_sq
-#             break        
-#         end
-
-#         # @show α, f_norm_sq, f0_norm_sq, (1 - c * α * slope) * f0_norm_sq
-
-
-#         @show α, f_norm_sq, f0_norm_sq, f_norm_sq/f0_norm_sq
-
-#         α *= β
-
-#     end
-
-#     V.x .= Vi.x 
-#     V.y .= Vi.y
-#     P.t .= Pi.t
-#     P.f .= Pi.f
-
-#     @info k, α
-
-#     return α
-# end
-
 function swap_solution!(V1, P1, V0, P0)
     V1.x .= V0.x
     V1.y .= V0.y
@@ -1469,8 +1404,8 @@ function swap_solution!(V1, P1, V0, P0)
     P1.f .= P0.f
 end
 
-function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
-    α0=1.0, ρ=0.5, αmin=1e-8,  maxiter=20,)
+function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
+    α0=1.0, ρ=0.5, αmin=1e-2,  maxiter=5,)
 
     τ0, P0, Φ0, ρ0 = old
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -1497,7 +1432,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rh
         UpdateSolution!(V, P, α .* dx, number, type, nc)
 
         # Recompute constitutive state
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ )
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
 
         # Recompute residual
         ResidualMomentum2D_x!( R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )

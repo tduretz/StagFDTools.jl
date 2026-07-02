@@ -197,43 +197,36 @@ end
 # ==============================================================================
 @views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000, ηb=1e5)
 
-    # # Construct PC
-    # VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
-    # VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
-    # PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
-    # PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
+    # Construct PC
+    VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
+    VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
+    PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
+    PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
     
-    # Jvv = [VxVx VxVy; VyVx VyVy]
-    # Jvp = [VxPt; VyPt]
-    # Jpv = [PtVx PtVy]
-    # Jpp = PtPt
-    # Jpq = PtPf
-    # Jqp = PfPt # added
-    # # Jqu = [PfVx PfVy]
-    # Jqq = PfPf
+    Jvv = [VxVx VxVy; VyVx VyVy]
+    Jvp = [VxPt; VyPt]
+    Jpv = [PtVx PtVy]
+    Jpp = PtPt
+    Jpq = PtPf
+    Jqp = PfPt # added
+    # Jqu = [PfVx PfVy]
+    Jqq = PfPf
 
-    # Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
-    # # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
-    # J̃pp = Jpp - Jpq * Dqq * Jqp
-    # incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
-    # if incomp
-    #     @info "incomp"
-    # end
-    # ndofp = size(J̃pp,1)
-    # Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
-    # # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
-    # @show extrema(diag(J̃pp))
-    # J̃vv = Jvv - Jvp * Dpp * Jpv
+    Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
+    # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
+    J̃pp = Jpp - Jpq * Dqq * Jqp
+    incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
+    if incomp
+        @info "incomp"
+    end
+    ndofp = size(J̃pp,1)
+    Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
+    # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    @show extrema(diag(J̃pp))
+    J̃vv = Jvv - Jvp * Dpp * Jpv
 
-    # Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    # Jvv_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
-
-    Jqq_f_sym = 0
-    Jvv_f_sym = 0
-
-
-
-
+    Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    Jvv_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
     ndofu = size(M.Vx.Vx, 1) + size(M.Vy.Vy, 1)
     ndofp = size(M.Pt.Pt, 2)
@@ -297,11 +290,11 @@ end
     J̃vv = Jvv - Jvp * Dpp * Jpv
     # J̃vv = 1/2 .* (J̃vv .+ J̃vv')
 
-    # Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    # Jvv_f = cholesky!(Jvv_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    Jvv_f = cholesky!(Jvv_f_sym, Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
-    Jqq_f = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
-    Jvv_f = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
+    # Jqq_f = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
+    # Jvv_f = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
     Jpp_f = Dpp #cholesky(Hermitian(SparseMatrixCSC(J̃pp)), check=false) # PC is diagonal !
     #-----------------------------------
@@ -319,7 +312,7 @@ end
         return 0
     end
 
-    its = 0
+    its  = 0
     ncyc = 0
 
     while its < maxit
@@ -383,7 +376,7 @@ end
             Vnorm2[k] = den
             its += 1
         end
-        its += 1
+        its  += 1
         ncyc += 1
     end
 
