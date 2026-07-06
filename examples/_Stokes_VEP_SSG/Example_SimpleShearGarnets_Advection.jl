@@ -80,7 +80,7 @@ end
 
     # Time steps
     Δt0 = 0.5
-    nt = 5
+    nt = 50
     ALE = true
     C = 0.5
 
