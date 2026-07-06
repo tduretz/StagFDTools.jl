@@ -81,8 +81,8 @@ end
 function update_JustPIC!(a, phase_ratios, particles, phases)
     update_phase_ratios!(phase_ratios, particles, phases)
     @views begin
-        a.phase_ratios.c[2:end-1, 2:end-1] .= phase_ratios.center
-        a.phase_ratios.v[2:end-1, 2:end-1] .= phase_ratios.vertex
+        a.phase_ratios.c[2:(end-1), 2:(end-1)] .= phase_ratios.center
+        a.phase_ratios.v[2:(end-1), 2:(end-1)] .= phase_ratios.vertex
 
         a.phase_ratios.c[1, :] .= a.phase_ratios.c[2, :]
         a.phase_ratios.c[end, :] .= a.phase_ratios.c[end-1, :]
@@ -93,10 +93,6 @@ function update_JustPIC!(a, phase_ratios, particles, phases)
         a.phase_ratios.v[:, 1] .= a.phase_ratios.v[:, 2]
         a.phase_ratios.v[:, end] .= a.phase_ratios.v[:, end-1]
     end
-
-    printxy(a.phase_ratios.v)
-    printxy(phase_ratios.vertex)
-
 end
 
 function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
