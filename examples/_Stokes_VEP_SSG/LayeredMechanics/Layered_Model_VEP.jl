@@ -1,9 +1,14 @@
 using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, LinearAlgebra, SparseArrays, Printf
 import Statistics: mean
-using TimerOutputs, Interpolations, GridGeometryUtils
+using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
+using DifferentiationInterface
+using ForwardDiff: ForwardDiff
+const save = false
+const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/high_res_test/"
+const backend = AutoForwardDiff()
 
-function Analytical(θ, η, δ, D_BC)
+function Analyticalviscous(θ, η, δ, D_BC)
     #= define velocity gradient components and resulting deviatoric strain rate components
     pure shear   ε̇ = [ε̇xx  0 ;  0  -ε̇xx]
     simple shear ε̇ = [ 0  ε̇xy; ε̇xy   0 ] =#
@@ -33,7 +38,83 @@ function Analytical(θ, η, δ, D_BC)
     return τ_II
 end
 
-@views function main(nc, nt, layering, BC_template, D_template, factorization, η1, η2, G1, G2, C1, C2)
+function Analyticalstress(θ, τ, inner_x, inner_y)
+
+    𝑛 = @SVector([-cos(θ), sin(θ), 0.])
+    Σxx = mean(τ.xx[inner_x, inner_y])
+    Σyy = mean(τ.yy[inner_x, inner_y])
+    Σxy = mean(0.25 * (τ.xy[i, j] + τ.xy[i+1, j] + τ.xy[i, j+1] + τ.xy[i+1, j+1])
+               for i in inner_x, j in inner_y)
+    Σzz = -Σxx - Σyy
+
+    Σ = @SMatrix [Σxx Σxy 0.0; Σxy Σyy 0.0; 0.0 0.0 Σzz]
+
+    T = Σ * 𝑛
+    σnn = dot(𝑛, T) # n·Σn
+    Σₙ = sqrt((dot(T, T) - σnn^2))
+    # Σd  = 0.5 * (tr(Σ) - 3*σnn)
+    Σe2 = (0.5 * (Σxx^2 + Σyy^2 + Σzz^2) + Σxy^2)
+    Σₗ = sqrt(max(Σe2 - Σₙ^2, 0))
+    return Σₙ, Σₗ
+end
+
+function DissipationFunction(ω, α1, α2, C1, C2, Dl, Dn, Dm)
+    return α1 * C1 * sqrt(Dl^2 + (1 + α2 * ω)^2 * Dn^2) + α2 * C2 * sqrt(Dl^2 + (1 - α1 * ω)^2 * Dn^2) + Dm
+end
+
+function Minimise(α1, α2, C1, C2, Dl, Dn, Dm; ω0=0., max_iter=100, tol=1e-10)
+
+    # from Castañeda and deBotton 1992: minimize the (convex) dissipation function.
+    # D is convex -> D' is monotonically increasing -> bracket the sign change and bisect.
+    D(ω) = DissipationFunction(ω, α1, α2, C1, C2, Dl, Dn, Dm)
+    ∂D∂ω(ω) = ForwardDiff.derivative(D, ω)
+
+    # 1. expand outward from ω0 until D'(lo) ≤ 0 ≤ D'(hi)
+    lo, hi = ω0 - 1.0, ω0 + 1.0
+    it = 0
+    while ∂D∂ω(lo) > 0 && (it += 1) < max_iter
+        lo -= 2 * (hi - lo)
+    end
+    while ∂D∂ω(hi) < 0 && (it += 1) < max_iter
+        hi += 2 * (hi - lo)
+    end
+    (∂D∂ω(lo) ≤ 0 ≤ ∂D∂ω(hi)) || error("could not find a minimum")
+
+    # 2. bisect on the derivative
+    for iter in 1:max_iter
+        mid = (lo + hi) / 2
+        if ∂D∂ω(mid) > 0
+            hi = mid
+        else
+            lo = mid
+        end
+        (hi - lo) < tol && return mid
+    end
+    return (lo + hi) / 2
+end
+
+function AnalyticalDissipation(D_BC, θ, α1, α2, C1, C2)
+    𝑛 = @SVector([-cos(θ), sin(θ)])
+    Dd = 1 / 3 * tr(D_BC) - dot(𝑛, D_BC * 𝑛)
+    Dn = 2 / sqrt(3) * sqrt(dot(D_BC * 𝑛, D_BC * 𝑛) - dot(𝑛, D_BC * 𝑛))
+    De = 1 / 2 * D_BC[1, 1]^2 + 1 / 2 * D_BC[2, 2]^2 + D_BC[1, 2]^2
+    Dl = sqrt((De - Dd^2 - Dn^2)^2 + Dd^2)
+    Dm = tr(D_BC)
+
+    ωₑ = Minimise(α1, α2, C1, C2, Dl, Dn, Dm)
+    Dₑ = DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, Dn, Dm)
+
+    # Stress invariants from Σ = ∂D⋆/∂ε̇
+    Σl = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, x, Dn, Dm), Dl)
+    Σn = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, x, Dm), Dn)
+    Σm = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, Dn, x), Dm)
+
+    # Second invariant of deviatoric stress
+    Σₑ = sqrt(Σl^2 + Σn^2)
+    return Σₑ
+end
+
+@views function main(nc, nt, L, layering, BC_template, D_template, factorization, α1, η1, η2, G1, G2, C1, C2; fabric_angle=nothing)
     #--------------------------------------------#   
 
     # Boundary loading type
@@ -46,6 +127,7 @@ end
     materials.η0 .= [η1, η2]
     materials.G .= [G1, G2]
     materials.plasticity.C .= [C1, C2]
+    materials.plasticity.ηvp .= [1e-3, 1e-3]
     preprocess!(materials)
 
     nmpc = (x=4, y=4)
@@ -55,243 +137,87 @@ end
     Δt0 = 0.5
 
     # Newton solver
-    niter = 3
-    ϵ_nl = 1e-8
-    α = LinRange(0.05, 1.0, 10)
+    iter_params = IterParams(niter=3, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
 
-    # Grid bounds
-    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
-
-    #--------------------------------------------#
-    # Boundary conditions
-
-    # Define node types and set BC flags
-    type = Fields(
-        fill(:out, (nc.x + 3, nc.y + 4)),
-        fill(:out, (nc.x + 4, nc.y + 3)),
-        fill(:out, (nc.x + 2, nc.y + 2)),
-    )
-    set_boundaries_template!(type, config, nc)
-
-    #--------------------------------------------#
-    # Equation numbering
-    number = Fields(
-        fill(0, size_x),
-        fill(0, size_y),
-        fill(0, size_c),
-    )
-    Numbering!(number, type, nc)
-
-    #--------------------------------------------#
-    # Stencil extent for each block matrix
-    pattern = Fields(
-        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]), @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]), @SMatrix([1 1 1; 1 1 1])),
-        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]), @SMatrix([1 1 1; 1 1 1; 1 1 1]), @SMatrix([1 1; 1 1; 1 1])),
-        Fields(@SMatrix([0 1 0; 0 1 0]), @SMatrix([0 0; 1 1; 0 0]), @SMatrix([1]))
-    )
-
-    # Sparse matrix assembly
-    nVx = maximum(number.Vx)
-    nVy = maximum(number.Vy)
-    nPt = maximum(number.Pt)
-    M = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt)),
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt)),
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt))
-    )
-    𝐊 = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
-    𝐐 = ExtendableSparseMatrix(nVx + nVy, nPt)
-    𝐐ᵀ = ExtendableSparseMatrix(nPt, nVx + nVy)
-    𝐏 = ExtendableSparseMatrix(nPt, nPt)
-    dx = zeros(nVx + nVy + nPt)
-    r = zeros(nVx + nVy + nPt)
-
-    #--------------------------------------------#
     # Intialise field
-    L = (x=1.0, y=1.0)
     Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
     x = (min=-L.x / 2, max=L.x / 2)
     y = (min=-L.y / 2, max=L.y / 2)
 
-    # Allocations
-    R = (x=zeros(size_x...), y=zeros(size_y...), p=zeros(size_c...))
-    V = (x=zeros(size_x...), y=zeros(size_y...))
-    Vi = (x=zeros(size_x...), y=zeros(size_y...))
-    η = (c=ones(size_c...), v=ones(size_v...))
-    λ̇ = (c=zeros(size_c...), v=zeros(size_v...))
-    ε̇ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), II=zeros(size_c...))
-    G = (c=zeros(size_c...), v=zeros(size_v...))
-    β = (c=zeros(size_c...), v=zeros(size_v...))
-    ξ = (c=zeros(size_c...), v=zeros(size_v...))
-    ρ = (c=zeros(size_c...), v=zeros(size_v...))
-    τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...))
-    τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), II=zeros(size_c...))
-    Pt = zeros(size_c...)
-    Pti = zeros(size_c...)
-    Pt0 = zeros(size_c...)
-    ΔPt = (c=zeros(size_c...), Vx=zeros(size_x...), Vy=zeros(size_y...))
-    Dc = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xx, 1), _ in axes(ε̇.xx, 2)]
-    Dv = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)]
-    𝐷 = (c=Dc, v=Dv)
-    D_ctl_c = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xx, 1), _ in axes(ε̇.xx, 2)]
-    D_ctl_v = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)]
-    𝐷_ctl = (c=D_ctl_c, v=D_ctl_v)
-    τII = ones(size_c...)
-    ε̇II = ones(size_c...)
+    # Allocate all fields and solver structures
+    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
     τIIev = ones(nt)
-    phases = (c=ones(Int64, size_c...), v=ones(Int64, size_v...))
+    α2 = 1 - α1
 
-    # Mesh coordinates
-    Grid = GenerateGrid(x, y, Δ, nc)
+    # Grid bounds
+    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
     # Only account for the subdomain
-    imin_x = argmin(abs.(Grid.c_e.x .+ 0.3))
-    imax_x = argmin(abs.(Grid.c_e.x .- 0.3))
-    imin_y = argmin(abs.(Grid.c_e.y .+ 0.3))
-    imax_y = argmin(abs.(Grid.c_e.y .- 0.3))
+    imin_x = argmin(abs.(a.X.c_e.x .+ (0.6 * L.x)))
+    imax_x = argmin(abs.(a.X.c_e.x .- (0.6 * L.x)))
+    imin_y = argmin(abs.(a.X.c_e.y .+ (0.6 * L.y)))
+    imax_y = argmin(abs.(a.X.c_e.y .- (0.6 * L.y)))
     inner_x = imin_x:imax_x
     inner_y = imin_y:imax_y
 
     # Initial velocity & pressure field
-    V.x[inx_Vx, iny_Vx] .= D_BC[1, 1] * Grid.v.x .+ D_BC[1, 2] * Grid.c.y'
-    V.y[inx_Vy, iny_Vy] .= D_BC[2, 1] * Grid.c.x .+ D_BC[2, 2] * Grid.v.y'
-    Pt[inx_c, iny_c] .= 10.
-    UpdateSolution!(V, Pt, dx, number, type, nc)
+    a.V.x[inx_Vx, iny_Vx] .= D_BC[1, 1] * a.X.v.x .+ D_BC[1, 2] * a.X.c.y'
+    a.V.y[inx_Vy, iny_Vy] .= D_BC[2, 1] * a.X.c.x .+ D_BC[2, 2] * a.X.v.y'
+    a.Pt[inx_c, iny_c] .= 0.
+    UpdateSolution!(a.V, a.Pt, a.dx, a.number, a.type, nc)
 
     # Boundary condition values
     BC = (Vx=zeros(size_x...), Vy=zeros(size_y...))
-    BC.Vx[2, iny_Vx] .= (type.Vx[1, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
-    BC.Vx[end-1, iny_Vx] .= (type.Vx[end, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
-    BC.Vx[inx_Vx, 2] .= (type.Vx[inx_Vx, 2] .== :Neumann_tangent) .* D_BC[1, 2] .+ (type.Vx[inx_Vx, 2] .== :Dirichlet_tangent) .* (D_BC[1, 1] * Grid.v.x .+ D_BC[1, 2] * Grid.v.y[1])
-    BC.Vx[inx_Vx, end-1] .= (type.Vx[inx_Vx, end-1] .== :Neumann_tangent) .* D_BC[1, 2] .+ (type.Vx[inx_Vx, end-1] .== :Dirichlet_tangent) .* (D_BC[1, 1] * Grid.v.x .+ D_BC[1, 2] * Grid.v.y[end])
-    BC.Vy[inx_Vy, 2] .= (type.Vy[inx_Vy, 1] .== :Neumann_normal) .* D_BC[2, 2]
-    BC.Vy[inx_Vy, end-1] .= (type.Vy[inx_Vy, end] .== :Neumann_normal) .* D_BC[2, 2]
-    BC.Vy[2, iny_Vy] .= (type.Vy[2, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * Grid.v.x[1] .+ D_BC[2, 2] * Grid.v.y)
-    BC.Vy[end-1, iny_Vy] .= (type.Vy[end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * Grid.v.x[end] .+ D_BC[2, 2] * Grid.v.y)
+    @views begin
+        BC.Vx[2, iny_Vx] .= (a.type.Vx[1, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
+        BC.Vx[end-1, iny_Vx] .= (a.type.Vx[end, iny_Vx] .== :Neumann_normal) .* D_BC[1, 1]
+        BC.Vx[inx_Vx, 2] .= (a.type.Vx[inx_Vx, 2] .== :Neumann_tangent) .* D_BC[1, 2] .+ (a.type.Vx[inx_Vx, 2] .== :Dirichlet_tangent) .* (D_BC[1, 1] * a.X.v.x .+ D_BC[1, 2] * a.X.v.y[1])
+        BC.Vx[inx_Vx, end-1] .= (a.type.Vx[inx_Vx, end-1] .== :Neumann_tangent) .* D_BC[1, 2] .+ (a.type.Vx[inx_Vx, end-1] .== :Dirichlet_tangent) .* (D_BC[1, 1] * a.X.v.x .+ D_BC[1, 2] * a.X.v.y[end])
+        BC.Vy[inx_Vy, 2] .= (a.type.Vy[inx_Vy, 1] .== :Neumann_normal) .* D_BC[2, 2]
+        BC.Vy[inx_Vy, end-1] .= (a.type.Vy[inx_Vy, end] .== :Neumann_normal) .* D_BC[2, 2]
+        BC.Vy[2, iny_Vy] .= (a.type.Vy[2, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (a.type.Vy[2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * a.X.v.x[1] .+ D_BC[2, 2] * a.X.v.y)
+        BC.Vy[end-1, iny_Vy] .= (a.type.Vy[end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2, 1] .+ (a.type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2, 1] * a.X.v.x[end] .+ D_BC[2, 2] * a.X.v.y)
+    end
 
     # MARKERS ------------------------------------------------------------
-    # Initialise markers and derive phase ratios from markers #        |
-    m = InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise) #    |
-    phase_ratios, phase_weights = InitialisePhaseRatios(nphases, ε̇) #        |                                   |
-    # |
     # Assign marker phases from layering geometry (1 or 2) #           |
-    for I in CartesianIndices(m.phase) #                                |
-        xm = m.Xm[I]
-        ym = m.Ym[I]
+    for I in CartesianIndices(a.m.phase) #                                |
+        xm = a.m.Xm[I]
+        ym = a.m.Ym[I]
         isin = inside(@SVector([xm, ym]), layering)
-        m.phase[I] = isin ? 2 : 1
+        a.m.phase[I] = isin ? 2 : 1
     end
 
     # Build extended vertex arrays (with ghost vertices) and accumulate marker contributions
-    SetPhaseRatios!(phase_ratios, phase_weights, m, Grid.c_e.x, Grid.c_e.y, Grid.v_e.x, Grid.v_e.y, Δ, nphases)
-
-    # # NO MARKERS: --------------------------------------------------------
-    # for i in inx_c, j in iny_c   # loop on centroids                     |
-    #     𝐱 = @SVector([Grid.c.x[i-1], Grid.c.y[j-1]]) #                   |
-    #     isin = inside(𝐱, layering) #                                     |
-    #     if isin #                                                        |
-    #         phases.c[i, j] = 2 #                                         |
-    #     end
-    # end
-
-    # for i in inx_v, j in iny_v  # loop on vertices
-    #     𝐱 = @SVector([Grid.v.x[i-1], Grid.v.y[j-1]])
-    #     isin = inside(𝐱, layering)
-    #     if isin
-    #         phases.v[i, j] = 2
-    #     end
-    # end
-    # phase_ratios = InitialisePhaseRatios(phases, nphases)
+    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
 
     #--------------------------------------------#
 
-    rvec = zeros(length(α))
-    err = (x=zeros(niter), y=zeros(niter), p=zeros(niter))
+    rvec = zeros(length(iter_params.α))
+    err = (x=zeros(iter_params.niter), y=zeros(iter_params.niter), p=zeros(iter_params.niter))
     to = TimerOutput()
 
     #--------------------------------------------#
 
+    # Saving
+    angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
+    domain_dir = joinpath(figpath, @sprintf("domainL%.1f", L.x))
+    subdir = joinpath(domain_dir, @sprintf("fabric%03ddeg_evolution", angle_deg))
+    save && mkpath(subdir)
+    save_every_step = true
+
     for it = 1:nt
 
-        @printf("Step %04d\n", it)
-        err.x .= 0.
-        err.y .= 0.
-        err.p .= 0.
-
-        # Swap old values 
-        τ0.xx .= τ.xx
-        τ0.yy .= τ.yy
-        τ0.xy .= τ.xy
-        Pt0 .= Pt
-
-        # Compute material properties on grid
-        compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
-
-        for iter = 1:niter
-
-            @printf("Iteration %04d\n", iter)
-
-            #--------------------------------------------#
-            # Residual check        
-            @timeit to "Residual" begin
-                TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
-                ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
-                ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
-                ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
-            end
-
-            err.x[iter] = norm(R.x[inx_Vx, iny_Vx]) / sqrt(nVx)
-            err.y[iter] = norm(R.y[inx_Vy, iny_Vy]) / sqrt(nVy)
-            err.p[iter] = norm(R.p[inx_c, iny_c]) / sqrt(nPt)
-            max(err.x[iter], err.y[iter]) < ϵ_nl ? break : nothing
-
-            #--------------------------------------------#
-            # Set global residual vector
-            SetRHS!(r, R, number, type, nc)
-
-            #--------------------------------------------#
-            # Assembly
-            @timeit to "Assembly" begin
-                AssembleContinuity2D!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, β, ξ, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_x!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(M, V, Pt, Pt0, ΔPt, τ0, 𝐷_ctl, G, ρ, materials, number, pattern, type, BC, nc, Δ)
-            end
-
-            #--------------------------------------------# 
-            # Stokes operator as block matrices
-            𝐊 .= [M.Vx.Vx M.Vx.Vy; M.Vy.Vx M.Vy.Vy]
-            𝐐 .= [M.Vx.Pt; M.Vy.Pt]
-            𝐐ᵀ .= [M.Pt.Vx M.Pt.Vy]
-            𝐏 .= [M.Pt.Pt;]
-
-            #--------------------------------------------#
-
-            # Direct-iterative solver
-            fu = -r[1:size(𝐊, 1)]
-            fp = -r[size(𝐊, 1)+1:end]
-            u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=factorization, ηb=1e3, niter_l=10, ϵ_l=1e-9)
-            dx[1:size(𝐊, 1)] .= u
-            dx[size(𝐊, 1)+1:end] .= p
-
-            #--------------------------------------------#
-            # Line search & solution update
-            @timeit to "Line search" imin = LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
-            UpdateSolution!(V, Pt, α[imin] * dx, number, type, nc)
-            TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
-
-        end
-
-        # Update pressure
-        Pt .+= ΔPt.c
+        iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
         #--------------------------------------------#
 
         # Principal stress
-        σ1 = (x=zeros(size(Pt)), y=zeros(size(Pt)), v=zeros(size(Pt)))
+        σ1 = (x=zeros(size(a.Pt)), y=zeros(size(a.Pt)), v=zeros(size(a.Pt)))
 
         for i in inx_c, j in iny_c
-            τxyc = 1 / 4 * (τ.xy[i, j] + τ.xy[i+1, j] + τ.xy[i, j+1] + τ.xy[i+1, j+1])
-            σ = @SMatrix[-Pt[i, j]+τ.xx[i, j] τxyc 0.; τxyc -Pt[i, j]+τ.yy[i, j] 0.; 0. 0. -Pt[i, j]+(-τ.xx[i, j]-τ.yy[i, j])]
+            τxyc = 1 / 4 * (a.τ.xy[i, j] + a.τ.xy[i+1, j] + a.τ.xy[i, j+1] + a.τ.xy[i+1, j+1])
+            σ = @SMatrix[-a.Pt[i, j]+a.τ.xx[i, j] τxyc 0.; τxyc -a.Pt[i, j]+a.τ.yy[i, j] 0.; 0. 0. -a.Pt[i, j]+(-a.τ.xx[i, j]-a.τ.yy[i, j])]
             v = eigvecs(σ)
             σp = eigvals(σ)
             scale = sqrt(v[1, 1]^2 + v[2, 1]^2)
@@ -299,42 +225,89 @@ end
             σ1.y[i, j] = v[2, 1] / scale
             σ1.v[i] = σp[1]
         end
-        τIIev[it] = mean(τ.II[inner_x, inner_y])
 
-        fig = cm.Figure()
-        ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect())
-        hm = cm.heatmap!(ax, Grid.c.x, Grid.c.y, τ.II[inx_c, iny_c], colormap=:bluesreds)
-        cm.poly!(ax, cm.Rect(Grid.c_e.x[imin_x], Grid.c_e.y[imin_y], Grid.c_e.x[imax_x] - Grid.c_e.x[imin_x], Grid.c_e.y[imax_y] - Grid.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
-        st = 15
-        cm.arrows2d!(ax, Grid.c.x[1:st:end], Grid.c.y[1:st:end], σ1.x[inx_c, iny_c][1:st:end, 1:st:end], σ1.y[inx_c, iny_c][1:st:end, 1:st:end], tiplength=0, lengthscale=0.02, tipwidth=1, color=:white)
-        cm.Colorbar(fig[1, 2], hm, label="τII")
+        τIIev[it] = mean(a.τ.II[inner_x, inner_y])
 
-        ax2 = cm.Axis(fig[1, 3], aspect=cm.DataAspect())
-        hm2 = cm.heatmap!(ax2, Grid.c.x, Grid.c.y, η.c[inx_c, iny_c], colormap=:bluesreds)
-        cm.Colorbar(fig[1, 4], hm2, label="η")
+        # Save grid files
+        save && mkpath(figpath)
+        save_every_step = true
+        angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
+        if save && (it == nt || save_every_step)
+            dataname = @sprintf("fields_res%d_fabric%03ddeg_step%03d.jld2", nc.x, angle_deg, it)
+            jldsave(joinpath(subdir, dataname);
+                it=it,
+                t=it * Δ.t,
+                angle=fabric_angle,
+                x_c=a.X.c.x, y_c=a.X.c.y,
+                τxx=a.τ.xx,
+                τyy=a.τ.yy,
+                τxy=a.τ.xy,
+                τII=a.τ.II,
+                ε̇II=a.ε̇.II,
+                Pt=a.Pt,
+                Vx=a.V.x,
+                Vy=a.V.y,
+                σ1x=σ1.x,
+                σ1y=σ1.y,
+                phase_ratio=a.phase_ratios.c,
+                phases=a.m.phase
+            )
+        end
 
-        ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect())
-        hm3 = cm.heatmap!(ax3, Grid.c.x, Grid.c.y, V.x[inx_Vx, iny_Vx], colormap=:bluesreds)
-        cm.Colorbar(fig[2, 2], hm3, label="Vx")
+        if it == nt
+            cm.with_theme(cm.theme_latexfonts()) do
+                fig = cm.Figure(size=(700, 600), px_per_unit=2)
+                ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect(), xlabelsize=26, ylabelsize=26, titlesize=26)
+                hm = cm.heatmap!(ax, a.X.c.x, a.X.c.y, a.τ.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
+                # cm.poly!(ax, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
+                st = 15
+                # cm.arrows2d!(ax, a.X.c.x[1:st:end], a.X.c.y[1:st:end], σ1.x[inx_c, iny_c][1:st:end, 1:st:end], σ1.y[inx_c, iny_c][1:st:end, 1:st:end], tiplength=0, lengthscale=0.02, tipwidth=1, color=:white)
+                cm.Colorbar(fig[1, 2], hm, label=cm.L"$\tau_{II} \ [-]$", labelsize=18)
 
-        ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect())
-        hm4 = cm.heatmap!(ax4, Grid.c.x, Grid.c.y, V.y[inx_Vx, iny_Vx], colormap=:bluesreds)
-        cm.Colorbar(fig[2, 4], hm4, label="Vy")
+                ax2 = cm.Axis(fig[1, 3], aspect=cm.DataAspect())
+                # hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.η.c[inx_c, iny_c], colormap=:roma)
+                hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.ε̇.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
+                # cm.poly!(ax2, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
+                # cm.Colorbar(fig[1, 4], hm2, label="η")
+                cm.Colorbar(fig[1, 4], hm2, label=cm.L"$\dot\varepsilon_{II} \ [-]$", labelsize=18)
 
-        ax5 = cm.Axis(fig[3, 1:4])
-        cm.xlims!(ax5, 0, nt)
-        # cm.ylims!(ax5, 0, 2.5)
-        cm.lines!(ax5, 1:it, τIIev[1:it])
-        display(fig)
-        display(fig)
+                ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect())
+                hm3 = cm.heatmap!(ax3, a.X.c.x, a.X.c.y, a.V.x[inx_Vx, iny_Vx], colormap=:vik)
+                cm.Colorbar(fig[2, 2], hm3, label=cm.L"$v_x \ [-]$", labelsize=18)
 
-        ax6 = cm.Axis(fig[1, 4])
-        cm.heatmap!
+                ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect())
+                hm4 = cm.heatmap!(ax4, a.X.c.x, a.X.c.y, a.V.y[inx_Vy, iny_Vy], colormap=:vik)
+                cm.Colorbar(fig[2, 4], hm4, label=cm.L"$v_y \ [-]$", labelsize=18)
+
+                # ax5_title = fabric_angle === nothing ? "Fabric inclination" : @sprintf("Fabric inclination = %.1f°", rad2deg(fabric_angle))
+                ax5 = cm.Axis(fig[3, 1:4], xlabel="time step", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18) #, title=ax5_title)
+                cm.xlims!(ax5, 0, nt)
+                cm.lines!(ax5, 1:it, τIIev[1:it])
+                # display(fig)
+
+                # Save 
+                if save
+                    angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
+                    mkpath(domain_dir)
+                    figname = @sprintf("LayeredVEVP_res%d_fabric%03ddeg.png", nc.x, angle_deg)
+                    cm.save(joinpath(domain_dir, figname), fig, px_per_unit=4)
+                end
+            end
+        end
     end
 
-    # display(to)
+    τIIanS, τIIanE = Analyticalstress(fabric_angle, a.τ, inner_x, inner_y)
+    # Dis = AnalyticalDissipation(D_BC, fabric_angle, α1, α2, C1, C2)
 
-    return mean(τ.II[inner_x, inner_y]), τIIev
+    τxx = mean(a.τ.xx[inner_x, inner_y])
+    τyy = mean(a.τ.yy[inner_x, inner_y])
+    τxy = mean(0.25 * (a.τ.xy[i, j] + a.τ.xy[i+1, j] + a.τ.xy[i, j+1] + a.τ.xy[i+1, j+1])
+               for i in inner_x, j in inner_y)
+    τIIsec = sqrt(0.5 * (τxx^2 + τyy^2 + (-τxx - τyy)^2) + τxy^2)
+
+    display(to)
+
+    return mean(a.τ.II[inner_x, inner_y]), τIIev, τIIanS, τIIanE, τIIsec
 
 end
 
@@ -351,21 +324,33 @@ let
         @SMatrix([1 0; 0 -1]),
     ]
 
-    nc = (x=200, y=200)
-    nt = 40
+    nc = (x=50, y=50)
+    nt = 50
+    # L = [1.0, 2.0, 3., 4., 5.]
+    L = 1.
 
     # Discretise angle of layer 
-    nθ = 1
-    θ = LinRange(-π / 2 + 5, -π / 2 + 5, nθ)
+    # nθ = 1
+    nθ = 31
+    θ = LinRange(0, π / 2, nθ)
+    # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
-    τ_cart_lay = zeros(nθ)
-    τ_cart_ana = zeros(nθ)
-    τ_time = zeros(nθ, nt)
+    τ_cart_lay = zeros(length(L), nθ)
+    τ_cart_anaS = zeros(length(L), nθ)
+    τ_cart_anaE = zeros(length(L), nθ)
+    τ_time = zeros(length(L), nθ, nt)
+    τ_tensor = zeros(length(L), nθ)
 
-    #  Anisotropy parameters
-    η2 = 1e2
-    m = 1
-    η1 = η2 / m
+    #  Viscosity
+    m = 4
+    η2 = 1e10
+    η1 = η2
+
+    G2 = 1.
+    G1 = G2
+
+    C2 = 10.
+    C1 = C2 / m
 
     α2 = 0.5
     α1 = 1 - α2
@@ -375,56 +360,66 @@ let
 
     # elasticity
     tmax = 1.0
-    G2 = G1 = 1.0
-    C2 = C1 = 10.
-    C2 = 4.
-    C1 = C2 / 4    # @abacaxi-seco HARDCODED factor 2, to remove
 
     # Run them all
-    for iθ in eachindex(θ)
+    for (iL, Lw) in enumerate(L)
+        for iθ in 1:31
 
-        layering = Layering(
-            (0 * 0.25, 0.025),
-            0.15,
-            α2;
-            θ=θ[iθ],
-            perturb_amp=0 * 1.0,
-            perturb_width=1.0
-        )
+            layering = Layering(
+                (0 * 0.25, 0.025),
+                0.2,
+                α2;
+                θ=θ[iθ],
+                perturb_amp=0. * 1.0,
+                perturb_width=1.0
+            )
 
-        # @abacaxi-seco Note that I switched to LU factorisation as the Jacobian is already not symmetric with elasto-palsticity
-        τ_cart_lay[iθ], τ_time[iθ, :] = main(nc, nt, layering, BCs[1], D_BCs[1], :lu, η1, η2, G1, G2, C1, C2)
-        τ_cart_ana[iθ] = Analytical(θ[iθ], ηn, δ, D_BCs[1])
-
+            τ_cart_lay[iL, iθ], τ_time[iL, iθ, :], τ_cart_anaS[iL, iθ], τ_cart_anaE[iL, iθ], τ_tensor[iL, iθ] = main(nc, nt, (x=Lw, y=Lw), layering, BCs[1], D_BCs[1], :lu, α1, η1, η2, G1, G2, C1, C2; fabric_angle=θ[iθ])
+        end
     end
 
-    ε̇bg = sqrt(sum(1 / 2 .* D_BCs[1][:] .^ 2))
-
-    # Strongest end-member
-    ηeff = α1 * η1 + α2 * η2
-    @show τstrong = 2 * ηeff * ε̇bg
-
-    # Weakest end-member
-    ηeff = (α1 / η1 + α2 / η2)^(-1)
-    @show τweak = 2 * ηeff * ε̇bg
-
-    τ_cart .= τstrong * sqrt.(((δ^2 - 1) * cos.(2 .* θ) .^ 2 .+ 1) / (δ^2))
-
     cm.with_theme(cm.theme_latexfonts()) do
-        fig = cm.Figure(fontsize=15)
+        fig = cm.Figure(size=(800, 650), px_per_unit=2)
+        # colors = cm.cgrad(:roma, nL, categorical=true)   # color = domain width
 
-        ax = cm.Axis(fig[0, 1], xlabel=cm.L"$$step]", ylabel=cm.L"$\tau_{II}$ [-]")
-        for iθ in eachindex(θ)
-            cm.lines!(ax, 1:nt, τ_time[iθ, :])
+        # iθ_mid = (nθ + 1) ÷ 2  # index of 45°
+        # iθ_first = 1
+        # iθ_last = nθ
+        # linestyles = Dict(iθ_first => :solid, iθ_mid => :dash, iθ_last => :dot)
+        # orientation_label = Dict(iθ_first => "Strong (hor)", iθ_mid => "Weak (45°)", iθ_last => "Strong (vert)")
+
+        # ax = cm.Axis(fig[1, 1], title="m = $(m)", xlabel=cm.L"$\mathrm{time step}$", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
+        # for (iL, Lwidth) in enumerate(Lwidths)
+        #     for iθ in (iθ_first, iθ_mid, iθ_last)
+        #         label = iL == 1 ? orientation_label[iθ] : nothing  # only label once
+        #         cm.lines!(ax, 1:nt, τ_time[iL, iθ, :], color=colors[iL], linestyle=linestyles[iθ], label=label)
+        #     end
+        # end
+        # cm.Legend(fig[1, 2], ax, "orientation\n(color = domain width, see below)", labelsize=14, titlesize=13)
+
+        ax2 = cm.Axis(fig[1, 1], title="m = $(m)", xlabel=cm.L"$\theta$ [$^{\circ}$]", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
+        # for (iL, Lwidth) in enumerate(Lwidths)
+        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_lay[iL, :], color=:blue, label=@sprintf("domain = %.1f", Lwidth))
+        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaS[iL, :], color=:red, label=@sprintf("domain = %.1f", Lwidth))
+        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaE[iL, :], color=:green, label=@sprintf("domain = %.1f", Lwidth))
+
+        # end
+
+        for iL in 1:1
+            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_lay[iL, :], color=:blue, label=@sprintf("τII"))
+            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaS[iL, :], color=:red, label=@sprintf("Σₙ"))
+            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaE[iL, :], color=:green, label=@sprintf("Σₗ"))
+            cm.scatterlines!(ax2, θ * 180 / π, τ_tensor[iL, :], color=:orange, label="τII from components")
+            cm.scatterlines!(ax2, θ * 180 / π, sqrt.(τ_cart_anaE[iL, :] .^ 2 .+ τ_cart_anaS[iL, :] .^ 2), color=:purple, label="τII computed")
+            cm.Legend(fig[1, 2], ax2, "domain width", labelsize=14, titlesize=13)
         end
-        ax = cm.Axis(fig[1, 1], xlabel=cm.L"$\theta$ [$^{\circ}$]", ylabel=cm.L"$\tau_{II}$ [-]")
-        cm.lines!(ax, θ * 180 / π, τ_cart_lay, label="Layering")
-        # cm.lines!(ax, θ*180/π, τstrong*ones(size(θ)), color=:gray, linestyle=:dash, label="End-Member (Biot et al., 1965)")
-        # cm.lines!(ax, θ*180/π, τweak*ones(size(θ)), color=:gray, linestyle=:dash, label="End-Member (Biot et al., 1965)")
-        # cm.scatter!(ax, θ[1:6:end]*180/π, τ_cart[1:6:end], label="Expression", markersize=10)
-        # cm.scatter!(ax, θ[1:8:end]*180/π, τ_cart_ana[1:8:end], label="Analytical", marker=:utriangle, markersize=10, color=cm.CGrid.c.yled(3))
-        cm.Legend(fig[2, 1], ax, framevisible=false, orientation=:horizontal, unique=true, nbanks=3, cm.L"$\tau_{II}$    ($δ \approx$ %$(round(Int,δ)))")
         display(fig)
+
+        if save
+            mkpath(figpath)
+            figname = @sprintf("LayeredVEVP_res%d_domainsp.png", nc.x)
+            cm.save(joinpath(figpath, figname), fig, px_per_unit=4)
+        end
     end
 
 end
