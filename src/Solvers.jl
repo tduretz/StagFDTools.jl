@@ -37,7 +37,6 @@ function KSP_GCR_Stokes!(
     x, M, b, Kuu, Kup, Kpu, Kpp;
     ηb=1e3, ϵ_l=1e-9, restart=25, maxit=1000, noisy=true
 )
-
     @views begin
 
         Kuu = sparse(Kuu)
@@ -196,7 +195,7 @@ end
 # ==============================================================================
 # Original Custom GCR Solver (from test_solvers_2phases_v3_opt.jl)
 # ==============================================================================
-@views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000)
+@views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000, ηb=1e5)
 
     # Construct PC
     VxVx = sparse(M.Vx.Vx); VxVy = sparse(M.Vx.Vy); VxPt = sparse(M.Vx.Pt)
@@ -216,7 +215,14 @@ end
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
     # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
     J̃pp = Jpp - Jpq * Dqq * Jqp
-    Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
+    if incomp
+        @info "incomp"
+    end
+    ndofp = size(J̃pp,1)
+    Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
+    # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    @show extrema(diag(J̃pp))
     J̃vv = Jvv - Jvp * Dpp * Jpv
 
     Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
@@ -251,7 +257,7 @@ end
 
 @views function KSP_GCR_TwoPhases_opt!(
     x::Vector{Float64}, A::SparseMatrixCSC{Float64, Int64}, b::Vector{Float64}, noisy::Bool, M, cache;
-    abstol::Float64=KSP_ABSTOL, reltol=1e-6
+    abstol::Float64=KSP_ABSTOL, reltol=1e-6, ηb=1e5
 )
     (;  Jqq_f_sym, Juu_f_sym, restart, maxit, f, v, s, fu, fp, fq, su, sp, sq, VVcols, SScols, Vnorm2,
         du, dp, dq, r̃u, r̃p, tmpp, tmpq, tmpq2) = cache
@@ -274,7 +280,13 @@ end
     Dqq = spdiagm(0 => 1.0 ./ diag(Jqq))
     # Jpv = Jpv # - Jpq * Dqq * Jqu # not needed
     J̃pp = Jpp - Jpq * Dqq * Jqp
-    Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
+    incomp = maximum(abs.(extrema(J̃pp))) < 1e-6
+    if incomp
+        @info "incomp"
+    end
+    ndofp = size(J̃pp,1)
+    Dpp   = incomp ? spdiagm(fill(ηb, ndofp)) : spdiagm(1.0 ./ diag(J̃pp))
+    # Dpp = spdiagm(0 => 1.0 ./ diag(J̃pp))
     J̃vv = Jvv - Jvp * Dpp * Jpv
 
     Jqq_f = cholesky!(Jqq_f_sym, Hermitian(SparseMatrixCSC(Jqq)), check=false)

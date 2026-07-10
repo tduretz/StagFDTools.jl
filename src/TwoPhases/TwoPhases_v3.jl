@@ -255,6 +255,11 @@ end
     end
 end
 
+
+@inline promote_type_to_dual(::SMatrix{3,3,T,9}, ::SMatrix{3,3,T,9}) where T = SMatrix{3,3,T,9}
+@inline promote_type_to_dual(::SMatrix{3,3,T1,9}, ::SMatrix{3,3,T2,9}) where {T1, T2 <: ForwardDiff.Dual} = SMatrix{3,3,T2,9}
+@inline promote_type_to_dual(::SMatrix{3,3,T1,9}, ::SMatrix{3,3,T2,9}) where {T1 <: ForwardDiff.Dual, T2} = SMatrix{3,3,T1,9}
+
 @inline function Continuity(Vx, Vy, Pt_loc, Pf_loc, old, rheo, materials, type, bcv, Δ, ::Val{PC}) where {PC}
     Pt0, Pf0, Φ0, ρs0, ρf0 = old
     Ks, KΦ, Kf, ξ0, m, ρsi, ρfi = rheo
@@ -276,12 +281,13 @@ end
     
     # # !!!!!!!!!!!!!!!!!!!!!!!!!!
     Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase
-        Φ       = Φ0
-        dΦdt    = zeros(Φ)
+        TΦ      = promote_type_to_dual(Pt_loc, Pf_loc)
+        Φ       = TΦ(Φ0)
+        dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        # Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
-        # dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
         Φ, dΦdt 
     end
@@ -355,11 +361,15 @@ end
     dPtdt   = @. (Pt .- Pt0) / Δt
     dPfdt   = @. (Pf .- Pf0) / Δt
     Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase
-        Φ       = Φ0
-        dΦdt    = zeros(Φ0)
-        Φ, dΦdt
+        TΦ      = promote_type_to_dual(Pt_loc, Pf_loc)
+        Φ       = TΦ(Φ0)
+        dΦdt    = TΦ(zeros(3,3))
+        Φ, dΦdt 
     else
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+        Φ, dΦdt 
     end
 
     # # if Φ[1]<0 || Φ[2] <0 ||  Φ[3] <0
@@ -1366,7 +1376,7 @@ end
     ############ End ############
 end
 
-function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
+function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
     
     τ0, P0, Φ0, ρ0 = old
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -1382,11 +1392,11 @@ function LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, λ̇
         P.t .= Pi.t
         P.f .= Pi.f
         UpdateSolution!(V, P, α[i].*dx, number, type, nc)
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
-        ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-        ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-        ResidualContinuity2D!(R, V, P, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
-        ResidualFluidContinuity2D!(R, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+        ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+        ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+        ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
         rvec[i] = @views norm(R.x[inx_Vx,iny_Vx])/length(R.x[inx_Vx,iny_Vx]) + norm(R.y[inx_Vy,iny_Vy])/length(R.y[inx_Vy,iny_Vy]) + norm(R.pt[inx_c,iny_c])/length(R.pt[inx_c,iny_c]) + norm(R.pf[inx_c,iny_c])/length(R.pf[inx_c,iny_c])  
     end
     imin = argmin(rvec)
@@ -1399,11 +1409,11 @@ end
 
 function GlobalResidual!(α, dx, R, V, P, ε̇, τ, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
     UpdateSolution!(V, P, α.*dx, number, type, nc)
-    TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
-    ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-    ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-    ResidualContinuity2D!(R, V, P, P0, Φ0, phases, materials, number, type, BC, nc, Δ) 
-    ResidualFluidContinuity2D!(R, V, P, ΔP, P0, Φ0, phases, materials, number, type, BC, nc, Δ) 
+    TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, rheo, Δ)
+    ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+    ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+    ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+    ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
 end
 
 @inline fnorm(R, inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c) = @views (norm(R.x[inx_Vx,iny_Vx])/sqrt(length(R.x[inx_Vx,iny_Vx])))^2 + (norm(R.y[inx_Vy,iny_Vy])/sqrt(length(R.y[inx_Vy,iny_Vy])))^2 + 1*(norm(R.pt[inx_c,iny_c])/length(R.pt[inx_c,iny_c]))^2 + 1*(norm(R.pf[inx_c,iny_c])/length(R.pf[inx_c,iny_c]))^2

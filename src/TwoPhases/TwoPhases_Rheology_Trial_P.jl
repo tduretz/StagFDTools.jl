@@ -180,76 +180,69 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     # Check yield
     λ̇  = zero(D)
 
-    # # # # f        = F(τII, Pt, Pf, 0.0, C, cosϕ, sinϕ, λ̇, ηvp, 0.0)
-    # # # # if f>0
-    # # # #     λ̇ = f / (KΦ .* Δ.t * sinϕ * sinψ + ηve + ηvp)
-    # # # #     f  = τII - λ̇*ηve - C*cosϕ - (Pt + KΦ .* Δ.t * sinψ * λ̇)*sinϕ
-    # # # #     # @show f, λ̇
-    # # # #     # error()
+    f = -1e10 # to remove later
+    if 1==0  # to remove later
 
-    # # # #     τII = τII - λ̇*ηve
-    # # # #     Pt  = Pt + KΦ .* Δ.t * sinψ * λ̇
-    # # # # end
+        # # # # f        = F(τII, Pt, Pf, 0.0, C, cosϕ, sinϕ, λ̇, ηvp, 0.0)
+        # # # # if f>0
+        # # # #     λ̇ = f / (KΦ .* Δ.t * sinϕ * sinψ + ηve + ηvp)
+        # # # #     f  = τII - λ̇*ηve - C*cosϕ - (Pt + KΦ .* Δ.t * sinψ * λ̇)*sinϕ
+        # # # #     # @show f, λ̇
+        # # # #     # error()
 
-    # #############################
+        # # # #     τII = τII - λ̇*ηve
+        # # # #     Pt  = Pt + KΦ .* Δ.t * sinψ * λ̇
+        # # # # end
 
-    f  = F(τII, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α1)
+        # #############################
 
-    x = @SVector [τII, Pt, Pf, λ̇]
-    x2 = @SVector [τII, Pt, Pf, λ̇]
-    plastic_correction = false
+        f  = F(τII, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α1)
 
-    # nr   = D(1.0)
-    # nr0  = D(1.0)
-    # tol  = D(1e-10)
+        x = @SVector [τII, Pt, Pf, λ̇]
+        x2 = @SVector [τII, Pt, Pf, λ̇]
+        plastic_correction = false
+
+        # nr   = D(1.0)
+        # nr0  = D(1.0)
+        # tol  = D(1e-10)
 
 
-    # # Return mapping
-    # if f > D(-1e-13)
-    #     plastic_correction = true
-    #     # This is the proper return mapping with plasticity
-    #     # for iter=1:10
-    #         R, J = ad_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, Pt, Pf, divVs, divqD, Φ, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, materials.single_phase)
+        # # Return mapping
+        # if f > D(-1e-13)
+        #     plastic_correction = true
+        #     # This is the proper return mapping with plasticity
+        #     # for iter=1:10
+        #         R, J = ad_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, Pt, Pf, divVs, divqD, Φ, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, materials.single_phase)
 
-    #         x -= J \ R
-    #     #     nr = mynorm(R)
-    #     #     if iter==1 
-    #     #         nr0 = nr
-    #     #     end
-    #     #     r = nr/nr0
-    #     #     r<tol && break
-    #     # end
-    # end
+        #         x -= J \ R
+        #     #     nr = mynorm(R)
+        #     #     if iter==1 
+        #     #         nr0 = nr
+        #     #     end
+        #     #     r = nr/nr0
+        #     #     r<tol && break
+        #     # end
+        # end
 
-    τII, Pt, Pf, λ̇ = x[1], x[2], x[3], x[4]
+        τII, Pt, Pf, λ̇ = x[1], x[2], x[3], x[4]
 
-    Φ = if materials.single_phase
-        zero(D)
-    # elseif !plastic_correction
-    #     Φ
-    else
-        Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ, m, λ̇, sinψ, Δ.t)[1]
+        Φ = if materials.single_phase
+            zero(D)
+        # elseif !plastic_correction
+        #     Φ
+        else
+            Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ, m, λ̇, sinψ, Δ.t)[1]
+        end
+
+        #############################
+
+        # Effective viscosity
+        ηvep = τII/(2*ε̇II_eff)
+
+        f       = F(τII, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α1)
     end
 
-    #############################
-
-    # Effective viscosity
-    ηvep = τII/(2*ε̇II_eff)
-
-    f       = F(τII, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α1)
-
     return ηvep, λ̇, Pt, Pf, τII, Φ, f 
-end
-
-
-@inline function StressVector_P!(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ) 
-    η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ)
-    τ  = @SVector([2 * η * ε̇[1],
-                   2 * η * ε̇[2],
-                   2 * η * ε̇[3],
-                             Pt,
-                             Pf,])
-    return τ, η, λ̇, τII, Φ, f
 end
 
 @inline function StressVector_P2!(ε̇::SVector{N, T}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ) where {N,T}

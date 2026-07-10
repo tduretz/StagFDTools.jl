@@ -1,4 +1,6 @@
-# StagFDTools
+# StagFDTools.jl
+
+[![CI](https://img.shields.io/github/actions/workflow/status/tduretz/StagFDTools.jl/CI.yml?label=CI)](https://github.com/tduretz/StagFDTools/actions/workflows/CI.yml)
 
 This package aims at generating flexible FD stencils that can interoperate with AD tools for Jacobian generation. In particular, the aims are:
 - generic treatment of BCs
@@ -21,10 +23,56 @@ This package aims at generating flexible FD stencils that can interoperate with 
 
 5) Now, you should be able to run the scripts in the `example/` folder.
 
+****
 
-# Poisson sparsity examples
+## Single phase mechanics
 
-##  Flag boundary nodes and constant nodes (e.g. inner BC or free surface)
+### Power-law Stokes (standard staggered grid - asymmetric operator)
+
+![image](./results/PowerLaw.gif)
+<!-- 
+![image](https://github.com/user-attachments/assets/e29d72a5-93cf-4cc5-84a1-c353a05a4edb) -->
+
+### Shear banding benchmark ([Duretz et al., 2018 - test 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018GC007877))
+
+see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Duretz2018.jl)
+
+![image](./results/EP_Duretz2018.png)
+
+### Shear banding with compressibility and dilatancy
+![image](./results/ShearBanding.gif)
+
+### Pressurized hole with mixed-mode plasticity (see Kiss et al., 2023)
+![image](./results/PressurizedHole.gif)
+
+### Host-inclusion decompression with Drucker-Prager plasticity
+![image](./results/HostInclusion_DruckerPrager.gif)
+
+### Host-inclusion decompression with tensile plasticity
+![image](./results/HostInclusion_tensile.gif)
+
+### Power-law Stokes (full staggered grid - symmetric operator)
+![image](https://github.com/user-attachments/assets/9c1e02d5-6b7f-4764-a99d-12a87e28ea21)
+
+### Anisotropic Stokes (full staggered grid - symmetric operator)
+![image](https://github.com/user-attachments/assets/3df8215a-0eca-4e3e-b01a-85a501a4bacb)
+
+****
+
+## Two-phase mechanics
+![image](https://github.com/user-attachments/assets/e5606f59-1a56-43e8-84d9-25381318eb0c)
+
+****
+
+### Poisson / Diffusion and sparsity examples
+
+#### Diffusion (backward Euler)
+![image](results/Diffusion_BackwardEuler.svg)
+
+#### Diffusion (Crank-Nicolson)
+![image](results/Diffusion_CrankNicolson.svg)
+
+####  Flag boundary nodes and constant nodes (e.g. inner BC or free surface)
 ```julia
 [ Info: Node types
 6×5 Matrix{Symbol}:
@@ -36,7 +84,7 @@ This package aims at generating flexible FD stencils that can interoperate with 
  :Dirichlet  :Dirichlet  :Dirichlet  :Dirichlet  :Dirichlet
 ```
 
-## Generation of a 5-point stencil including a symmetry test
+#### Generation of a 5-point stencil & check for symmetry
 ```julia 
 [ Info: 5-point stencil
 12×12 ExtendableSparseMatrixCSC{Float64, Int64} with 54 stored entries:
@@ -67,7 +115,7 @@ This package aims at generating flexible FD stencils that can interoperate with 
   ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅ 
 ```
 
-## Generation of a 9-point stencil including a symmetry test
+#### Generation of a 9-point stencil & check for symmetry
 ```julia
 [ Info: 9-point stencil
 12×12 ExtendableSparseMatrixCSC{Float64, Int64} with 54 stored entries:
@@ -97,42 +145,3 @@ This package aims at generating flexible FD stencils that can interoperate with 
   ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅ 
   ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅    ⋅ 
 ```
-## Power-law Stokes (standard staggered grid - asymmetric operator)
-
-![image](./results/PowerLaw.gif)
-<!-- 
-![image](https://github.com/user-attachments/assets/e29d72a5-93cf-4cc5-84a1-c353a05a4edb) -->
-
-## Shear banding benchmark ([Duretz et al., 2018 - test 1](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2018GC007877))
-
-see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Duretz2018.jl)
-
-![image](./results/EP_Duretz2018.png)
-
-## Shear banding with compressibility and dilatancy
-![image](./results/ShearBanding.gif)
-
-## Pressurized holed with mixed-mode plasticity (see Kiss et al., 2023)
-![image](./results/PressurizedHole.gif)
-
-## Host-inclusion decompression with Drucker-Prager plasticity
-![image](./results/HostInclusion_DruckerPrager.gif)
-
-## Host-inclusion decompression with tensile plasticity
-![image](./results/HostInclusion_tensile.gif)
-
-## Power-law Stokes (full staggered grid - symmetric operator)
-![image](https://github.com/user-attachments/assets/9c1e02d5-6b7f-4764-a99d-12a87e28ea21)
-
-## Anisotropic Stokes (full staggered grid - symmetric operator)
-![image](https://github.com/user-attachments/assets/3df8215a-0eca-4e3e-b01a-85a501a4bacb)
-
-## Diffusion (backward Euler)
-![image](results/Diffusion_BackwardEuler.svg)
-
-## Diffusion (Crank-Nicolson)
-![image](results/Diffusion_CrankNicolson.svg)
-
-# Two-phase flow
-![image](https://github.com/user-attachments/assets/e5606f59-1a56-43e8-84d9-25381318eb0c)
-
