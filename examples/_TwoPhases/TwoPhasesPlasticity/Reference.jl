@@ -15,7 +15,7 @@ import Statistics:mean
     GCR_restart = 25
     GCR_maxit   = 100
     ϵ_l         = 1e-8
-    Pic2Newt    = 0.8#0.1   # more than 1.0 - always Newton
+    Pic2Newt    = 1.8#0.1   # more than 1.0 - always Newton
 
     # Non-linear solver
     ϵ_nl    = 1e-8
@@ -60,7 +60,7 @@ import Statistics:mean
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
-    materials.plasticity.ψ   .= [ 10.,     10. ] .* 1
+    materials.plasticity.ψ   .= [ 10.,     10. ] .* 0
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
     preprocess!(materials)
@@ -279,7 +279,9 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+
+
             end
             @timeit to "Residual" begin
                 @time ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
@@ -358,7 +360,7 @@ import Statistics:mean
                 # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
                 # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
                 αmax   = Newton ? 1.0 : 3.0
-                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
                 UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 
@@ -411,6 +413,8 @@ import Statistics:mean
 
         @info τ_ini*sc.σ
         @show τxx_ini*sc.σ, τyy_ini*sc.σ
+        @show extrema(ρ.s .* (sc.σ*sc.t^2/sc.L^2))
+        @show extrema(ρ.f .* (sc.σ*sc.t^2/sc.L^2))
 
         fname = @sprintf("PoroVEP_%03d.jld2",  it)
         save("./examples/_TwoPhases/TwoPhasesPlasticity/results/$(fname)", "X", X, "sc", sc, "probes", probes,
@@ -424,8 +428,8 @@ import Statistics:mean
             eps  = 1e-10
 
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
-            field = λ̇.v[inx_v,iny_v] ./ sc.t
-            # field = R.x[inx_v,iny_v] ./ sc.t
+            # field = λ̇.v[inx_v,iny_v] ./ sc.t
+            field = R.x[inx_v,iny_v] ./ sc.t
 
             hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
@@ -569,7 +573,7 @@ import Statistics:mean
     #--------------------------------------------#
 
     display(to)
-    homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix.jld2", "probes", probes)
+    homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix2.jld2", "probes", probes)
 
     return 
 end
@@ -607,8 +611,8 @@ function Run()
     n_nx = 1
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 40*n_nt
-    main(nc, nt, n_nt; ηvp=1e18);
+    nt   = 9#40*n_nt
+    main(nc, nt, n_nt; ηvp=1e20);
     
 end
 

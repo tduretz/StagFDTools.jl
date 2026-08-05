@@ -101,6 +101,7 @@ export AssembleContinuity2D!, ResidualContinuity2D!, Continuity, ResidualPorosit
 export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
 export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
 export reduce_sparse_matrix!, reset_parallel_storage
+export compute_Φ_and_dΦdt_trial, compute_Φ_and_dΦdt
 # export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
 # export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
 # include("TwoPhases.jl")
@@ -113,7 +114,9 @@ export reduce_sparse_matrix!, reset_parallel_storage
 # export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
 # export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
 include("TwoPhases/TwoPhases_Rheology_Trial_P.jl")
-export TangentOperator!, Porosity
+export TangentOperator!, Porosity, LocalRheology_P
+include("TwoPhases/TwoPhases_Rheology.jl")
+export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F
 include("Markers.jl")

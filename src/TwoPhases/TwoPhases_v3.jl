@@ -289,7 +289,7 @@ end
     else
         Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
         dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
         Φ, dΦdt 
     end
 
@@ -373,7 +373,7 @@ end
     else
         Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
         dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt = compute_Φ_and_dΦdt(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
         Φ, dΦdt 
     end
 
@@ -436,7 +436,7 @@ end
 end
 
 
-@generated function compute_Φ_and_dΦdt(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt) where {M,T,N}
+@generated function compute_Φ_and_dΦdt_trial(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt) where {M,T,N}
     quote
        Base.@nexprs $N i -> begin
             @inline 
@@ -450,6 +450,19 @@ end
     end
 end
 
+@generated function compute_Φ_and_dΦdt(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, λ̇, sinψ, m, Δt) where {M,T,N}
+    quote
+       Base.@nexprs $N i -> begin
+            @inline 
+            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], λ̇[i], sinψ[i], Δt)
+            Φ_i = out[1]
+            dΦdt_i = out[2]
+       end
+       
+    #    SMatrix{M,M,T,N}((Base.@ncall $N tuple Φ)...), SMatrix{M,M,T,N}((Base.@ncall $N tuple dΦdt)...)
+       SMatrix{M,M}((Base.@ncall $N tuple Φ)...), SMatrix{M,M}((Base.@ncall $N tuple dΦdt)...)
+    end
+end
 
 function ResidualMomentum2D_x!(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
     
@@ -1404,8 +1417,8 @@ function swap_solution!(V1, P1, V0, P0)
     P1.f .= P0.f
 end
 
-function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
-    α0=1.0, ρ=0.5, αmin=1e-2,  maxiter=5,)
+function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
+    α0=1.0, ρ_LS=0.5, αmin=1e-2,  maxiter=5,)
 
     τ0, P0, Φ0, ρ0 = old
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -1432,7 +1445,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs,
         UpdateSolution!(V, P, α .* dx, number, type, nc)
 
         # Recompute constitutive state
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
 
         # Recompute residual
         ResidualMomentum2D_x!( R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )
@@ -1449,7 +1462,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, div_Vs,
             return α, ϕtrial, true
         end
 
-        α *= ρ
+        α *= ρ_LS
 
         if α < αmin
             break

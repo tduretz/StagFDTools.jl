@@ -314,7 +314,9 @@ end
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+
+
 
             end
             @timeit to "Residual" begin
