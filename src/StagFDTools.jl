@@ -57,7 +57,7 @@ end
 
 module StokesJustPIC
     using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
-    using JustPIC, JustPIC._2D
+    using JustPIC
     import JustPIC.@index
     include("StokesJustPIC.jl")
     export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
