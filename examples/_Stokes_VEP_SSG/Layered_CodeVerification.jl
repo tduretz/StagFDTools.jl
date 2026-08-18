@@ -333,7 +333,7 @@ end
     τIIeva = mean(τII[inner_x, inner_y])
     τIIevb = sqrt(0.5*τxxev.^2 .+ 0.5*τyyev.^2 .+ τxyev.^2)
 
-    return  [τIIeva, τxxev, τyyev, τxyeva, τxyev, τIIevb]
+    return  [τIIeva, τxxev, τyyev, τxyev, τIIevb]
 
 end
 
@@ -358,7 +358,7 @@ let
     nθ         = 3
     θ          = LinRange(0, π/2, nθ)
     τ_cart     = zeros(nθ)
-    τ_cart_lay = zeros(nθ, 6)
+    τ_cart_lay = zeros(nθ, 5)
     τ_cart_ana = zeros(nθ)
 
     #  Anisotropy parameters
@@ -407,19 +407,19 @@ let
 
     τ_cart .= τstrong * sqrt.(((δ^2 - 1) * cos.(2 .* θ).^2 .+ 1) / (δ^2))
 
-    jldsave("Layered_pwl_2.jld2"; τ_II = τ_cart_lay[:,1], τ_xx = τ_cart_lay[:,2], τ_yy = τ_cart_lay[:,3], τ_xy = τ_cart_lay[:, 5], τ_IIb = τ_cart_lay[:,6], η2, η1, θ, m, ε̇bg, α2, α1, L = (x=1.0, y=1.0), G2, C2)
+    jldsave("Layered_pwl_2.jld2"; τ_II = τ_cart_lay[:,1], τ_xx = τ_cart_lay[:,2], τ_yy = τ_cart_lay[:,3], τ_xy = τ_cart_lay[:, 4], τ_IIb = τ_cart_lay[:,5], η2, η1, θ, m, ε̇bg, α2, α1, L = (x=1.0, y=1.0), G2, C2)
 
     cm.with_theme(cm.theme_latexfonts()) do
     fig   = cm.Figure(fontsize=15)
     ax    = cm.Axis(fig[1,1], xlabel= cm.L"$\theta$ [$^{\circ}$]", ylabel=cm.L"$\tau_{II}$ [-]")
     cm.lines!(ax, θ*180/π, τ_cart_lay[:,1], label="τII mean")
-    cm.lines!(ax, θ*180/π, τ_cart_lay[:,6], label="τII components")
+    cm.lines!(ax, θ*180/π, τ_cart_lay[:,5], label="τII components")
     cm.lines!(ax, θ*180/π, τ_cart_lay[:,2], label="τxx mean")
-    cm.lines!(ax, θ*180/π, τ_cart_lay[:,5], label="τxy mean")
+    cm.lines!(ax, θ*180/π, τ_cart_lay[:,4], label="τxy mean")
     cm.scatter!(ax, θ*180/π, τ_cart_lay[:,1], label="τII mean")
-    cm.scatter!(ax, θ*180/π, τ_cart_lay[:,6], label="τII components")
+    cm.scatter!(ax, θ*180/π, τ_cart_lay[:,5], label="τII components")
     cm.scatter!(ax, θ*180/π, τ_cart_lay[:,2], label="τxx mean")
-    cm.scatter!(ax, θ*180/π, τ_cart_lay[:,5], label="τxy mean")
+    cm.scatter!(ax, θ*180/π, τ_cart_lay[:,4], label="τxy mean")
 cm.Legend(fig[2,1], ax, framevisible=false, orientation=:horizontal, unique=true, merge=true, nbanks=2, cm.L"$\tau_{II}$    ($δ \approx$ %$(round(Int,δ)))")
     display(fig)
     end
