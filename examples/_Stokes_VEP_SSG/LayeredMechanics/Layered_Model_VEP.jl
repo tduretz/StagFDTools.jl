@@ -4,39 +4,9 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
-const save = false
-const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/high_res_test/"
+const save = true
+const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/plastic_test_3/"
 const backend = AutoForwardDiff()
-
-function Analyticalviscous(θ, η, δ, D_BC)
-    #= define velocity gradient components and resulting deviatoric strain rate components
-    pure shear   ε̇ = [ε̇xx  0 ;  0  -ε̇xx]
-    simple shear ε̇ = [ 0  ε̇xy; ε̇xy   0 ] =#
-    Dxx = D_BC[1, 1]
-    Dyy = -Dxx
-    Dxy = D_BC[1, 2]
-    Dkk = Dxx + Dyy
-
-    ε̇ = @SVector([Dxx - Dkk / 3, Dyy - Dkk / 3, Dxy])
-
-    # Normal vector of anisotropic direction
-    n1 = -cos(θ)
-    n2 = sin(θ)
-
-    # compute isotropic and layered components for 𝐷
-    Δ0 = 2 * n1^2 * n2^2
-    Δ1 = n1 * n2^3 - n2 * n1^3
-    Δ = @SMatrix([Δ0 -Δ0 2*Δ1; -Δ0 Δ0 -2*Δ1; Δ1 -Δ1 1-2*Δ0])
-    A = @SMatrix([1 0 0; 0 1 0; 0 0 1])
-
-    # compute 𝐷
-    𝐷 = 2 * η * A - 2 * (η - η / δ) * Δ
-
-    τ = 𝐷 * ε̇
-
-    τ_II = sqrt(0.5 * (τ[1]^2 + τ[2]^2 + (-τ[1] - τ[2])^2) + τ[3]^2)
-    return τ_II
-end
 
 function Analyticalstress(θ, τ, inner_x, inner_y)
 
@@ -58,63 +28,31 @@ function Analyticalstress(θ, τ, inner_x, inner_y)
     return Σₙ, Σₗ
 end
 
-function DissipationFunction(ω, α1, α2, C1, C2, Dl, Dn, Dm)
-    return α1 * C1 * sqrt(Dl^2 + (1 + α2 * ω)^2 * Dn^2) + α2 * C2 * sqrt(Dl^2 + (1 - α1 * ω)^2 * Dn^2) + Dm
+function yieldSurface(θ, D_BC, C1, C2, α1, α2)
+    # if Dbg = 1:
+    # τ = sqrt((Dl * cos(2*θ))^2*(α1*C1 + α2*C2)^2 + (Dn * sin(2*θ))^2 * C2^2)
+
+    𝐷 = @SMatrix([D_BC[1, 1] D_BC[1, 2] 0.; D_BC[2, 1] D_BC[2, 2] 0.; 0. 0. 0.])
+    𝑛 = @SVector([-cos(θ), sin(θ), 0.])
+    # strain rate invariant normal to layering (3D)
+    Dn = sqrt(dot(𝐷 * 𝑛, 𝐷 * 𝑛) - (dot(𝑛, 𝐷 * 𝑛))^2)
+    # Deviatoric strain rate projection 
+    Dd = 1/3*tr(𝐷) - dot(𝑛, 𝐷 * 𝑛)
+    # Second invariant of dev strain rate
+    De = sqrt(0.5*(𝐷[1, 1]^2 + 𝐷[2, 2]^2 + 𝐷[3, 3]^2) + 𝐷[1, 2]^2)
+    # strain rate parallel to layers 
+    Dp = De^2 - Dd^2 - Dn^2
+    Dl = sqrt(Dp + Dd^2)
+
+    # Macroscopic stress as function of invariants
+    Τxx = Dl*(α1*C1 + α2*C2)
+    Τxy = Dn*C2
+    g_e = Τxx
+    Τ = sqrt(Dl^2*(α1*C1 + α2*C2)^2 + Dn^2 * C2^2)
+    return Τ, Τxx, Τxy
 end
 
-function Minimise(α1, α2, C1, C2, Dl, Dn, Dm; ω0=0., max_iter=100, tol=1e-10)
-
-    # from Castañeda and deBotton 1992: minimize the (convex) dissipation function.
-    # D is convex -> D' is monotonically increasing -> bracket the sign change and bisect.
-    D(ω) = DissipationFunction(ω, α1, α2, C1, C2, Dl, Dn, Dm)
-    ∂D∂ω(ω) = ForwardDiff.derivative(D, ω)
-
-    # 1. expand outward from ω0 until D'(lo) ≤ 0 ≤ D'(hi)
-    lo, hi = ω0 - 1.0, ω0 + 1.0
-    it = 0
-    while ∂D∂ω(lo) > 0 && (it += 1) < max_iter
-        lo -= 2 * (hi - lo)
-    end
-    while ∂D∂ω(hi) < 0 && (it += 1) < max_iter
-        hi += 2 * (hi - lo)
-    end
-    (∂D∂ω(lo) ≤ 0 ≤ ∂D∂ω(hi)) || error("could not find a minimum")
-
-    # 2. bisect on the derivative
-    for iter in 1:max_iter
-        mid = (lo + hi) / 2
-        if ∂D∂ω(mid) > 0
-            hi = mid
-        else
-            lo = mid
-        end
-        (hi - lo) < tol && return mid
-    end
-    return (lo + hi) / 2
-end
-
-function AnalyticalDissipation(D_BC, θ, α1, α2, C1, C2)
-    𝑛 = @SVector([-cos(θ), sin(θ)])
-    Dd = 1 / 3 * tr(D_BC) - dot(𝑛, D_BC * 𝑛)
-    Dn = 2 / sqrt(3) * sqrt(dot(D_BC * 𝑛, D_BC * 𝑛) - dot(𝑛, D_BC * 𝑛))
-    De = 1 / 2 * D_BC[1, 1]^2 + 1 / 2 * D_BC[2, 2]^2 + D_BC[1, 2]^2
-    Dl = sqrt((De - Dd^2 - Dn^2)^2 + Dd^2)
-    Dm = tr(D_BC)
-
-    ωₑ = Minimise(α1, α2, C1, C2, Dl, Dn, Dm)
-    Dₑ = DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, Dn, Dm)
-
-    # Stress invariants from Σ = ∂D⋆/∂ε̇
-    Σl = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, x, Dn, Dm), Dl)
-    Σn = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, x, Dm), Dn)
-    Σm = ForwardDiff.derivative(x -> DissipationFunction(ωₑ, α1, α2, C1, C2, Dl, Dn, x), Dm)
-
-    # Second invariant of deviatoric stress
-    Σₑ = sqrt(Σl^2 + Σn^2)
-    return Σₑ
-end
-
-@views function main(nc, nt, L, layering, BC_template, D_template, factorization, α1, η1, η2, G1, G2, C1, C2; fabric_angle=nothing)
+@views function main(nc, nt, L, layering, BC_template, D_template, α1, η1, η2, G1, G2, C1, C2; fabric_angle=nothing)
     #--------------------------------------------#   
 
     # Boundary loading type
@@ -127,26 +65,27 @@ end
     materials.η0 .= [η1, η2]
     materials.G .= [G1, G2]
     materials.plasticity.C .= [C1, C2]
-    materials.plasticity.ηvp .= [1e-3, 1e-3]
+    # materials.plasticity.ηvp .= [1e-10, 1e-10]
+
     preprocess!(materials)
 
     nmpc = (x=4, y=4)
     noise = false
 
     # Time steps
-    Δt0 = 0.5
+    Δt0 = 0.10
 
     # Newton solver
-    iter_params = IterParams(niter=3, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
+    iter_params = IterParams(niter=4, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
 
     # Intialise field
     Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
-    x = (min=-L.x / 2, max=L.x / 2)
-    y = (min=-L.y / 2, max=L.y / 2)
+    x = (min=(-L.x / 2), max=L.x / 2)
+    y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
     a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
-    τIIev = ones(nt)
+    Τev = (II=ones(nt), xx=ones(nt), yy=ones(nt), xy=ones(nt))
     α2 = 1 - α1
 
     # Grid bounds
@@ -180,16 +119,16 @@ end
     end
 
     # MARKERS ------------------------------------------------------------
-    # Assign marker phases from layering geometry (1 or 2) #           |
-    for I in CartesianIndices(a.m.phase) #                                |
+    # Assign marker phases from layering geometry (1 or 2)
+    for I in CartesianIndices(a.m.phase)
         xm = a.m.Xm[I]
         ym = a.m.Ym[I]
         isin = inside(@SVector([xm, ym]), layering)
         a.m.phase[I] = isin ? 2 : 1
     end
 
-    # Build extended vertex arrays (with ghost vertices) and accumulate marker contributions
     SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
+    # FillPhaseRatios!(a) # no markers
 
     #--------------------------------------------#
 
@@ -201,10 +140,14 @@ end
 
     # Saving
     angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
-    domain_dir = joinpath(figpath, @sprintf("domainL%.1f", L.x))
-    subdir = joinpath(domain_dir, @sprintf("fabric%03ddeg_evolution", angle_deg))
+    # domain_dir = joinpath(figpath, @sprintf("domainL%.1f", L.x))
+    # subdir = joinpath(domain_dir, @sprintf("fabric%03ddeg_evolution", angle_deg))
+    subdir = joinpath(figpath, @sprintf("fabric%03ddeg_evolution", angle_deg))
     save && mkpath(subdir)
     save_every_step = true
+
+    τ_fyield = (xx=0., yy=0., xy=0., II=0.)
+    has_yielded = false
 
     for it = 1:nt
 
@@ -226,7 +169,15 @@ end
             σ1.v[i] = σp[1]
         end
 
-        τIIev[it] = mean(a.τ.II[inner_x, inner_y])
+        Τev.II[it] = mean(a.τ.II[inner_x, inner_y])
+        Τev.xx[it] = mean(a.τ.xx[inner_x, inner_y])
+        Τev.yy[it] = mean(a.τ.yy[inner_x, inner_y])
+        Τev.xy[it] = mean(0.25 * (a.τ.xy[i, j] + a.τ.xy[i+1, j] + a.τ.xy[i, j+1] + a.τ.xy[i+1, j+1]) for i in inner_x, j in inner_y)
+
+        if !has_yielded && maximum(a.λ̇.c) > 0
+            τ_fyield = (xx=Τev.xx[it], yy=Τev.yy[it], xy=Τev.xy[it], II=Τev.II[it])
+            has_yielded = true
+        end
 
         # Save grid files
         save && mkpath(figpath)
@@ -254,60 +205,70 @@ end
             )
         end
 
+        # FIGURE: Fields at final timestep (adapted from plot_grid_fields in Layered_Post_Processing.jl,
+        # using the live grid/field arrays already in scope here instead of a loaded `data` Dict)
         if it == nt
             cm.with_theme(cm.theme_latexfonts()) do
                 fig = cm.Figure(size=(700, 600), px_per_unit=2)
-                ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect(), xlabelsize=26, ylabelsize=26, titlesize=26)
-                hm = cm.heatmap!(ax, a.X.c.x, a.X.c.y, a.τ.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
-                # cm.poly!(ax, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
-                st = 15
-                # cm.arrows2d!(ax, a.X.c.x[1:st:end], a.X.c.y[1:st:end], σ1.x[inx_c, iny_c][1:st:end, 1:st:end], σ1.y[inx_c, iny_c][1:st:end, 1:st:end], tiplength=0, lengthscale=0.02, tipwidth=1, color=:white)
+
+                # Extended (ghost-inclusive) centroid grid, so inner_x/inner_y (computed
+                # against a.X.c_e) would index directly with no off-by-one shifting if the
+                # box/arrows overlay below is reactivated.
+                ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5], xlabelsize=26, ylabelsize=26, titlesize=20, title=@sprintf("θ = %d°", angle_deg))
+                hm = cm.heatmap!(ax, a.X.c_e.x, a.X.c_e.y, a.τ.II, colormap=cm.cgrad(:roma, rev=true))
+                # Inner-box overlay and principal-stress arrows (uncomment to use)
+                # cm.poly!(ax, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]], a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]), strokecolor=:white, strokewidth=2, color=:transparent)
+                # st = max(1, length(a.X.c_e.x) ÷ 25)
+                # cm.arrows2d!(ax, a.X.c_e.x[1:st:end], a.X.c_e.y[1:st:end], σ1.x[1:st:end, 1:st:end], σ1.y[1:st:end, 1:st:end], tiplength=0, lengthscale=0.02, tipwidth=1, color=:white)
                 cm.Colorbar(fig[1, 2], hm, label=cm.L"$\tau_{II} \ [-]$", labelsize=18)
 
-                ax2 = cm.Axis(fig[1, 3], aspect=cm.DataAspect())
-                # hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.η.c[inx_c, iny_c], colormap=:roma)
-                hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.ε̇.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
-                # cm.poly!(ax2, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
-                # cm.Colorbar(fig[1, 4], hm2, label="η")
+                ax2 = cm.Axis(fig[1, 3], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5])
+                hm2 = cm.heatmap!(ax2, a.X.c_e.x, a.X.c_e.y, a.ε̇.II, colormap=cm.cgrad(:roma, rev=true))
+                # cm.poly!(ax2, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]],
+                #         a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]],
+                #         a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]),
+                #     strokecolor=:white, strokewidth=2, color=:transparent)
                 cm.Colorbar(fig[1, 4], hm2, label=cm.L"$\dot\varepsilon_{II} \ [-]$", labelsize=18)
 
                 ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect())
-                hm3 = cm.heatmap!(ax3, a.X.c.x, a.X.c.y, a.V.x[inx_Vx, iny_Vx], colormap=:vik)
+                hm3 = cm.heatmap!(ax3, a.X.vx.x, a.X.vx.y, a.V.x[inx_Vx, iny_Vx], colormap=:vik)
                 cm.Colorbar(fig[2, 2], hm3, label=cm.L"$v_x \ [-]$", labelsize=18)
 
                 ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect())
-                hm4 = cm.heatmap!(ax4, a.X.c.x, a.X.c.y, a.V.y[inx_Vy, iny_Vy], colormap=:vik)
+                hm4 = cm.heatmap!(ax4, a.X.vy.x, a.X.vy.y, a.V.y[inx_Vy, iny_Vy], colormap=:vik)
                 cm.Colorbar(fig[2, 4], hm4, label=cm.L"$v_y \ [-]$", labelsize=18)
 
-                # ax5_title = fabric_angle === nothing ? "Fabric inclination" : @sprintf("Fabric inclination = %.1f°", rad2deg(fabric_angle))
-                ax5 = cm.Axis(fig[3, 1:4], xlabel="time step", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18) #, title=ax5_title)
+                ax5 = cm.Axis(fig[3, 1:4], xlabel="time step", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18)
                 cm.xlims!(ax5, 0, nt)
-                cm.lines!(ax5, 1:it, τIIev[1:it])
-                # display(fig)
+                cm.lines!(ax5, 1:it, Τev.II[1:it])
 
-                # Save 
+                display(fig)
+
+                # Save
                 if save
-                    angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
-                    mkpath(domain_dir)
                     figname = @sprintf("LayeredVEVP_res%d_fabric%03ddeg.png", nc.x, angle_deg)
-                    cm.save(joinpath(domain_dir, figname), fig, px_per_unit=4)
+                    cm.save(joinpath(subdir, figname), fig, px_per_unit=4)
                 end
             end
         end
     end
 
-    τIIanS, τIIanE = Analyticalstress(fabric_angle, a.τ, inner_x, inner_y)
-    # Dis = AnalyticalDissipation(D_BC, fabric_angle, α1, α2, C1, C2)
+    # Analytics
+    # τIIanS, τIIanE = Analyticalstress(fabric_angle, a.τ, inner_x, inner_y)
 
-    τxx = mean(a.τ.xx[inner_x, inner_y])
-    τyy = mean(a.τ.yy[inner_x, inner_y])
-    τxy = mean(0.25 * (a.τ.xy[i, j] + a.τ.xy[i+1, j] + a.τ.xy[i, j+1] + a.τ.xy[i+1, j+1])
-               for i in inner_x, j in inner_y)
-    τIIsec = sqrt(0.5 * (τxx^2 + τyy^2 + (-τxx - τyy)^2) + τxy^2)
+    # Save mean (macroscopic) stress metrics at final timestep
+    mΤxx = mean(a.τ.xx[inner_x, inner_y])
+    mΤyy = mean(a.τ.yy[inner_x, inner_y])
+    mΤxy = mean(0.25 * (a.τ.xy[i, j] + a.τ.xy[i+1, j] + a.τ.xy[i, j+1] + a.τ.xy[i+1, j+1])
+                for i in inner_x, j in inner_y)
+    mΤII_macro = sqrt(0.5 * (mΤxx^2 + mΤyy^2 + (-mΤxx - mΤyy)^2) + mΤxy^2)
+    mΤII = mean(a.τ.II[inner_x, inner_y])
+    Macro = (Τxx=mΤxx, Τyy=mΤyy, Τxy=mΤxy, ΤII_macro=mΤII_macro, ΤII_mean=mΤII)
 
     display(to)
 
-    return mean(a.τ.II[inner_x, inner_y]), τIIev, τIIanS, τIIanE, τIIsec
+    return Τev, Macro, τ_fyield
+    # return mean(a.τ.II[inner_x, inner_y]), τIIev, τIIanS, τIIanE, τIIsec, τIIanDis, τxxev, τyyev, τxyev
 
 end
 
@@ -320,34 +281,38 @@ let
     ]
 
     # Boundary deformation gradient matrix
-    D_BCs = [
-        @SMatrix([1 0; 0 -1]),
-    ]
+    # D_BCs = [
+    #     @SMatrix([1 0; 0 -1]),
+    # ]
+    D_BCs = @SMatrix([1 0; 0 -1])
 
-    nc = (x=50, y=50)
-    nt = 50
+    nc = (x=200, y=200)
+    nt = 150 # 250
     # L = [1.0, 2.0, 3., 4., 5.]
-    L = 1.
+    L = 4.
 
     # Discretise angle of layer 
     # nθ = 1
-    nθ = 31
-    θ = LinRange(0, π / 2, nθ)
+    nθ = 13
+    θ = LinRange(0, π/2, nθ)
     # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
-    τ_cart_lay = zeros(length(L), nθ)
-    τ_cart_anaS = zeros(length(L), nθ)
-    τ_cart_anaE = zeros(length(L), nθ)
-    τ_time = zeros(length(L), nθ, nt)
-    τ_tensor = zeros(length(L), nθ)
+    τ_II_mean = zeros(length(L), nθ)
+    τ_II_macro = zeros(length(L), nθ)
+    # τ_cart_anaS = zeros(length(L), nθ)
+    # τ_cart_anaE = zeros(length(L), nθ)
+    Τ_time = (II_mean=zeros(length(L), nθ, nt), II_macro=zeros(length(L), nθ, nt), xx=zeros(length(L), nθ, nt), yy=zeros(length(L), nθ, nt), xy=zeros(length(L), nθ, nt))
+    Τ = (II_mean=zeros(length(L), nθ), II_macro=zeros(length(L), nθ), xx=zeros(length(L), nθ), yy=zeros(length(L), nθ), xy=zeros(length(L), nθ))
+    ana = (Τ=zeros(length(L), nθ), Τxx=zeros(length(L), nθ), Τyy=zeros(length(L), nθ))
+    τ_fyield = (xx=zeros(length(L), nθ), yy=zeros(length(L), nθ), xy=zeros(length(L), nθ), II=zeros(length(L), nθ))
 
-    #  Viscosity
+    #  Composite parameters
     m = 4
     η2 = 1e10
     η1 = η2
 
     G2 = 1.
-    G1 = G2
+    G1 = G2 / m
 
     C2 = 10.
     C1 = C2 / m
@@ -363,7 +328,7 @@ let
 
     # Run them all
     for (iL, Lw) in enumerate(L)
-        for iθ in 1:31
+        for iθ in 1:nθ
 
             layering = Layering(
                 (0 * 0.25, 0.025),
@@ -374,51 +339,138 @@ let
                 perturb_width=1.0
             )
 
-            τ_cart_lay[iL, iθ], τ_time[iL, iθ, :], τ_cart_anaS[iL, iθ], τ_cart_anaE[iL, iθ], τ_tensor[iL, iθ] = main(nc, nt, (x=Lw, y=Lw), layering, BCs[1], D_BCs[1], :lu, α1, η1, η2, G1, G2, C1, C2; fabric_angle=θ[iθ])
+            println("**Layering $(rad2deg(θ[iθ]))°**")
+
+            Τev, Macro, τ_smyield = main(nc, nt, (x=Lw, y=Lw), layering, BCs[1], D_BCs, α1, η1, η2, G1, G2, C1, C2; fabric_angle=θ[iθ])
+
+            Τ_time.II_mean[iL, iθ, :] .= Τev.II
+            Τ_time.xx[iL, iθ, :] .= Τev.xx
+            Τ_time.yy[iL, iθ, :] .= Τev.yy
+            Τ_time.xy[iL, iθ, :] .= Τev.xy
+
+            Τ.xx[iL, iθ] = Macro.Τxx
+            Τ.yy[iL, iθ] = Macro.Τyy
+            Τ.xy[iL, iθ] = Macro.Τxy
+            Τ.II_mean[iL, iθ] = Macro.ΤII_mean
+            Τ.II_macro[iL, iθ] = Macro.ΤII_macro
+
+            τ_II_mean[iL, iθ] = Macro.ΤII_mean
+            τ_II_macro[iL, iθ] = Macro.ΤII_macro
+            if τ_fyield.xx[iθ] == 0.
+                τ_fyield.xx[iθ] = τ_smyield.xx
+                τ_fyield.yy[iθ] = τ_smyield.yy
+                τ_fyield.xy[iθ] = τ_smyield.xy
+                τ_fyield.II[iθ] = τ_smyield.II
+            end
+
+            ana.Τ[iL, iθ], ana.Τxx[iL, iθ], ana.Τyy[iL, iθ] = yieldSurface(θ[iθ], D_BCs, C2, C1, α2, α1)
         end
     end
 
     cm.with_theme(cm.theme_latexfonts()) do
-        fig = cm.Figure(size=(800, 650), px_per_unit=2)
-        # colors = cm.cgrad(:roma, nL, categorical=true)   # color = domain width
 
-        # iθ_mid = (nθ + 1) ÷ 2  # index of 45°
-        # iθ_first = 1
-        # iθ_last = nθ
-        # linestyles = Dict(iθ_first => :solid, iθ_mid => :dash, iθ_last => :dot)
-        # orientation_label = Dict(iθ_first => "Strong (hor)", iθ_mid => "Weak (45°)", iθ_last => "Strong (vert)")
+        # FIGURE 1 ------------------------------------------------------------------
+        iθ_first = 1
+        iθ_mid = (nθ + 1) ÷ 2  # index of 45°
+        iθ_last = nθ
+        linestyles = Dict(iθ_first => :solid, iθ_mid => :dash, iθ_last => :dot)
+        orientation_label = Dict(iθ_first => "Strong (hor)", iθ_mid => "Weak (45°)", iθ_last => "Strong (vert)")
 
-        # ax = cm.Axis(fig[1, 1], title="m = $(m)", xlabel=cm.L"$\mathrm{time step}$", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
-        # for (iL, Lwidth) in enumerate(Lwidths)
-        #     for iθ in (iθ_first, iθ_mid, iθ_last)
-        #         label = iL == 1 ? orientation_label[iθ] : nothing  # only label once
-        #         cm.lines!(ax, 1:nt, τ_time[iL, iθ, :], color=colors[iL], linestyle=linestyles[iθ], label=label)
-        #     end
-        # end
-        # cm.Legend(fig[1, 2], ax, "orientation\n(color = domain width, see below)", labelsize=14, titlesize=13)
-
-        ax2 = cm.Axis(fig[1, 1], title="m = $(m)", xlabel=cm.L"$\theta$ [$^{\circ}$]", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
-        # for (iL, Lwidth) in enumerate(Lwidths)
-        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_lay[iL, :], color=:blue, label=@sprintf("domain = %.1f", Lwidth))
-        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaS[iL, :], color=:red, label=@sprintf("domain = %.1f", Lwidth))
-        #     cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaE[iL, :], color=:green, label=@sprintf("domain = %.1f", Lwidth))
-
-        # end
-
-        for iL in 1:1
-            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_lay[iL, :], color=:blue, label=@sprintf("τII"))
-            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaS[iL, :], color=:red, label=@sprintf("Σₙ"))
-            cm.scatterlines!(ax2, θ * 180 / π, τ_cart_anaE[iL, :], color=:green, label=@sprintf("Σₗ"))
-            cm.scatterlines!(ax2, θ * 180 / π, τ_tensor[iL, :], color=:orange, label="τII from components")
-            cm.scatterlines!(ax2, θ * 180 / π, sqrt.(τ_cart_anaE[iL, :] .^ 2 .+ τ_cart_anaS[iL, :] .^ 2), color=:purple, label="τII computed")
-            cm.Legend(fig[1, 2], ax2, "domain width", labelsize=14, titlesize=13)
+        fig1 = cm.Figure(size=(800, 650), px_per_unit=2)
+        ax1 = cm.Axis(fig1[1, 1], title="m = $(m)", xlabel=cm.L"$\mathrm{time step}$", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
+        for iθ in (iθ_first, iθ_mid, iθ_last)
+            cm.lines!(ax1, 1:nt, Τ_time.II_mean[1, iθ, :], linestyle=linestyles[iθ], label=orientation_label[iθ])
         end
-        display(fig)
+        cm.Legend(fig1[1, 2], ax1, "fabric orientation", labelsize=14, titlesize=13)
+        display(fig1)
+
+        # FIGURE 2 -----------------------------------------------------------------
+        fig2 = cm.Figure(size=(800, 650), px_per_unit=2)
+        ax2 = cm.Axis(fig2[1, 1], title="m = $(m)", xlabel=cm.L"$\theta$ [$^{\circ}$]", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
+        for iL in 1:1
+            cm.scatterlines!(ax2, θ * 180 / π, ana.Τ[iL, :], color=:blue, label="τII (analytical)")
+            cm.scatterlines!(ax2, θ * 180 / π, ana.Τxx[iL, :], color=:red, label="Τxx (analytical)")
+            cm.scatterlines!(ax2, θ * 180 / π, ana.Τyy[iL, :], color=:green, label="Τyy (analytical)")
+            cm.scatterlines!(ax2, θ * 180 / π, τ_II_macro[iL, :], color=:orange, label="τII from components (simulated)")
+            cm.scatterlines!(ax2, θ * 180 / π, sqrt.(ana.Τxx[iL, :] .^ 2 .+ ana.Τyy[iL, :] .^ 2), color=:purple, label="τII computed")
+            cm.scatterlines!(ax2, θ * 180 / π, τ_II_mean[iL, :], color=:gray, label="τII mean (simulated)")
+            cm.Legend(fig2[1, 2], ax2, "quantity", labelsize=14, titlesize=13)
+        end
+        display(fig2)
+
+        # FIGURE 3 -------------------------------------------------------------
+        fig3 = cm.Figure(size=(800, 650), px_per_unit=2)
+        ax3 = cm.Axis(fig3[1, 1], title="predicted yield envelope in stress space", aspect=cm.DataAspect())
+        τS = vec(ana.Τxx)
+        τE = vec(ana.Τyy)
+        cm.scatter!(ax3, vcat(τS, -τS, τS, -τS), vcat(τE, τE, -τE, -τE))
+        display(fig3)
+
+        # FIGURE 4 -------------------------------------------------------------
+        fig4 = cm.Figure(size=(800, 650), px_per_unit=2)
+        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model)", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect())
+        local sc
+        τxx_fy = zeros(length(θ))
+        τxy_fy = zeros(length(θ))
+        τxx_last = zeros(length(θ))
+        τxy_last = zeros(length(θ))
+        for Iθ in eachindex(θ)
+            𝐐_plot = @SMatrix([cos(θ[Iθ]) sin(θ[Iθ]);
+                -sin(θ[Iθ]) cos(θ[Iθ])])
+            τnn = zeros(nt)
+            τnt = zeros(nt)
+            for t in 1:nt
+                τ_plot = @SMatrix([Τ_time.xx[1, Iθ, t] Τ_time.xy[1, Iθ, t]; Τ_time.xy[1, Iθ, t] Τ_time.yy[1, Iθ, t]])
+                τ′_plot = 𝐐_plot * τ_plot * 𝐐_plot'
+                τnn[t] = τ′_plot[1, 1]
+                τnt[t] = τ′_plot[1, 2]
+            end
+            τf′_plot = 𝐐_plot * @SMatrix([τ_fyield.xx[Iθ] τ_fyield.xy[Iθ]; τ_fyield.xy[Iθ] τ_fyield.yy[Iθ]]) * 𝐐_plot'
+            τxx_fy[Iθ] = τf′_plot[1, 1]
+            τxy_fy[Iθ] = τf′_plot[1, 2]
+            τxx_last[Iθ] = τnn[nt]
+            τxy_last[Iθ] = τnt[nt]
+            sc = cm.scatter!(ax4, τnn, τnt, color=1:nt, colormap=:viridis, colorrange=(1, nt))
+        end
+        cm.scatterlines!(ax4, τxx_fy, τxy_fy, color=:red, label="first yielding")
+        cm.scatterlines!(ax4, τxx_last, τxy_last, color=:cyan, label="final timestep")
+        cm.Colorbar(fig4[1, 2], sc, label="time step")
+        cm.axislegend(ax4)
+        display(fig4)
+
+        # FIGURE 5 -------------------------------------------------------------
+        fig5 = cm.Figure(size=(800, 650), px_per_unit=2)
+        ax5 = cm.Axis(fig5[1, 1], title="simulated stress path vs analytical yield surface", xlabel=cm.L"$\Sigma_l \ [-]$", ylabel=cm.L"$\Sigma_n \ [-]$", aspect=cm.DataAspect())
+        local sc5
+        for Iθ in eachindex(θ)
+            𝐐_plot = @SMatrix([cos(θ[Iθ]) sin(θ[Iθ]);
+                -sin(θ[Iθ]) cos(θ[Iθ])])
+            Σl = zeros(nt)
+            Σn = zeros(nt)
+            for t in 1:nt
+                xx, yy, xy = Τ_time.xx[1, Iθ, t], Τ_time.yy[1, Iθ, t], Τ_time.xy[1, Iθ, t]
+                τ_plot = @SMatrix([xx xy; xy yy])
+                τ′_plot = 𝐐_plot * τ_plot * 𝐐_plot'
+                τnt = τ′_plot[1, 2]
+                τII_macro = sqrt(0.5 * (xx^2 + yy^2 + (-xx - yy)^2) + xy^2)
+                Σn[t] = abs(τnt)
+                Σl[t] = sqrt(max(τII_macro^2 - Σn[t]^2, 0))
+            end
+            sc5 = cm.scatter!(ax5, Σl, Σn, color=1:nt, colormap=:viridis, colorrange=(1, nt), markersize=6)
+        end
+        cm.Colorbar(fig5[1, 2], sc5, label="time step")
+        cm.lines!(ax5, ana.Τxx[1, :], ana.Τyy[1, :], color=:red, linewidth=2, label="analytical yield surface")
+        cm.Legend(fig5[1, 3], ax5)
+        display(fig5)
+
+        # FIGURE 6 (grid fields at final timestep) now plotted live inside main(),
+        # per fabric angle, using a.X/a.τ/a.ε̇/a.V/σ1 directly — see the
+        # `if it == nt ... end` block in main().
 
         if save
             mkpath(figpath)
             figname = @sprintf("LayeredVEVP_res%d_domainsp.png", nc.x)
-            cm.save(joinpath(figpath, figname), fig, px_per_unit=4)
+            cm.save(joinpath(figpath, figname), fig1, px_per_unit=4)
         end
     end
 
