@@ -4,7 +4,7 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
-const save = false
+const save = true
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/plastic_test_2/"
 const backend = AutoForwardDiff()
 
@@ -80,7 +80,7 @@ function yieldSurface(θ, D_BC, C1, C2, α1, α2)
     return Τ, Τxx, Τyy
 end
 
-@views function main(nc, nt, L, layering, BC_template, D_template, α1, η1, η2, G1, G2, C1, C2; fabric_angle=nothing, jld2file=nothing)
+@views function main(nc, nt, L, layering, BC_template, D_template, α1, η1, η2, G1, G2, C1, C2, n; fabric_angle=nothing)
     #--------------------------------------------#   
 
     # Boundary loading type
@@ -92,7 +92,7 @@ end
     # materials = initialize_materials(nphases; plasticity=VonMises, compressible=false)
     materials = initialize_materials(nphases; compressible=false)
     materials.η0 .= [η1, η2]
-    materials.n .= [9, 9]
+    materials.n .= [n, n]
     materials.G .= [G1, G2]
     # materials.plasticity.C .= [C1, C2]
     # materials.plasticity.ηvp .= [1e-2, 1e-2]
@@ -100,11 +100,11 @@ end
     preprocess!(materials)
 
     # MARKERS: markers-per-cell / position jitter (uncomment to use markers)
-    # nmpc = (x=4, y=4)
-    # noise = false
+    nmpc = (x=4, y=4)
+    noise = false
 
     # Time steps
-    Δt0 = 0.5
+    Δt0 = 0.1
 
     # Newton solver
     iter_params = IterParams(niter=20, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
@@ -115,8 +115,8 @@ end
     y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
-    # a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise) # markers
-    a = Allocs(nc, config, x, y, Δ, nphases) # no markers
+    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise) # markers
+    # a = Allocs(nc, config, x, y, Δ, nphases) # no markers
     Τev = (II=ones(nt), xx=ones(nt), yy=ones(nt), xy=ones(nt))
     α2 = 1 - α1
 
@@ -151,26 +151,26 @@ end
     end
 
     # MARKERS ------------------------------------------------------------
-    # for I in CartesianIndices(a.m.phase)
-    #     xm = a.m.Xm[I]
-    #     ym = a.m.Ym[I]
-    #     isin = inside(@SVector([xm, ym]), layering)
-    #     a.m.phase[I] = isin ? 2 : 1
-    # end
-    # SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
+    for I in CartesianIndices(a.m.phase)
+        xm = a.m.Xm[I]
+        ym = a.m.Ym[I]
+        isin = inside(@SVector([xm, ym]), layering)
+        a.m.phase[I] = isin ? 2 : 1
+    end
+    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
 
     # NO MARKERS -----------------------------------------------------------
-    for i in inx_c, j in iny_c
-        𝐱 = @SVector([a.X.c.x[i-1], a.X.c.y[j-1]])
-        isin = inside(𝐱, layering)
-        a.phases.c[i, j] = isin ? 2 : 1
-    end
-    for i in inx_v, j in iny_v
-        𝐱 = @SVector([a.X.v.x[i-1], a.X.v.y[j-1]])
-        isin = inside(𝐱, layering)
-        a.phases.v[i, j] = isin ? 2 : 1
-    end
-    FillPhaseRatios!(a)
+    # for i in inx_c, j in iny_c
+    #     𝐱 = @SVector([a.X.c.x[i-1], a.X.c.y[j-1]])
+    #     isin = inside(𝐱, layering)
+    #     a.phases.c[i, j] = isin ? 2 : 1
+    # end
+    # for i in inx_v, j in iny_v
+    #     𝐱 = @SVector([a.X.v.x[i-1], a.X.v.y[j-1]])
+    #     isin = inside(𝐱, layering)
+    #     a.phases.v[i, j] = isin ? 2 : 1
+    # end
+    # FillPhaseRatios!(a)
 
     #--------------------------------------------#
 
@@ -182,7 +182,6 @@ end
 
     # Saving
     angle_deg = fabric_angle === nothing ? 0 : round(Int, rad2deg(fabric_angle))
-    save_every_step = true
 
     for it = 1:nt
 
@@ -208,30 +207,6 @@ end
         Τev.xx[it] = mean(a.τ.xx[inner_x, inner_y])
         Τev.yy[it] = mean(a.τ.yy[inner_x, inner_y])
         Τev.xy[it] = mean(av2D(a.τ.xy[inner_x, inner_y]))
-
-        # Save grid data into the shared JLD2 file, under a group per
-        # fabric orientation and timestep (e.g. "fabric045deg/step003/τxx")
-        if save && jld2file !== nothing && (it == nt || save_every_step)
-            group = @sprintf("fabric%03ddeg/step%03d", angle_deg, it)
-            jld2file["$group/it"] = it
-            jld2file["$group/t"] = it * Δ.t
-            jld2file["$group/angle"] = fabric_angle
-            jld2file["$group/x_c"] = a.X.c.x
-            jld2file["$group/y_c"] = a.X.c.y
-            jld2file["$group/τxx"] = a.τ.xx
-            jld2file["$group/τyy"] = a.τ.yy
-            jld2file["$group/τxy"] = a.τ.xy
-            jld2file["$group/τII"] = a.τ.II
-            jld2file["$group/ε̇II"] = a.ε̇.II
-            jld2file["$group/Pt"] = a.Pt
-            jld2file["$group/Vx"] = a.V.x
-            jld2file["$group/Vy"] = a.V.y
-            jld2file["$group/σ1x"] = σ1.x
-            jld2file["$group/σ1y"] = σ1.y
-            jld2file["$group/phase_ratio"] = a.phase_ratios.c
-            # jld2file["$group/phases"] = a.m.phase # markers
-            jld2file["$group/phases"] = a.phases.c # no markers
-        end
 
         # FIGURE: Fields at final timestep (adapted from plot_grid_fields in Layered_Post_Processing.jl,
         # using the live grid/field arrays already in scope here instead of a loaded `data` Dict)
@@ -299,14 +274,6 @@ end
                 # cm.lines!(ax5, 1:it, Τev.II[1:it])
 
                 # display(fig)
-
-                # Save
-                if save
-                    figdir = joinpath(figpath, @sprintf("fabric%03ddeg", angle_deg))
-                    mkpath(figdir)
-                    figname = @sprintf("LayeredVEVP_res%d_fabric%03ddeg.png", nc.x, angle_deg)
-                    cm.save(joinpath(figdir, figname), fig, px_per_unit=4)
-                end
             end
         end
     end
@@ -343,24 +310,23 @@ let
     # ]
     D_BCs = @SMatrix([1 0; 0 -1])
 
-    nc = (x=50, y=50)
-    nt = 1 # 250
-    # L = [1.0, 2.0, 3., 4., 5.]
-    L = [1.]
+    nc = (x=100, y=100)
+    nt = 50
+    L = 1.0
 
     # Discretise angle of layer 
-    # nθ = 1
-    nθ = 11
+    # nθ = 2
+    nθ = 15
     θ = LinRange(0, π/2, nθ)
     # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
-    τ_II_mean = zeros(length(L), nθ)
-    τ_II_macro = zeros(length(L), nθ)
+    τ_II_mean = zeros(nθ)
+    τ_II_macro = zeros(nθ)
     # τ_cart_anaS = zeros(length(L), nθ)
     # τ_cart_anaE = zeros(length(L), nθ)
-    Τ_time = (II_mean=zeros(length(L), nθ, nt), II_macro=zeros(length(L), nθ, nt), xx=zeros(length(L), nθ, nt), yy=zeros(length(L), nθ, nt), xy=zeros(length(L), nθ, nt))
-    Τ = (II_mean=zeros(length(L), nθ), II_macro=zeros(length(L), nθ), xx=zeros(length(L), nθ), yy=zeros(length(L), nθ), xy=zeros(length(L), nθ))
-    ana = (Τ=zeros(length(L), nθ), Τxx=zeros(length(L), nθ), Τyy=zeros(length(L), nθ))
+    Τ_time = (II_mean=zeros(nθ, nt), II_macro=zeros(nθ, nt), xx=zeros(nθ, nt), yy=zeros(nθ, nt), xy=zeros(nθ, nt))
+    Τ = (II_mean=zeros(nθ), II_macro=zeros(nθ), xx=zeros(nθ), yy=zeros(nθ), xy=zeros(nθ))
+    ana = (Τ=zeros(nθ), Τxx=zeros(nθ), Τyy=zeros(nθ))
 
     #  Composite parameters
     m = 4
@@ -381,18 +347,19 @@ let
     ηn = α1 * η1 + α2 * η2
     δ = (α1 + α2 * m) * (α1 + α2 / m)
 
+    n_range = 1:20
+
     # elasticity
     tmax = 1.0
 
-    # Single output file holding all fabric orientations and timesteps
-    # as nested groups ("fabric045deg/step003/τxx", ...)
-    save && mkpath(figpath)
-    jld2path = joinpath(figpath, @sprintf("fields_res%d.jld2", nc.x))
+    # Single output file holding all power-law exponents, one subgroup per n
+    # (e.g. "n5/τ_II", "n5/τ_xx", ...)
+    jld2path = joinpath(@__DIR__, "Layered_pwl.jld2")
     jld2file = save ? jldopen(jld2path, "w") : nothing
 
     # Run them all
     try
-        for (iL, Lw) in enumerate(L)
+        for n in n_range
             for iθ in 1:nθ
 
                 layering = Layering(
@@ -404,37 +371,60 @@ let
                     perturb_width=1.0
                 )
 
-                println("**Layering $(rad2deg(θ[iθ]))°**")
+                println("**Layering $(rad2deg(θ[iθ]))°, n = $n**")
 
-                Τev, Macro = main(nc, nt, (x=Lw, y=Lw), layering, BCs[1], D_BCs, α1, η1, η2, G1, G2, C1, C2; fabric_angle=θ[iθ], jld2file=jld2file)
+                Τev, Macro = main(nc, nt, (x=L, y=L), layering, BCs[1], D_BCs, α1, η1, η2, G1, G2, C1, C2, n; fabric_angle=θ[iθ])
 
                 # Evolutions of full fields
-                Τ_time.II_mean[iL, iθ, :] .= Τev.II
-                Τ_time.xx[iL, iθ, :] .= Τev.xx
-                Τ_time.yy[iL, iθ, :] .= Τev.yy
-                Τ_time.xy[iL, iθ, :] .= Τev.xy
+                Τ_time.II_mean[iθ, :] .= Τev.II
+                Τ_time.xx[iθ, :] .= Τev.xx
+                Τ_time.yy[iθ, :] .= Τev.yy
+                Τ_time.xy[iθ, :] .= Τev.xy
 
                 # Final timestep macroscopic invariants
-                Τ.xx[iL, iθ] = Macro.Τxx
-                Τ.yy[iL, iθ] = Macro.Τyy
-                Τ.xy[iL, iθ] = Macro.Τxy
-                Τ.II_mean[iL, iθ] = Macro.ΤII_mean
-                Τ.II_macro[iL, iθ] = Macro.ΤII_macro
+                Τ.xx[iθ] = Macro.Τxx
+                Τ.yy[iθ] = Macro.Τyy
+                Τ.xy[iθ] = Macro.Τxy
+                Τ.II_mean[iθ] = Macro.ΤII_mean
+                Τ.II_macro[iθ] = Macro.ΤII_macro
 
-                ana.Τ[iL, iθ], ana.Τxx[iL, iθ], ana.Τyy[iL, iθ] = yieldSurface(θ[iθ], D_BCs, C2, C1, α2, α1)
+                # ana.Τ[iL, iθ], ana.Τxx[iL, iθ], ana.Τyy[iL, iθ] = yieldSurface(θ[iθ], D_BCs, C2, C1, α2, α1)
             end
+
+            if save
+                group = "n$(n)"
+                jld2file["$group/n"] = n
+                jld2file["$group/θ"] = collect(θ)
+                jld2file["$group/τ_II"] = Τ.II_macro
+                jld2file["$group/τ_II_mean"] = Τ.II_mean
+                jld2file["$group/τ_xx"] = Τ.xx
+                jld2file["$group/τ_yy"] = Τ.yy
+                jld2file["$group/τ_xy"] = Τ.xy
+            end
+        end
+
+        if save
+            jld2file["η2"] = η2
+            jld2file["η1"] = η1
+            jld2file["nθ"] = nθ
+            jld2file["m"] = m
+            jld2file["α2"] = α2
+            jld2file["α1"] = α1
+            jld2file["L"] = L
+            jld2file["G2"] = G2
+            jld2file["C2"] = C2
         end
     finally
         jld2file !== nothing && close(jld2file)
     end
 
-    # Anna's stuff
-    old = load(joinpath(@__DIR__, "Layered_pwl.jld2"))
-    θ_old = old["θ"]
-    τxx_old = old["τ_xx"]
-    τxy_old = old["τ_xy"]
-    τII_old = old["τ_II"]
-    τIIb_old = old["τ_IIb"]
+    # # Anna's stuff
+    # old = load(joinpath(@__DIR__, "Layered_pwl.jld2"))
+    # θ_old = old["θ"]
+    # τxx_old = old["τ_xx"]
+    # τxy_old = old["τ_xy"]
+    # τII_old = old["τ_II"]
+    # τIIb_old = old["τ_IIb"]
 
     cm.with_theme(cm.theme_latexfonts()) do
 
@@ -473,7 +463,7 @@ let
 
             cm.Legend(fig2[1, 2], ax2, "quantity", labelsize=14, titlesize=13)
         end
-        display(fig2)
+        # display(fig2)
 
         # # FIGURE 3 -------------------------------------------------------------
         # fig3 = cm.Figure(size=(800, 650), px_per_unit=2)
@@ -485,7 +475,7 @@ let
 
         # FIGURE 4 -------------------------------------------------------------
         fig4 = cm.Figure(size=(800, 650), px_per_unit=2)
-        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model)", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect())
+        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=2", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-15, 15, -6, 6))
         τ_yield = zeros(2, nθ)
         local sc
         for Iθ in eachindex(θ)
@@ -494,7 +484,7 @@ let
             τnn = zeros(nt)
             τnt = zeros(nt)
             for t in 1:nt
-                τ_plot = @SMatrix([Τ_time.xx[1, Iθ, t] Τ_time.xy[1, Iθ, t]; Τ_time.xy[1, Iθ, t] Τ_time.yy[1, Iθ, t]])
+                τ_plot = @SMatrix([Τ_time.xx[Iθ, t] Τ_time.xy[Iθ, t]; Τ_time.xy[Iθ, t] Τ_time.yy[Iθ, t]])
                 τ′_plot = 𝐐_plot * τ_plot * 𝐐_plot'
                 τnn[t] = τ′_plot[1, 1]
                 τnt[t] = τ′_plot[2, 1]
