@@ -9,14 +9,36 @@ Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     cosψ::T = Float64[]
 end
 Base.@kwdef struct DruckerPrager{T} <: AbstractPlasticity
-    C::T = Float64[]
-    ϕ::T = Float64[]
-    ψ::T = Float64[]
-    ηvp::T = Float64[]
+    C::T    = Float64[]
+    ϕ::T    = Float64[]
+    ψ::T    = Float64[]
+    ηvp::T  = Float64[]
     cosϕ::T = Float64[]
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
+end
+
+Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
+    C::T    = Float64[]
+    Pt::T   = Float64[]       # Tensile strength
+    ϕ::T    = Float64[]
+    ψ::T    = Float64[]
+    ηvp::T  = Float64[]
+    cosϕ::T = Float64[]
+    sinϕ::T = Float64[]
+    sinψ::T = Float64[]
+    cosψ::T = Float64[]
+    k ::T   = Float64[]
+    kq::T   = Float64[]
+    c ::T   = Float64[]
+    a ::T   = Float64[]
+    b ::T   = Float64[]
+    py::T   = Float64[]
+    Ry::T   = Float64[]
+    pd::T   = Float64[]
+    τd::T   = Float64[]
+    pq::T   = Float64[]
 end
 
 Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
@@ -126,7 +148,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     Ks::T              = Float64[]
     KΦ::T              = Float64[]
     Kf::T              = Float64[]
-    Φ0::T               = Float64[]
+    Φ0::T              = Float64[]
     m::T               = Float64[]
     n_CK::T            = Float64[]
     k_ηf0::T           = Float64[]
@@ -160,6 +182,28 @@ initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
     sinϕ=zeros(n),
     sinψ=zeros(n),
     cosψ=zeros(n)
+)
+
+initialize(::Type{DruckerPragerCap}, n::Integer) = DruckerPragerCap(
+    C=fill(1e50, n),
+    Pt=zeros(n),
+    ϕ=zeros(n),
+    ψ=zeros(n),
+    ηvp=zeros(n),
+    cosϕ=ones(n),
+    sinϕ=zeros(n),
+    sinψ=zeros(n),
+    cosψ=zeros(n),
+    k =zeros(n),
+    kq=zeros(n),
+    c =zeros(n),
+    a =zeros(n),
+    b =zeros(n),
+    py=zeros(n),
+    Ry=zeros(n),
+    pd=zeros(n),
+    τd=zeros(n),
+    pq=zeros(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
@@ -304,6 +348,23 @@ function preprocess!(dp::DruckerPrager)
     @. dp.sinϕ = sind(dp.ϕ)
     @. dp.sinψ = sind(dp.ψ)
     @. dp.cosψ = cosd(dp.ψ)
+end
+
+function preprocess!(dp::DruckerPragerCap)
+    @. dp.cosϕ = cosd(dp.ϕ)
+    @. dp.sinϕ = sind(dp.ϕ)
+    @. dp.sinψ = sind(dp.ψ)
+    @. dp.cosψ = cosd(dp.ψ)
+    @. dp.k    = dp.sinϕ
+    @. dp.kq   = dp.sinΨ
+    @. dp.c    = dp.C*dp.cosϕ
+    @. dp.a    = sqrt(1.0 + dp.k^2)
+    @. dp.b    = sqrt(1.0 + dp.kq^2)
+    @. dp.py   = (dp.Pt + dp.c/dp.a)/(1-dp.k/dp.a)
+    @. dp.Ry   = dp.py - dp.Pt
+    @. dp.pd   = dp.py - dp.Ry*dp.k/dp.a
+    @. dp.τd   = dp.k*pd + dp.c
+    @. dp.pq   = dp.pd + dp.kq*dp.τd
 end
 
 function preprocess!(dp::DruckerPrager1)

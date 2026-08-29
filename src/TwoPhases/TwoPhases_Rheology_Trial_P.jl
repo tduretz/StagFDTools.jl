@@ -15,12 +15,13 @@ using MuladdMacro
 end
 
 # Corrected VEP
-@inline function PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)  
+@inline function PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)  
     ηΦ      = bulk_viscosity(Φ, ξ0, m)
     dPtdt   = @muladd (Pt - Pt0) / Δt
     dPfdt   = @muladd (Pf - Pf0) / Δt
     P_eff   = Pt - Pf
-    ∂Q∂p    = ForwardDiff.derivative( P_eff -> F(τII, P_eff, 0.0, pl.C, pl.cosϕ, pl.sinψ, λ̇, pl.ηvp), P_eff)
+    ∂Q∂p    = ForwardDiff.derivative( P_eff -> Q(pl, τII, P_eff, 0.0, λ̇, ph), P_eff)
+    # ∂Q∂p    = ForwardDiff.derivative( P_eff -> (τII, P_eff, 0.0, pl.C, pl.cosϕ, pl.sinψ, λ̇, pl.ηvp), P_eff)
     dΦdt    = @muladd ((dPfdt - dPtdt)/KΦ + (Pf - Pt)/ηΦ - λ̇*∂Q∂p)
     return dΦdt, ηΦ
 end
@@ -33,8 +34,8 @@ end
 end
 
 # Corrected VEP
-@inline function PorosityResidual(Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt) 
-    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)[1] 
+@inline function PorosityResidual(Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt) 
+    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1] 
     r    = @muladd Φ - (Φ0  + dΦdt * Δt)  
     return r 
 end
@@ -61,9 +62,9 @@ end
 end
 
 # Corrected VEP
-@inline function Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt) 
+@inline function Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt) 
 
-    dΦdt, ηΦ = PorosityRate(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)
+    dΦdt, ηΦ = PorosityRate(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)
     Φ        = Φ0  + dΦdt * Δt
     if iszero(m)
         return Φ, dΦdt, ηΦ
@@ -71,17 +72,17 @@ end
 
     r0       = one(Φ)  # typed to match Φ so r0 doesn't change type after first iter
     for iter=1:10
-        r, dresdΦ = ad_value_and_derivative(PorosityResidual, Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)
+        r, dresdΦ = ad_value_and_derivative(PorosityResidual, Φ, Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)
         if iter==1 r0 = abs(r) + 1e-10 end
         # @show iter, abs(r), abs(r)/r0
         if min(abs(r), abs(r)/r0 ) < 1e-10 break end
         Φ    -=  r / dresdΦ
     end
-    dΦdt, ηΦ = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)
+    dΦdt, ηΦ = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)
     return Φ, dΦdt, ηΦ 
 end
 
-function ΔP_residual(x, Φ, Pt, Pf, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, λ̇, Δt )
+function ΔP_residual(x, Φ, Pt, Pf, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, ph, λ̇, Δt )
 
     Pt, Pf = x[1], x[2]
 
@@ -92,7 +93,7 @@ function ΔP_residual(x, Φ, Pt, Pf, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, �
     # dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
 
     # Φ, dΦdt = Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ, m, λ̇, sinψ, Δt)  
-    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)[1]  
+    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1]  
     dPsdt = ((Pt - Φ*Pf)/(1-Φ) - (Pt0 - Φ0*Pf0)/(1-Φ0))/Δt
     # dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
     dlnρsdt = 1/Ks * ( dPsdt ) 
@@ -109,14 +110,14 @@ function ΔP_residual(x, Φ, Pt, Pf, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, �
     ]
 end
 
-function ΔP(Pt_trial, Pf_trial, divVs, divqD, Φ, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, λ̇::Tλ, Δt) where Tλ
+function ΔP(Pt_trial, Pf_trial, divVs, divqD, Φ, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, ph, λ̇::Tλ, Δt) where Tλ
 
     x   = @SVector[zero(Tλ), zero(Tλ)]  # typed to match λ̇ so J\R doesn't change x's type
     r0  = one(Tλ)
     tol = 1e-13
 
     for iter=1:10
-        R, J = ad_value_and_jacobian(ΔP_residual, x, Φ, Pt_trial, Pf_trial, 0 * divVs, 0 * divqD, 0 * Pt0, 0 * Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, λ̇, Δt)
+        R, J = ad_value_and_jacobian(ΔP_residual, x, Φ, Pt_trial, Pf_trial, 0 * divVs, 0 * divqD, 0 * Pt0, 0 * Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, ph, λ̇, Δt)
         x  = x .- J \ R
         nr = mynorm(R)
         if iter==1 && nr>1e-17
@@ -131,30 +132,30 @@ function ΔP(Pt_trial, Pf_trial, divVs, divqD, Φ, Pt0, Pf0, Φ0, KΦ, Ks, Kf, �
 end
 
 
-function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Φ_trial, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, single_phase )
+function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Φ_trial, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, single_phase )
      
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
-    C, cosϕ, sinϕ, sinψ, ηvp = pl.C, pl.cosϕ, pl.sinϕ, pl.sinψ, pl.ηvp
 
     α1 = single_phase ? 0.0 : 1.0 
 
-    P_eff = Pt .- Pf
-    ∂Q∂τ  = ForwardDiff.derivative( τII   -> F(τII, P_eff, 0.0, C, cosϕ, sinψ, λ̇, ηvp), τII  )
-    ∂Q∂p  = ForwardDiff.derivative( P_eff -> F(τII, P_eff, 0.0, C, cosϕ, sinψ, λ̇, ηvp), P_eff)
+    Pe = if single_phase
+        Pt
+    else
+         Pt .- Pf
+       
+    end
+
+    ∂Q∂τ  = ForwardDiff.derivative( τII -> F(pl, τII, Pe, 0.0,  λ̇, ph), τII )
 
     # Pressure corrections: closed form
     # ΔPt_1 = KΦ .* sinψ .* Δt .* Φ_trial .* ηΦ .* λ̇ .* (-Kf + Ks) ./ (-Kf .* KΦ .* Δt .* Φ_trial + Kf .* KΦ .* Δt - Kf .* Φ_trial .* ηΦ + Kf .* ηΦ + Ks .* KΦ .* Δt .* Φ_trial + Ks .* Φ_trial .* ηΦ + KΦ .* Φ_trial .* ηΦ)
     # ΔPf   = Kf .* KΦ .* sinψ .* Δt .* ηΦ .* λ̇ ./ (Kf .* KΦ .* Δt .* Φ_trial - Kf .* KΦ .* Δt + Kf .* Φ_trial .* ηΦ - Kf .* ηΦ - Ks .* KΦ .* Δt .* Φ_trial - Ks .* Φ_trial .* ηΦ - KΦ .* Φ_trial .* ηΦ)
     
     # Pressure corrections: numerics (nested AD)
-    ΔPt_1, ΔPf = ΔP(Pt_trial, Pf_trial, divVs, divqD, Φ, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, λ̇, Δt)
+    ΔPt_1, ΔPf = ΔP(Pt_trial, Pf_trial, divVs, divqD, Φ, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, τII, pl, ph, λ̇, Δt)
 
     # Check yield
-    fy = if single_phase
-            τII - C*cosϕ - Pt*sinϕ 
-        else
-            F(τII, P_eff, 0.0, C, cosϕ, sinϕ, λ̇, ηvp)
-        end
+    fy =  F(pl, τII, Pe, 0.0, λ̇, ph)
 
     ΔPt = if single_phase
         Ks .* sinψ .* Δt .* λ̇
@@ -162,7 +163,7 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
             ΔPt_1
         end
     
-    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δt)[1]  
+    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1]  
     fΦ   =  @muladd Φ - (Φ0  + dΦdt * Δt)  
 
     return @SVector [ 
@@ -175,7 +176,7 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
     ]
 end
 
-function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ) where {N, D}
+function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, materials, ph, Δ) where {N, D}
 
     # Effective strain rate & pressure
     ε̇II_eff  = invII(ε̇)
@@ -184,26 +185,28 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
 
     # Parameters
     ϵ    = 1e-10 # tolerance
-    n    = materials.n[phases]
-    m    = materials.m[phases]
-    η0   = materials.η0[phases]
-    G    = materials.G[phases]
-    ξ0   = materials.ξ0[phases]
-    KΦ   = materials.KΦ[phases]
-    Ks   = materials.Ks[phases]
-    Kf   = materials.Kf[phases]
+    n    = materials.n[ph]
+    m    = materials.m[ph]
+    η0   = materials.η0[ph]
+    G    = materials.G[ph]
+    ξ0   = materials.ξ0[ph]
+    KΦ   = materials.KΦ[ph]
+    Ks   = materials.Ks[ph]
+    Kf   = materials.Kf[ph]
 
-    C    = materials.plasticity.C[phases]
-    ηvp  = materials.plasticity.ηvp[phases]
-    sinψ = materials.plasticity.sinψ[phases]    
-    sinϕ = materials.plasticity.sinϕ[phases] 
-    cosϕ = materials.plasticity.cosϕ[phases] 
+    pl   = materials.plasticity
+
+    # C    = materials.plasticity.C[ph]
+    # ηvp  = materials.plasticity.ηvp[ph]
+    # sinψ = materials.plasticity.sinψ[ph]    
+    # sinϕ = materials.plasticity.sinϕ[ph] 
+    # cosϕ = materials.plasticity.cosϕ[ph] 
     
-    pl = (C   =C   ,
-          ηvp =ηvp ,
-          sinψ=sinψ,
-          sinϕ=sinϕ,
-          cosϕ=cosϕ,)
+    # pl = (C   =C   ,
+    #       ηvp =ηvp ,
+    #       sinψ=sinψ,
+    #       sinϕ=sinϕ,
+    #       cosϕ=cosϕ,)
 
     # ηvep, λ̇, Pt, Pf, τII, Φ, f  = 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
     
@@ -230,7 +233,8 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
 
     #############################
 
-    f  = F(τII, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α1)
+    Peff =  Pt - Pf
+    f    = F(pl, τII, Peff, Φ, λ̇, ph)
 
     x = @SVector [τII, Pt, Pf, λ̇, Φ]
     plastic_correction = false
@@ -244,7 +248,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
         plastic_correction = true
         # This is the proper return mapping with plasticity
         for iter=1:10
-            R, J = fd_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Φ,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, materials.single_phase)
+            R, J = fd_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Φ,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, materials.single_phase)
             x   -= J \ R
             nr   = mynorm(R)
             if iter==1 
@@ -265,7 +269,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     dΦdt = if materials.single_phase
         zero(D)
     else
-        PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, λ̇, Δ.t)[1]  
+        PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δ.t)[1]  
     end
 
     # EOS

@@ -477,8 +477,8 @@ import Statistics:mean
             Colorbar(fig[3, 2], hm, label = L"$\Phi$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
 
             ax    = Axis(fig[3,3], aspect=DataAspect(), title=L"$P^e - \tau$", xlabel=L"P^e", ylabel=L"\tau")
-            Pe    = (P.t .- P.f)[inx_c,iny_c].*sc.σ
-            τII   = (τ.II)[inx_c,iny_c].*sc.σ
+            Pe    = (P.t .- P.f)[inx_c,iny_c]
+            τII   = (τ.II)[inx_c,iny_c]
             P_ax       = LinRange(minimum(Pe),  maximum(Pe),  100)
             τ_ax       = LinRange(minimum(τII), maximum(τII), 100)
 
@@ -486,14 +486,16 @@ import Statistics:mean
             τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
             # lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
             yield = zeros(length(P_ax), length(τ_ax))
+            
             for i in eachindex(P_ax), j in eachindex(τ_ax)
-                yield[i,j] = F(τ_ax[j], P_ax[i], 0.0,  materials.plasticity.C[1]*sc.σ,  materials.plasticity.cosϕ[1],  materials.plasticity.sinϕ[1], 0.0, 0.0)  
+                # yield[i,j] = F(τ_ax[j], P_ax[i], 0.0,  materials.plasticity.C[1]*sc.σ,  materials.plasticity.cosϕ[1],  materials.plasticity.sinϕ[1], 0.0, 0.0)  
+                yield[i,j] = F(materials.plasticity, τ_ax[j], P_ax[i], 0.0, 0.0, 1)  
             end
-            contour!(ax, P_ax/1e6, τ_ax/1e6, yield, levels=[0.0], color=:black )
-
-            scatter!(ax, Pe[:]/1e6, τII[:]/1e6, color=:black )
+            contour!(ax, P_ax.*sc.σ/1e6, τ_ax.*sc.σ/1e6, yield, levels=[0.0], color=:black )
+            scatter!(ax, Pe[:].*sc.σ/1e6, τII[:].*sc.σ/1e6, color=:black )
 
             display(fig) 
+
         end
         # function figure()
         #     fig  = Figure(fontsize = 20, size = (900, 600) )    

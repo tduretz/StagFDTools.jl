@@ -1,98 +1,46 @@
+using StaticArrays, LinearAlgebra, ForwardDiff
+
 invII(x) = sqrt(1/2*x[1]^2 + 1/2*x[2]^2 + 1/2*(-x[1]-x[2])^2 + x[3]^2) 
 
-function StrainRateTrial(τII, Pt, Pf, ηve, ηΦ, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, Δt)
+function StrainRateTrial(τII, Pt, Pf, ηve, ηϕ, Kϕ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, Δt)
     ε̇II_trial = τII/2/ηve
     return ε̇II_trial
 end
 
-# F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
+# function F(p::DruckerPrager{Vector{Float64}}, τII, p_eff, ϕ, λ̇, ph) 
+#     c, cosϕ, sinϕ, ηvp = p.C[ph], p.cosϕ[ph], p.sinϕ[ph], p.ηvp[ph] 
+#     return τII - p_eff*sinϕ - c*cosϕ - λ̇*ηvp
+# end
 
-F(τII, Pt, Pf, Φ, c, cosϕ, sinϕ, λ̇, ηvp, α) = τII - (Pt - Pf)*sinϕ - c*cosϕ - λ̇*ηvp
+# function Q(p::DruckerPrager{Vector{Float64}}, τII, p_eff, ϕ, λ̇, ph) 
+#     c, cosψ, sinψ, ηvp = p.C[ph], p.cosψ[ph], p.sinψ[ph], p.ηvp[ph] 
+#     return τII - p_eff*sinψ - c*cosψ - λ̇*ηvp
+# end
 
-F(τII, p_eff, Φ, c, cosϕ, sinϕ, λ̇, ηvp) = τII - p_eff*sinϕ - c*cosϕ - λ̇*ηvp
 
-
-using StaticArrays, Printf, LinearAlgebra, ForwardDiff, CairoMakie
-
-abstract type AbstractRheology end
-
-"""
-    AbstractPlasticity <: AbstractRheology
-
-Supertype for plastic yield or flow-rule elements.
-"""
-abstract type AbstractPlasticity <: AbstractRheology end 
-
-struct DruckerPrager{T} <: AbstractPlasticity
-    C::T
-    ϕ::T        # in degrees for now
-    ψ::T        # in degrees for now
-    η_vp::T     # regularisation viscosity
-
-    # computational parameters (precomputed, to speed up later calculations)
-    sinϕ::T     # Friction angle
-    cosϕ::T     # Friction angle
-    sinΨ::T     # Dilation angle
-    cosΨ::T     # Dilation angle
+function F(p::DruckerPrager{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
+    C, cosϕ, sinϕ, ηvp = p.C[ph], p.cosϕ[ph], p.sinϕ[ph], p.ηvp[ph] 
+    return τII - sinϕ * P - C*cosϕ - λ̇*ηvp
 end
 
-function compute_F(r::DruckerPrager, τII, P, λ̇)
-    C, cosΦ, sinΦ, ηvp = r.C, r.cosΦ, r.sinΦ, r.η_vp 
-    return F = τII - sinΦ * P  - C*cosΦ - λ̇*ηvp
+function Q(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)     
+    return τ - p.sinψ[ph] * P  
 end
 
-function compute_Q(r::DruckerPrager, τ, P)     
-    return τ - r.sinΨ * (P )  
-end
-
-function DruckerPrager(; C=10e6, ϕ=30.0, ψ=0.0, η_vp=1e0) 
-    sinϕ = sind(ϕ) # Friction angle
-    cosϕ = cosd(ϕ) # Friction angle
-    sinΨ = sind(ψ) # Dilation angle
-    cosΨ = cosd(ψ) # Dilation angle
-    return DruckerPrager(C, ϕ, ψ, η_vp, sinϕ, cosϕ, sinΨ, cosΨ)
-end
-
-struct DruckerPragerCap{T} <: AbstractPlasticity
-    C::T
-    ϕ::T        # in degrees for now
-    ψ::T        # in degrees for now
-    η_vp::T     # regularisation viscosity
-    Pt::T       # Tensile strength
-
-    # computational parameters (precomputed, to speed up later calculations)
-    sinϕ::T     # Friction angle
-    cosϕ::T     # Friction angle
-    sinΨ::T     # Dilation angle
-    cosΨ::T     # Dilation angle
-
-    k ::T
-    kq::T
-    c ::T 
-    a ::T
-    b ::T
-    py::T 
-    Ry::T 
-    pd::T 
-    τd::T 
-    pq::T 
-end
-
-function ismode2_yield(v::DruckerPragerCap{_T}, τII::_T1, P::_T2)  where {_T,_T1,_T2}
-    py, τd, pd = v.py, v.τd, v.pd
+function ismode2_yield(v::DruckerPragerCap{Vector{Float64}}, τII::_T1, P::_T2, ph)  where {_T1,_T2}
+    py, τd, pd = v.py[ph], v.τd[ph], v.pd[ph]
     return τII*(py - pd) >= τd*(py - P)
 end
 
-function ismode2_flowpotential(v::DruckerPragerCap{_T}, τII::_T1, P::_T2)  where {_T,_T1,_T2}
-    pq, τd, pd = v.pq, v.τd, v.pd
+function ismode2_flowpotential(v::DruckerPragerCap{Vector{Float64}}, τII::_T1, P::_T2, ph)  where {_T1,_T2}
+    pq, τd, pd = v.pq[ph], v.τd[ph], v.pd[ph]
     return τII*(pq - pd) >= τd*(pq - P)
 end
 
+function F(r::DruckerPragerCap{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
+    k, c, py, a, Ry, ηvp  = r.k[ph], r.c[ph], r.py[ph], r.a[ph], r.Ry[ph], r.ηvp[ph] 
 
-function compute_F(r::DruckerPragerCap, τII, P, λ̇)
-    k, c, py, a, Ry, ηvp  = r.k, r.c, r.py, r.a, r.Ry, r.η_vp 
-
-    if ismode2_yield(r, τII, P)
+    if ismode2_yield(r, τII, P, ph)
         # Mode 2
         F = τII - k * (P)  - c # with fluid pressure (set to zero by default)
     else
@@ -106,44 +54,23 @@ function compute_F(r::DruckerPragerCap, τII, P, λ̇)
     return F - λ̇*ηvp #*(F>-1e-8) 
 end
 
-function compute_Q(r::DruckerPragerCap, τ, P) 
-
+function Q(r::DruckerPragerCap{Vector{Float64}}, τ, P, ϕ, ph) 
     # These parameters are required to compute the constant in the plastic flow
     # potential. Note that this constant does not matter apart when plotting,
     # as we only need derivates of Q in general 
-    Rf      = r.pq - r.Pt
-    sd      = r.c + r.k*r.pd
-    normvRf = sqrt((r.pd - r.pq)^2 + sd^2)/Rf
-    pdf     = (r.pd - r.pq)/normvRf + r.pq
+    Rf      = r.pq[ph] - r.Pt[ph]
+    sd      = r.c[ph] + r.k[ph]*r.pd[ph]
+    normvRf = sqrt((r.pd[ph] - r.pq[ph])^2 + sd^2)/Rf
+    pdf     = (r.pd[ph] - r.pq[ph])/normvRf + r.pq[ph]
     sdf     = sd/normvRf
 
-    if ismode2_flowpotential(r, τ, P) 
-        cons =  sdf - r.kq*pdf 
-        Q    =  τ - r.kq * (P )  - cons
+    if ismode2_flowpotential(r, τ, P, ph) 
+        cons =  sdf - r.kq[ph]*pdf 
+        Q    =  τ - r.kq[ph] * (P )  - cons
     else 
         cons =  Rf 
-        Rq   =  sqrt(τ^2 + (P - r.pq)^2)
-        Q    =  r.b*(Rq - cons)  
+        Rq   =  sqrt(τ^2 + (P - r.pq[ph])^2)
+        Q    =  r.b[ph]*(Rq - cons)  
     end
     return Q
 end 
-
-function DruckerPragerCap(; C=10e6, ϕ=30.0, ψ=0.0, η_vp=1e0, Pt=-1e5) 
-    sinϕ = sind(ϕ) # Friction angle
-    cosϕ = cosd(ϕ) # Friction angle
-    sinΨ = sind(ψ) # Dilation angle
-    cosΨ = cosd(ψ) # Dilation angle
-    k    = sinϕ
-    kq   = sinΨ
-    c    = C*cosϕ
-    a    = sqrt(1.0 + k^2)
-    b    = sqrt(1.0 + kq^2)
-    py   = (Pt + c/a)/(1-k/a)
-    Ry   = py - Pt
-    pd   = py - Ry*k/a
-    τd   = k*pd + c
-    pq   = pd + kq*τd
-    return DruckerPragerCap(C, ϕ, ψ, η_vp, Pt, sinϕ, cosϕ, sinΨ, cosΨ, k, kq, c, a, b, py, Ry, pd, τd, pq)
-end
-
-

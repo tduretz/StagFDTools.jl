@@ -24,7 +24,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
 export initialize_materials, initialize_materials_TwoPhases
 
 # module markers
@@ -118,7 +118,7 @@ export TangentOperator!, Porosity, LocalRheology_P
 include("TwoPhases/TwoPhases_Rheology.jl")
 export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
-export invII, StrainRateTrial, F, compute_Q, compute_F, DruckerPrager, DruckerPragerCap
+export invII, StrainRateTrial, F, Q, compute_Q, compute_F#, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
 export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
 end

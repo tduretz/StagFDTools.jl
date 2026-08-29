@@ -1,6 +1,5 @@
 using ForwardDiff
 
-
 function line(p, K, dt, η_ve, ψ, p1, t1)
     p2 = p1 + K * dt * sind(ψ)  # introduce sinϕ ?
     t2 = t1 - η_ve
