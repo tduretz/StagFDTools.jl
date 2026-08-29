@@ -38,7 +38,7 @@ function ΔP_Trial(x, Pt, Pf, divVs, divqD, λ̇, Pt0, Pf0, Φ0, ηΦ, m, KΦ, K
 
     return @SVector [ 
         dlnρsdt   - dΦdt/(1-Φ),
-        (Φ*dlnρfdt + dΦdt     )/ηΦ,
+        (Φ*dlnρfdt + dΦdt     ),
     ]
 end
 
@@ -89,8 +89,8 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
         end
 
     return @SVector [ 
-        ε̇II_eff   -  τII/(2*ηve) - λ̇/2,
-        # τII - (τII_trial - ηve*λ̇),
+        # ε̇II_eff   -  τII/(2*ηve) - λ̇/2,
+        τII - (τII_trial - ηve*λ̇),
         Pt - (Pt_trial + ΔPt),
         Pf - (Pf_trial + ΔPf),
         f, 
@@ -440,23 +440,25 @@ end
         # OLD STYLE 
 
         # # Trial pressures - not needed with LocalRheology_P2 !!!
-        let
+        # let
             div = @SVector[ε̇kk, divqD]
             x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
             Pt, Pf, Φ = x[1], x[2], x[3]
 
             # Correction
             ε̇vec = @SVector( [ε̇xx_eff; ε̇yy_eff; 0.0; Pt; Pf] )
-            η, λ̇, Pt1, Pf1, τII1, Φ, f = LocalRheology_P(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
+            η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
             τ_vec1, jac1 = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
-            display(jac1)
-        end
+            # @show τ_vec1, Pt1, Pf1
+            # display(jac1)
+        # end
 
-        # NEW STYLE 
-        ε̇vec = @SVector( [ε̇xx_eff; ε̇yy_eff; 0.0; Pt; Pf] )
-        x    = LocalRheology_P2(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
-        τ_vec, jac2 = fd_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
-        
+        # # NEW STYLE 
+        # ε̇vec = @SVector( [ε̇xx_eff; ε̇yy_eff; 0.0; Pt; Pf] )
+        # x    = LocalRheology_P2(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
+        # τ_vec, jac2 = fd_value_and_jacobian(StressVector_P2!, ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
+        # @show  τ_vec, x[3], x[4]
+
         # function Stress(x)
         #     StressVector_P2!(
         #         x, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ
@@ -464,14 +466,14 @@ end
         # end
         # jac_FD1 = ForwardDiff.jacobian(Stress, ε̇vec)
         # jac_FD2 = FiniteDiff.finite_difference_jacobian(Stress, ε̇vec)
-        display(jac2)
+        # display(jac2)
 
         #--------------------------------------------#
 
         # Include plasticity corrections
-        η   = x[1]
-        Pt  = τ_vec[4]
-        Pf  = τ_vec[5]
+        # η   = x[1]
+        # Pt  = τ_vec[4]
+        # Pf  = τ_vec[5]
         τxx = 2 * η * ε̇vec[1]
         τyy = 2 * η * ε̇vec[2]
         τxy = 2 * η * ε̇vec[3]
@@ -482,7 +484,7 @@ end
         probes.Pe[it]   = (Pt .- Pf)*sc.σ
         probes.Pt[it]   = Pt*sc.σ
         probes.Pf[it]   = Pf*sc.σ
-        # probes.τ1[it]   = τII1*sc.σ
+        probes.τ1[it]   = τII*sc.σ
         probes.τ[it]    = τII*sc.σ
         probes.Φ[it]    = Φ
         probes.λ̇[it]    = λ̇/sc.t

@@ -1,17 +1,3 @@
-invII(x) = sqrt(1/2*x[1]^2 + 1/2*x[2]^2 + 1/2*(-x[1]-x[2])^2 + x[3]^2) 
-
-function StrainRateTrial(τII, Pt, Pf, ηve, ηΦ, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, Δt)
-    ε̇II_trial = τII/2/ηve
-    return ε̇II_trial
-end
-
-# F(τ, Pt, Pf, Φ, C, cosϕ, sinϕ, λ̇, ηvp, α) = τ - (1-Φ)*C*cosϕ - (Pt - α*Pf)*sinϕ  - λ̇*ηvp 
-
-F(τII, Pt, Pf, Φ, c, cosϕ, sinϕ, λ̇, ηvp, α) = τII - (Pt - Pf)*sinϕ - c*cosϕ - λ̇*ηvp
-
-F(τII, p_eff, Φ, c, cosϕ, sinϕ, λ̇, ηvp) = τII - p_eff*sinϕ - c*cosϕ - λ̇*ηvp
-
-
 using StaticArrays, Printf, LinearAlgebra, ForwardDiff, CairoMakie
 
 abstract type AbstractRheology end
@@ -146,4 +132,121 @@ function DruckerPragerCap(; C=10e6, ϕ=30.0, ψ=0.0, η_vp=1e0, Pt=-1e5)
     return DruckerPragerCap(C, ϕ, ψ, η_vp, Pt, sinϕ, cosϕ, sinΨ, cosΨ, k, kq, c, a, b, py, Ry, pd, τd, pq)
 end
 
+function residual(x, ε̇II_eff, τII_trial, rheo, ηve, K, Pt_trial, Δt)
+    τII, Pt, λ̇ = x[1], x[2], x[3]
 
+    ∂Q∂p = ForwardDiff.derivative( x -> compute_Q(rheo,   x, Pt),  Pt )
+    ∂Q∂τ = ForwardDiff.derivative( x -> compute_Q(rheo, τII,  x), τII )
+    f    = compute_F(rheo, τII, Pt, λ̇)
+    ΔPt  = -K*Δt*∂Q∂p*λ̇
+
+    # r_τ = ε̇II_eff - τII/(2*ηve) - λ̇*∂Q∂τ/2
+    r_τ = τII - (τII_trial - ηve*λ̇*∂Q∂τ)
+    r_P = Pt - (Pt_trial + ΔPt)
+    r_λ = (f>=0)*f + (f<0)*λ̇
+    return @SVector [r_τ, r_P, r_λ]
+end
+
+function main(; nt=10)
+
+    sc = (σ=1e7, t=1e10, L=1e3)
+    ky = 1e3*365*24*3600
+
+    # Time steps
+    Δt     = 1e10/sc.t 
+
+    Pt      = 1e6/sc.σ
+    ε̇       = 2e-15.*sc.t
+
+    # Velocity gradient matrix
+    D_BC = @SMatrix( [ε̇ 0; 0 -0.9*ε̇] )
+    divV = tr(D_BC)
+    ε̇kk  = 0.0
+ 
+    rheo = DruckerPragerCap(C=10e6/sc.σ, ϕ=30.0, ψ=0.0, η_vp=0e20/sc.σ/sc.t, Pt=-1e5/sc.σ)
+    G    = 3e10/sc.σ
+    K    = 8e10/sc.σ
+    η    = 1e24/sc.σ/sc.t
+    ηve  = inv(1/η + 1/G)  
+
+    P    = 1e6/sc.σ
+    τ    = [0.0, 0.0, 0.0]
+
+    probes = (
+        Pe  = zeros(nt),
+        Pt  = zeros(nt),
+        Pf  = zeros(nt),
+        τ1  = zeros(nt),
+        τ   = zeros(nt),
+        Φ   = zeros(nt),
+        λ̇   = zeros(nt),
+        t   = zeros(nt),
+        τII = zeros(nt),
+    )
+
+    τII, λ̇ = 0.0, 0.0
+    Pt     = 0.0
+    τxx, τyy, τxy =  0.0, 0.0, 0.0
+    ΔPt = 0.0
+    Δ   = (t=Δt,)
+
+    for it=1:nt
+
+        @printf("\nStep %04d\n", it)
+
+        τxx0 = τxx
+        τyy0 = τyy
+        τxy0 = τxy
+        P0   = P
+
+        # Trial deviatoric stress
+        ε̇xx_eff =( ε̇ -1/3*divV) + τxx0/(2*G*Δt)
+        ε̇yy_eff =(-ε̇ -1/3*divV) + τyy0/(2*G*Δt)
+        ε̇xy_eff =-0*ε̇ + τxy0/(2*G*Δt)
+
+        τxx = 2*ηve*ε̇xx_eff
+        τyy = 2*ηve*ε̇yy_eff
+        τxy = 2*ηve*ε̇xy_eff
+        P   = P0 - K*Δt*divV
+        τII = sqrt(0.5*(τxx^2 + τyy^2 + τxy^2 + τxy^2))
+        ε̇II_eff = sqrt(0.5*(ε̇xx_eff^2 + ε̇yy_eff^2 + ε̇xy_eff^2 + ε̇xy_eff^2)) 
+
+        x = @SVector [τII, P, 0.0]
+        
+        r = residual(x, ε̇II_eff, τII, rheo, ηve, K, P, Δt)
+        if norm(r)>1e-13
+            for iter=1:50
+                r = residual(x, ε̇II_eff, τII, rheo, ηve, K, P, Δt)
+                J = ForwardDiff.jacobian(x -> residual(x, ε̇II_eff, τII, rheo, ηve, K, P, Δt), x )
+                x -= J\r 
+                @show r
+            end
+        end
+
+        probes.τ[it]  = x[1]
+        probes.Pt[it] = x[2]
+
+        τ_ax = LinRange( 0.0/sc.σ, 4e7/sc.σ, 200)
+        P_ax = LinRange(-5e6/sc.σ, 4e7/sc.σ, 100)
+        F    = zeros(length(τ_ax), length(P_ax))
+        for j in eachindex(P_ax), i in eachindex(τ_ax)
+            F[i,j] = compute_F(rheo, τ_ax[i], P_ax[j], 0.0)
+        end
+
+        fig = Figure()
+        ax = Axis(fig[1,1], aspect=DataAspect())
+        contour!(ax, P_ax*sc.σ, τ_ax*sc.σ, F'; levels= [0.0])
+        scatter!(ax, probes.Pt*sc.σ, probes.τ*sc.σ,)
+
+        display(fig)
+
+        @show probes.Pt*sc.σ
+        @show probes.τ*sc.σ
+
+    end
+
+    
+
+end
+
+main()

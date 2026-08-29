@@ -1,7 +1,8 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-function residual_two_phase_P2(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Φ_trial, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, single_phase )
+function residual_two_phase_P2(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Φ_trial, Pt0, Pf0, Φ0, ηΦ, m, KΦ, Ks, Kf, pl, single_phase )
+    C, cosϕ, sinϕ, sinψ, ηvp = pl.C, pl.cosϕ, pl.sinϕ, pl.sinψ, pl.ηvp
      
     τII, ΔPt, ΔPf, λ̇ = x[1], x[2], x[3], (x[4])
     α1 = single_phase ? 0.0 : 1.0 
@@ -30,7 +31,7 @@ function residual_two_phase_P2(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, P
     dlnρfdt = dPfdt / Kf
     # dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
 
-    Φ, dΦdt = Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ, m, λ̇, sinψ, Δt)  
+    Φ, dΦdt = Porosity(Φ0, Pt, Pf, τII, pl, Pt0, Pf0, KΦ, ηΦ, m, λ̇, Δt)  
     # dPsdt = ((Pt - Φ*Pf)/(1-Φ) - (Pt0 - Φ0*Pf0)/(1-Φ0))/Δt
     dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
     dlnρsdt = 1/Ks * ( dPsdt ) 
@@ -76,6 +77,12 @@ function LocalRheology_P2(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mate
     sinϕ = materials.plasticity.sinϕ[phases] 
     cosϕ = materials.plasticity.cosϕ[phases]  
 
+    pl = (C   =C   ,
+    ηvp =ηvp ,
+    sinψ=sinψ,
+    sinϕ=sinϕ,
+    cosϕ=cosϕ,)
+
     # ηvep, λ̇, Pt, Pf, τII, Φ, f  = 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0
     
     α1 = materials.single_phase ? zero(D) : one(D)
@@ -93,7 +100,7 @@ function LocalRheology_P2(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mate
         # Φ = (KΦ * Δ.t * (Pf - Pt) + KΦ * Φ0 * ηΦ0 + ηΦ0 * (Pf - Pf0 - Pt + Pt0)) / (KΦ * ηΦ0)
     
         # Trial porosity: numerics (nested AD)
-        Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ0, m, 0.0, sinψ, Δ.t)[1]
+        Porosity(Φ0, Pt, Pf, τII, pl, Pt0, Pf0, KΦ, ηΦ0, m, 0.0, Δ.t)[1]
     end
 
     # Check yield
@@ -120,7 +127,7 @@ function LocalRheology_P2(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mate
         plastic_correction = true
         # This is the proper return mapping with plasticity
         for iter=1:10
-            R, J = fd_value_and_jacobian(residual_two_phase_P2, x, ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Φ,       Pt0, Pf0, Φ0, ηΦ0, m, KΦ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, materials.single_phase)
+            R, J = fd_value_and_jacobian(residual_two_phase_P2, x, ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Φ,       Pt0, Pf0, Φ0, ηΦ0, m, KΦ, Ks, Kf, pl, materials.single_phase)
             x   -= J \ R
             nr   = norm(R)
             if iter==1 
@@ -143,13 +150,13 @@ function LocalRheology_P2(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mate
     Φ = if materials.single_phase
         zero(D)
     else
-        Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ0, m, λ̇, sinψ, Δ.t)[1]
+        Porosity(Φ0, Pt, Pf, τII, pl, Pt0, Pf0, KΦ, ηΦ0, m, λ̇, Δ.t)[1]
     end
 
     dΦdt = if materials.single_phase
         zero(D)
     else
-        Porosity(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ηΦ0, m, λ̇, sinψ, Δ.t)[2]
+        Porosity(Φ0, Pt, Pf, τII, pl, Pt0, Pf0, KΦ, ηΦ0, m, λ̇, Δ.t)[2]
     end
 
     # Φ, dΦdt = if materials.linearizeΦ ||  materials.single_phase

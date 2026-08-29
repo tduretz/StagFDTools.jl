@@ -119,8 +119,8 @@ import Statistics:mean
     pattern = Fields(
         Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),                 @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]), @SMatrix([1 1 1;  1 1 1]),        @SMatrix([1 1 1;  1 1 1])), 
         Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),  @SMatrix([1 1 1; 1 1 1; 1 1 1]),                @SMatrix([1 1; 1 1; 1 1]),        @SMatrix([1 1; 1 1; 1 1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                       @SMatrix([1]),                   @SMatrix([1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                       @SMatrix([1]),                   @SMatrix([1 1 1; 1 1 1; 1 1 1])),
+        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1]),                   @SMatrix([1])),
+        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1]),                   @SMatrix([1 1 1; 1 1 1; 1 1 1])),
     )
 
     # Sparse matrix assembly
@@ -428,8 +428,8 @@ import Statistics:mean
             eps  = 1e-10
 
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
-            # field = λ̇.v[inx_v,iny_v] ./ sc.t
-            field = R.x[inx_v,iny_v] ./ sc.t
+            field = λ̇.v[inx_v,iny_v] ./ sc.t
+            # field = R.x[inx_v,iny_v] ./ sc.t
 
             hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
@@ -479,10 +479,18 @@ import Statistics:mean
             ax    = Axis(fig[3,3], aspect=DataAspect(), title=L"$P^e - \tau$", xlabel=L"P^e", ylabel=L"\tau")
             Pe    = (P.t .- P.f)[inx_c,iny_c].*sc.σ
             τII   = (τ.II)[inx_c,iny_c].*sc.σ
-            # P_ax       = LinRange(minimum(Pe), maximum(Pe), 100)
-            P_ax       = LinRange(0, 2*mean(Pe), 100)
+            P_ax       = LinRange(minimum(Pe),  maximum(Pe),  100)
+            τ_ax       = LinRange(minimum(τII), maximum(τII), 100)
+
+            # P_ax       = LinRange(0, 2*mean(Pe), 100)
             τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
-            lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
+            # lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
+            yield = zeros(length(P_ax), length(τ_ax))
+            for i in eachindex(P_ax), j in eachindex(τ_ax)
+                yield[i,j] = F(τ_ax[j], P_ax[i], 0.0,  materials.plasticity.C[1]*sc.σ,  materials.plasticity.cosϕ[1],  materials.plasticity.sinϕ[1], 0.0, 0.0)  
+            end
+            contour!(ax, P_ax/1e6, τ_ax/1e6, yield, levels=[0.0], color=:black )
+
             scatter!(ax, Pe[:]/1e6, τII[:]/1e6, color=:black )
 
             display(fig) 
@@ -611,8 +619,8 @@ function Run()
     n_nx = 1
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 9#40*n_nt
-    main(nc, nt, n_nt; ηvp=1e20);
+    nt   = 40*n_nt
+    main(nc, nt, n_nt; ηvp=1e19); #1e20
     
 end
 

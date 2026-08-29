@@ -118,7 +118,7 @@ export TangentOperator!, Porosity, LocalRheology_P
 include("TwoPhases/TwoPhases_Rheology.jl")
 export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
-export invII, StrainRateTrial, F
+export invII, StrainRateTrial, F, compute_Q, compute_F, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
 export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
 end

@@ -207,7 +207,7 @@ end
     # if materials.linearizeΦ == true
     #     Φ         = @. Φ0 
     # else 
-        Φ         = SVector{2}( Porosity(Φ0[ii], Ptc[ii], Pfc[ii], Ptc0[ii], Pfc0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δ.t)[1] for ii in eachindex(Φ0))
+        Φ         = SVector{2}( Porosity(Φ0[ii], Ptc[ii], Pfc[ii], Ptc0[ii], Pfc0[ii], KΦ[ii], ξ0[ii], m[ii], Δ.t)[1] for ii in eachindex(Φ0))
     # end
 
     # Density
@@ -287,8 +287,8 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
         Φ, dΦdt 
     end
@@ -371,8 +371,8 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], 0., 0., Δt)[2] for ii in eachindex(Φ0) )
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
         Φ, dΦdt 
     end
@@ -440,7 +440,7 @@ end
     quote
        Base.@nexprs $N i -> begin
             @inline 
-            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], 0., 0., Δt)
+            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], Δt)
             Φ_i = out[1]
             dΦdt_i = out[2]
        end
@@ -454,7 +454,7 @@ end
     quote
        Base.@nexprs $N i -> begin
             @inline 
-            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], λ̇[i], sinψ[i], Δt)
+            # out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], λ̇[i], sinψ[i], Δt)
             Φ_i = out[1]
             dΦdt_i = out[2]
        end
