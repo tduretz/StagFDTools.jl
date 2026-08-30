@@ -356,14 +356,14 @@ function preprocess!(dp::DruckerPragerCap)
     @. dp.sinψ = sind(dp.ψ)
     @. dp.cosψ = cosd(dp.ψ)
     @. dp.k    = dp.sinϕ
-    @. dp.kq   = dp.sinΨ
+    @. dp.kq   = dp.sinψ
     @. dp.c    = dp.C*dp.cosϕ
     @. dp.a    = sqrt(1.0 + dp.k^2)
     @. dp.b    = sqrt(1.0 + dp.kq^2)
     @. dp.py   = (dp.Pt + dp.c/dp.a)/(1-dp.k/dp.a)
     @. dp.Ry   = dp.py - dp.Pt
     @. dp.pd   = dp.py - dp.Ry*dp.k/dp.a
-    @. dp.τd   = dp.k*pd + dp.c
+    @. dp.τd   = dp.k*dp.pd + dp.c
     @. dp.pq   = dp.pd + dp.kq*dp.τd
 end
 

@@ -226,7 +226,7 @@ function main(; nt=10)
         probes.τ[it]  = x[1]
         probes.Pt[it] = x[2]
 
-        τ_ax = LinRange( 0.0/sc.σ, 4e7/sc.σ, 200)
+        τ_ax = LinRange( 0.0/sc.σ, 4e7/sc.σ, 100)
         P_ax = LinRange(-5e6/sc.σ, 4e7/sc.σ, 100)
         F    = zeros(length(τ_ax), length(P_ax))
         for j in eachindex(P_ax), i in eachindex(τ_ax)
@@ -235,8 +235,8 @@ function main(; nt=10)
 
         fig = Figure()
         ax = Axis(fig[1,1], aspect=DataAspect())
-        contour!(ax, P_ax*sc.σ, τ_ax*sc.σ, F'; levels= [0.0])
-        scatter!(ax, probes.Pt*sc.σ, probes.τ*sc.σ,)
+        contour!(ax, P_ax*sc.σ./1e6, τ_ax*sc.σ./1e6, F'; levels= [0.0])
+        scatter!(ax, probes.Pt*sc.σ./1e6, probes.τ*sc.σ./1e6,)
 
         display(fig)
 

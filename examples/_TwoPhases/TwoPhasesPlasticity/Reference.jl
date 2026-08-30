@@ -2,7 +2,7 @@ using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebr
 import Statistics:mean
 
 @views function main(nc, nt, n_nt; 
-    homo=false, niter=100, Φini=5e-2, ηvp=0.0)
+    homo=false, niter=10, Φini=5e-2, ηvp=0.0)
 
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
@@ -14,7 +14,7 @@ import Statistics:mean
     solver      = :GCR
     GCR_restart = 25
     GCR_maxit   = 100
-    ϵ_l         = 1e-8
+    ϵ_l         = 1e-11
     Pic2Newt    = 1.8#0.1   # more than 1.0 - always Newton
 
     # Non-linear solver
@@ -44,7 +44,7 @@ import Statistics:mean
         linearizeΦ   = false, 
         single_phase = false,
         conservative = false,
-        plasticity   = DruckerPrager,
+        plasticity   = DruckerPragerCap,
     )
 
     materials.n     .= [  1.0,    1.0 ]
@@ -63,6 +63,8 @@ import Statistics:mean
     materials.plasticity.ψ   .= [ 10.,     10. ] .* 0
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
+    materials.plasticity.Pt  .= [ -1e5,     -1e5 ]./sc.σ 
+
     preprocess!(materials)
 
     Φ0      = Φini
@@ -279,15 +281,15 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
 
 
             end
             @timeit to "Residual" begin
-                @time ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                @time ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                @time ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-                @time ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+                ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+                ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
             end
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
@@ -317,20 +319,20 @@ import Statistics:mean
                 # Assemble global Jacobian
                 @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
-                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M, M_PC_threads)
                 end
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
-                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M_PC, M_PC_threads)
                 end
@@ -429,7 +431,7 @@ import Statistics:mean
 
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
             field = λ̇.v[inx_v,iny_v] ./ sc.t
-            # field = R.x[inx_v,iny_v] ./ sc.t
+            # field = R.x[inx_v,iny_v] * (sc.σ/sc.L)
 
             hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
@@ -479,16 +481,17 @@ import Statistics:mean
             ax    = Axis(fig[3,3], aspect=DataAspect(), title=L"$P^e - \tau$", xlabel=L"P^e", ylabel=L"\tau")
             Pe    = (P.t .- P.f)[inx_c,iny_c]
             τII   = (τ.II)[inx_c,iny_c]
-            P_ax       = LinRange(minimum(Pe),  maximum(Pe),  100)
-            τ_ax       = LinRange(minimum(τII), maximum(τII), 100)
+            Pe_ax    = [-1e6, 1e7]./sc.σ
+            τII_ax   = [0 1.5e7]./sc.σ
+            P_ax       = LinRange(minimum(Pe_ax),  maximum(Pe_ax),  300)
+            τ_ax       = LinRange(minimum(τII_ax), maximum(τII_ax), 300)
 
             # P_ax       = LinRange(0, 2*mean(Pe), 100)
             τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
             # lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
             yield = zeros(length(P_ax), length(τ_ax))
-            
+    
             for i in eachindex(P_ax), j in eachindex(τ_ax)
-                # yield[i,j] = F(τ_ax[j], P_ax[i], 0.0,  materials.plasticity.C[1]*sc.σ,  materials.plasticity.cosϕ[1],  materials.plasticity.sinϕ[1], 0.0, 0.0)  
                 yield[i,j] = F(materials.plasticity, τ_ax[j], P_ax[i], 0.0, 0.0, 1)  
             end
             contour!(ax, P_ax.*sc.σ/1e6, τ_ax.*sc.σ/1e6, yield, levels=[0.0], color=:black )
@@ -583,14 +586,14 @@ import Statistics:mean
     #--------------------------------------------#
 
     display(to)
-    homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix2.jld2", "probes", probes)
+    # homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix2.jld2", "probes", probes)
 
     return 
 end
 
 function Run()
 
-    # # Homogeneous test
+    # Homogeneous test
     # n_nx = 1
     # n_nt = 1
     # nc   = (x=n_nx*50, y=n_nx*25)

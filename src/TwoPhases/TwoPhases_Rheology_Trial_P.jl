@@ -254,6 +254,9 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
             if iter==1 
                 nr0 = nr
             end
+            if iter==10
+                error("Local iteration failed")
+            end
             nr/nr0 < tol && break
         end
     end

@@ -54,7 +54,7 @@ function F(r::DruckerPragerCap{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
     return F - λ̇*ηvp #*(F>-1e-8) 
 end
 
-function Q(r::DruckerPragerCap{Vector{Float64}}, τ, P, ϕ, ph) 
+function Q(r::DruckerPragerCap{Vector{Float64}}, τ, P, ϕ, λ̇, ph) 
     # These parameters are required to compute the constant in the plastic flow
     # potential. Note that this constant does not matter apart when plotting,
     # as we only need derivates of Q in general 

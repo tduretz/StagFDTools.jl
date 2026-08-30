@@ -273,7 +273,7 @@ function Run()
     n_nx = 1
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 8 #8#40*n_nt
+    nt   = 9 #8#40*n_nt
     main(nc, nt, n_nt, homo=true, niter=2)
 end
 
