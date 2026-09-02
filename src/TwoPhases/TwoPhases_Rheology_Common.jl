@@ -23,8 +23,17 @@ function F(p::DruckerPrager{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
     return τII - sinϕ * P - C*cosϕ - λ̇*ηvp
 end
 
-function Q(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)     
-    return τ - p.sinψ[ph] * P  
+function Q(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)   
+    C, cosψ, sinψ, ηvp = p.C[ph], p.cosψ[ph], p.sinψ[ph], p.ηvp[ph]   
+    return τ - sinψ * P - C*cosψ  
+end
+
+function F(p::Tensile{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
+    return τII - P - λ̇*p.ηvp[ph] + p.Pt[ph]
+end
+
+function Q(p::Tensile{Vector{Float64}}, τ, P, ϕ, λ̇, ph)     
+    return τ - P + p.Pt[ph]
 end
 
 function ismode2_yield(v::DruckerPragerCap{Vector{Float64}}, τII::_T1, P::_T2, ph)  where {_T1,_T2}
@@ -74,3 +83,42 @@ function Q(r::DruckerPragerCap{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     end
     return Q
 end 
+
+
+@inline Af(p, pc, pt, γ) = (pc - pt) / (2 * π) * (2 * atan(γ * (pc + pt - 2p) / (2 * pc)) + π)
+@inline Bf(p, pc, pt, M, C, α) = M * C * exp(α * (p - C) / (pc - pt))
+@inline Cf(pc, pt, γ) = (pc - pt) / π * atan(γ / 2) + (pc + pt) / 2
+
+yield_Golchin(τ, P, A, B, C, β, λ̇, ηvp) = B * (P - λ̇ * ηvp - C)^2 / A + A * (τ - λ̇ * ηvp - β * (P - λ̇ * ηvp))^2 / B - A * B
+
+function F(r::Golchin2021{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
+    M, N, Pt, Pc, α, β, γ, ηvp  = r.M[ph], r.N[ph], r.Pt[ph], r.Pc[ph], r.a[ph], r.b[ph], r.c[ph], r.ηvp[ph] 
+    C = Cf(Pc, Pt, γ)
+    B = Bf(P, Pc, Pt, M, C, α)
+    A = Af(P, Pc, Pt, γ)
+    F = yield_Golchin(τ, P, A, B, C, β, λ̇, 0 * ηvp)
+    return F - λ̇ * ηvp
+end
+
+function Q(r::Golchin2021{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
+    M, N, Pt, Pc, α, β, γ, ηvp  = r.M[ph], r.N[ph], r.Pt[ph], r.Pc[ph], r.a[ph], r.b[ph], r.c[ph], r.ηvp[ph] 
+    C = Cf(Pc, Pt, γ)
+    B = Bf(P, Pc, Pt, N, C, α)
+    A = Af(P, Pc, Pt, γ)
+    Q = yield_Golchin(τ, P, A, B, C, β, λ̇, 0 * ηvp)
+    return Q
+end
+
+yield_Hyperbolic(τ, P, C, cosΨ, sinΨ, σT) = sqrt(τ^2 + (C * cosΨ - σT * sinΨ)^2) - (P * sinΨ + C * cosΨ)
+
+function F(r::DruckerHyperbolic{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
+    C, cosϕ, sinϕ, σT, ηvp = r.C[ph], r.cosϕ[ph], r.sinϕ[ph], -r.Pt[ph], r.ηvp[ph]
+    F = yield_Hyperbolic(τ, P, C, cosϕ, sinϕ, σT)
+    return (F - λ̇ * ηvp) 
+end
+
+function Q(r::DruckerHyperbolic{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
+    C, cosψ, sinψ, σT = r.C[ph], r.cosψ[ph], r.sinψ[ph], -r.Pt[ph]
+    Q = yield_Hyperbolic(τ, P, C, cosψ, sinψ, σT)
+    return Q
+end

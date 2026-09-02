@@ -51,7 +51,7 @@ end
     materials.G   .= [1e10,  1e9]  ./ sc.σ
     materials.β   .= [1e-11, 1e-10] .* sc.σ
     materials.plasticity.C   .= [10e6,  10e6]  ./ sc.σ
-    materials.plasticity.σT  .= [5e6,   5.0e6] ./ sc.σ
+    materials.plasticity.Pt  .= [-5e6, -5.0e6] ./ sc.σ
     materials.plasticity.ϕ   .= [35.,   35.]
     materials.plasticity.ψ   .= [10.0,  10.0]
     materials.plasticity.ηvp .= [1e14,  1e14] .* 1e-4 ./ sc.σ ./ sc.t

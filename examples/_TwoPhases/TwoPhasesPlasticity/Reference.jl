@@ -1,14 +1,14 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-@views function main(nc, nt, n_nt; 
-    homo=false, niter=10, Φini=5e-2, ηvp=0.0)
+@views function main(D_BC, nc, nt, n_nt; 
+    homo=false, niter=20, Φini=5e-2, ηvp=0.0)
 
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
     visualization = true
-    free_clims    = false
+    free_clims    = true
 
     # Linear solver
     solver      = :GCR
@@ -27,11 +27,13 @@ import Statistics:mean
     rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
     Pf_ini  = 1e6/sc.σ
+    # Pt_ini  = 50e6/sc.σ
+    # Pf_ini  = 5e6/sc.σ
     ε̇       = 2e-15.*sc.t
     τ_ini   = 0*(sind(35)*(Pt_ini-Pf_ini) + 0*1e7/sc.σ*cosd(35))  
 
     # Velocity gradient matrix
-    D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
+    D_BC = D_BC .* ε̇ 
 
     τxx_ini = τ_ini*D_BC[1,1]/ε̇
     τyy_ini = τ_ini*D_BC[2,2]/ε̇
@@ -44,7 +46,11 @@ import Statistics:mean
         linearizeΦ   = false, 
         single_phase = false,
         conservative = false,
-        plasticity   = DruckerPragerCap,
+        # plasticity   = DruckerHyperbolic,
+        # plasticity   = Tensile,
+        # plasticity   = DruckerPrager,
+        # plasticity   = DruckerPragerCap,
+        plasticity   = Golchin2021,
     )
 
     materials.n     .= [  1.0,    1.0 ]
@@ -60,10 +66,14 @@ import Statistics:mean
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
-    materials.plasticity.ψ   .= [ 10.,     10. ] .* 0
+    materials.plasticity.ψ   .= [ 10.,     10. ] 
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
-    materials.plasticity.Pt  .= [ -1e5,     -1e5 ]./sc.σ 
+    materials.plasticity.Pt  .= [ -1e6,     -1e6 ]./sc.σ 
+    materials.plasticity.Pc  .= [5e7,      5e7]   ./ sc.σ
+    materials.plasticity.a   .= [0.8,      0.8]
+    materials.plasticity.b   .= [0.0,      0.0]
+    materials.plasticity.c   .= [0.8,      0.8]
 
     preprocess!(materials)
 
@@ -393,14 +403,21 @@ import Statistics:mean
     #     # #     Φ.c[i] = Φ0.c[i] + dΦdt*Δ.t
     #     # # end
 
-    #     # Vxsc = 0.5*(V.x[1:end-1,2:end-1] + V.x[2:end,2:end-1])[2:end-1,2:end-1]
-    #     # Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])[2:end-1,2:end-1]
-    #     # Vs   = sqrt.( Vxsc.^2 .+ Vysc.^2)
-    #     # Vxf  = -materials.k_ηf0[1]*diff(P.f, dims=1)/Δ.x
-    #     # Vyf  = -materials.k_ηf0[1]*diff(P.f, dims=2)/Δ.y
-    #     # Vyfc = 0.5*(Vyf[1:end-1,:] .+ Vyf[2:end,:])
-    #     # Vxfc = 0.5*(Vxf[:,1:end-1] .+ Vxf[:,2:end])
-    #     # Vf   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+        k_ηΦ_x = materials.k_ηf0[1] .* ((Φ.c[2:end,:] .+ Φ.c[1:end-1,:]) / 2).^ materials.n_CK[1]
+        k_ηΦ_y = materials.k_ηf0[1] .* ((Φ.c[:,2:end] .+ Φ.c[:,1:end-1]) / 2).^ materials.n_CK[1]
+
+        Vxsc = 0.5*(V.x[1:end-1,2:end-1] + V.x[2:end,2:end-1])
+        Vysc = 0.5*(V.y[2:end-1,1:end-1] + V.y[2:end-1,2:end])
+        Vs   = (x=Vxsc, y=Vysc )
+        Vs_mag   = sqrt.( Vxsc.^2 .+ Vysc.^2)
+        Vxf  = -k_ηΦ_x .* diff(P.f, dims=1)/Δ.x
+        Vyf  = -k_ηΦ_y .* diff(P.f, dims=2)/Δ.y
+        Vxfc = 0.5*(Vxf[1:end-1,2:end-1] .+ Vxf[2:end,2:end-1])
+        Vyfc = 0.5*(Vyf[2:end-1,1:end-1] .+ Vyf[2:end-1,2:end])
+        Vf   = (x=Vxfc, y=Vyfc )
+        Vf_mag   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+
+        dΦdt = (Φ.c .- Φ0.c) / Δ.t
 
         #--------------------------------------------#
         probes.Pe[it]   = mean(P.t[inx_c,iny_c] .- P.f[inx_c,iny_c])*sc.σ
@@ -428,12 +445,15 @@ import Statistics:mean
             step = 10
             ftsz = 15
             eps  = 1e-10
-
+            st  = 5
+            ind_x = st:st:size(X.c.x[2:end-1],1)-st
+            ind_y = st:st:size(X.c.y[2:end-1],1)-st
+    
             ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\dot{\lambda}$ [1/s]", xlabel=L"x", ylabel=L"y")
-            field = λ̇.v[inx_v,iny_v] ./ sc.t
+            field = λ̇.c[inx_c,iny_c] ./ sc.t
             # field = R.x[inx_v,iny_v] * (sc.σ/sc.L)
 
-            hm    = heatmap!(ax, X.v.x, X.v.y, field, colormap=:vik)
+            hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik)
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[1, 2], hm, label = L"$\dot{\lambda}$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
@@ -452,6 +472,7 @@ import Statistics:mean
             contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[1, 4], hm, label = L"$\bar{P}$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
+            arrows2d!(ax, X.c.x[ind_x], X.c.y[ind_y], Vs.x[ind_x,ind_y], Vs.y[ind_x,ind_y], lengthscale = 1e4, color = :white)
 
             ax    = Axis(fig[2,1], aspect=DataAspect(), title=L"$P^f$ [MPa]", xlabel=L"x", ylabel=L"y")
             field = (P.f)[inx_c,iny_c].*sc.σ./1e6
@@ -460,6 +481,7 @@ import Statistics:mean
             contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[2, 2], hm, label = L"$P^f$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
+            arrows2d!(ax, X.c.x[ind_x], X.c.y[ind_y], Vf.x[ind_x,ind_y], Vf.y[ind_x,ind_y], lengthscale = 1e6, color = :white)
 
             ax  = Axis(fig[2,3], xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error")
             scatter!(ax, 1:niter, log10.(err.x[1:niter]./err.x[1]), label="Vx" )
@@ -497,7 +519,11 @@ import Statistics:mean
             contour!(ax, P_ax.*sc.σ/1e6, τ_ax.*sc.σ/1e6, yield, levels=[0.0], color=:black )
             scatter!(ax, Pe[:].*sc.σ/1e6, τII[:].*sc.σ/1e6, color=:black )
 
-            display(fig) 
+            display(fig)
+            
+            # @show size(Vs.x[ind_x,ind_y])
+            # error()
+
 
         end
         # function figure()
@@ -586,7 +612,7 @@ import Statistics:mean
     #--------------------------------------------#
 
     display(to)
-    # homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix2.jld2", "probes", probes)
+    homo && save("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_tens.jld2", "probes", probes)
 
     return 
 end
@@ -621,11 +647,12 @@ function Run()
     ###################################
 
     # # with eta_vp
-    n_nx = 1
+    n_nx = 2
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = 40*n_nt
-    main(nc, nt, n_nt; ηvp=1e19); #1e20
+    D_BC = @SMatrix([1 0; 0 -1] )
+    main(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false); #1e20
     
 end
 

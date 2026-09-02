@@ -237,6 +237,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     f    = F(pl, τII, Peff, Φ, λ̇, ph)
 
     x = @SVector [τII, Pt, Pf, λ̇, Φ]
+    x0 =copy(x)
     plastic_correction = false
 
     nr   = D(1.0)
@@ -247,15 +248,15 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     if f > D(-1e-13)
         plastic_correction = true
         # This is the proper return mapping with plasticity
-        for iter=1:10
+        for iter=1:20
             R, J = fd_value_and_jacobian(residual_two_phase_P, x, ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Φ,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, materials.single_phase)
             x   -= J \ R
             nr   = mynorm(R)
             if iter==1 
                 nr0 = nr
             end
-            if iter==10
-                error("Local iteration failed")
+            if iter==20
+                error("Local iteration failed: nr=$(nr) nr0=$(nr0) f = $(f) x0 = $(x0) ")
             end
             nr/nr0 < tol && break
         end
