@@ -32,8 +32,8 @@ const save = true
     # Intialise field
     L = (x=1.0, y=1.0)
     Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
-    x = (min=-L.x / 2, max=L.x / 2)
-    y = (min=-L.y / 2, max=L.y / 2)
+    x = (min=(-L.x / 2), max=L.x / 2)
+    y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
     a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
