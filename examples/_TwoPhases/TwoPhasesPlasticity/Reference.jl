@@ -27,8 +27,8 @@ import Statistics:mean
     rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
     Pf_ini  = 1e6/sc.σ
-    # Pt_ini  = 50e6/sc.σ
-    # Pf_ini  = 5e6/sc.σ
+    Pt_ini  = 50e6/sc.σ
+    Pf_ini  = 5e6/sc.σ
     ε̇       = 2e-15.*sc.t
     τ_ini   = 0*(sind(35)*(Pt_ini-Pf_ini) + 0*1e7/sc.σ*cosd(35))  
 
@@ -48,9 +48,9 @@ import Statistics:mean
         conservative = false,
         # plasticity   = DruckerHyperbolic,
         # plasticity   = Tensile,
-        # plasticity   = DruckerPrager,
+        plasticity   = DruckerPrager,
         # plasticity   = DruckerPragerCap,
-        plasticity   = Golchin2021,
+        # plasticity   = Golchin2021,
     )
 
     materials.n     .= [  1.0,    1.0 ]
@@ -69,11 +69,11 @@ import Statistics:mean
     materials.plasticity.ψ   .= [ 10.,     10. ] 
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
-    materials.plasticity.Pt  .= [ -1e6,     -1e6 ]./sc.σ 
-    materials.plasticity.Pc  .= [5e7,      5e7]   ./ sc.σ
-    materials.plasticity.a   .= [0.8,      0.8]
-    materials.plasticity.b   .= [0.0,      0.0]
-    materials.plasticity.c   .= [0.8,      0.8]
+    # materials.plasticity.Pt  .= [ -1e6,     -1e6 ]./sc.σ 
+    # materials.plasticity.Pc  .= [5e7,      5e7]   ./ sc.σ
+    # materials.plasticity.a   .= [0.8,      0.8]
+    # materials.plasticity.b   .= [0.0,      0.0]
+    # materials.plasticity.c   .= [0.8,      0.8]
 
     preprocess!(materials)
 
@@ -505,6 +505,8 @@ import Statistics:mean
             τII   = (τ.II)[inx_c,iny_c]
             Pe_ax    = [-1e6, 1e7]./sc.σ
             τII_ax   = [0 1.5e7]./sc.σ
+            Pe_ax    = [-1e6, 5.5e7]./sc.σ
+            τII_ax   = [0 5e7]./sc.σ
             P_ax       = LinRange(minimum(Pe_ax),  maximum(Pe_ax),  300)
             τ_ax       = LinRange(minimum(τII_ax), maximum(τII_ax), 300)
 

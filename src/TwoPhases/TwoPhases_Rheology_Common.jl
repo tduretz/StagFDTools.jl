@@ -17,10 +17,9 @@ end
 #     return τII - p_eff*sinψ - c*cosψ - λ̇*ηvp
 # end
 
-
-function F(p::DruckerPrager{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
+function F(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     C, cosϕ, sinϕ, ηvp = p.C[ph], p.cosϕ[ph], p.sinϕ[ph], p.ηvp[ph] 
-    return τII - sinϕ * P - C*cosϕ - λ̇*ηvp
+    return τ - sinϕ * P - C*cosϕ - λ̇*ηvp
 end
 
 function Q(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)   
@@ -28,11 +27,11 @@ function Q(p::DruckerPrager{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     return τ - sinψ * P - C*cosψ  
 end
 
-function F(p::Tensile{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
-    return τII - P - λ̇*p.ηvp[ph] + p.Pt[ph]
+function F(p::Tensile{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
+    return τ - P - λ̇*p.ηvp[ph] + p.Pt[ph]
 end
 
-function Q(p::Tensile{Vector{Float64}}, τ, P, ϕ, λ̇, ph)     
+function Q(p::Tensile{Vector{Float64}}, τ, P, ϕ, λ̇, ph) 
     return τ - P + p.Pt[ph]
 end
 
@@ -55,7 +54,6 @@ function F(r::DruckerPragerCap{Vector{Float64}}, τII, P, ϕ, λ̇, ph)
     else
         # Mode 1
         Rf   = sqrt(τII^2 + (P - py)^2)
-        
         F    = a*(Rf - Ry)  
     end
 
@@ -89,14 +87,14 @@ end
 @inline Bf(p, pc, pt, M, C, α) = M * C * exp(α * (p - C) / (pc - pt))
 @inline Cf(pc, pt, γ) = (pc - pt) / π * atan(γ / 2) + (pc + pt) / 2
 
-yield_Golchin(τ, P, A, B, C, β, λ̇, ηvp) = B * (P - λ̇ * ηvp - C)^2 / A + A * (τ - λ̇ * ηvp - β * (P - λ̇ * ηvp))^2 / B - A * B
+yield_Golchin(τ, P, A, B, C, β, λ̇, ηvp) = B * (P - 0*λ̇ * ηvp - C)^2 / A + A * (τ - λ̇ * ηvp - β * (P - 0*λ̇ * ηvp))^2 / B - A * B
 
 function F(r::Golchin2021{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     M, N, Pt, Pc, α, β, γ, ηvp  = r.M[ph], r.N[ph], r.Pt[ph], r.Pc[ph], r.a[ph], r.b[ph], r.c[ph], r.ηvp[ph] 
     C = Cf(Pc, Pt, γ)
     B = Bf(P, Pc, Pt, M, C, α)
     A = Af(P, Pc, Pt, γ)
-    F = yield_Golchin(τ, P, A, B, C, β, λ̇, 0 * ηvp)
+    F = yield_Golchin(τ, P, A, B, C, β, λ̇, ηvp)
     return F - λ̇ * ηvp
 end
 

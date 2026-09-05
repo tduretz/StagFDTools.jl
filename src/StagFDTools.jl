@@ -114,7 +114,8 @@ export compute_Φ_and_dΦdt_trial, compute_Φ_and_dΦdt
 # export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
 # export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
 include("TwoPhases/TwoPhases_Rheology_Trial_P.jl")
-export TangentOperator!, Porosity, LocalRheology_P
+export TangentOperator!, Porosity, LocalRheology_P, residual_two_phase_P, bt_line_search
+export LocalRheology_P3, residual_two_phase_P3, bt_line_search_P3
 include("TwoPhases/TwoPhases_Rheology.jl")
 export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
