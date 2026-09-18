@@ -249,9 +249,8 @@ end
                         ξ0, m = mat.ξ0[ph],  mat.m[ph]
 
                         ε̇II_eff = ε̇ + τ[it-1]/(2ηe)
-                        
                         res = StagFDTools.TwoPhases.residual_two_phase_P
-                        args = (ηve, Δt, ε̇II_eff, τII, Pt, Pf, divVs, divqD, Φ[it], Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, mat.single_phase )
+                        args = (ηve, Δt, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, mat.single_phase )
                         # args = (ηve, Δt, ε̇II_eff, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, mat.single_phase)
                         # res = StagFDTools.TwoPhases.residual_two_phase_P3
 

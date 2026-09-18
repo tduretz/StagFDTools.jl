@@ -1,7 +1,7 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-@views function main(nc, nt, n_nt; 
+@views function main(D_BC, nc, nt, n_nt; 
     homo=false, niter=100, Φini=5e-2, ηvp=0.0)
 
     sc = (σ=1e7, t=1e10, L=1e3)
@@ -17,7 +17,7 @@ import Statistics:mean
     τ_ini   = 0*(sind(35)*(Pt_ini-Pf_ini) + 0*1e7/sc.σ*cosd(35))  
 
     # Velocity gradient matrix
-    D_BC = @SMatrix( [ε̇ 0; 0 -ε̇] )
+    D_BC = D_BC .* ε̇ 
 
     τxx_ini = τ_ini*D_BC[1,1]/ε̇
     τyy_ini = τ_ini*D_BC[2,2]/ε̇
@@ -47,11 +47,11 @@ import Statistics:mean
     materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
-    materials.plasticity.ϕ   .= [ 30.,     30. ]
-    materials.plasticity.ψ   .= [ 0.,      0. ] .* 1
+    materials.plasticity.ϕ   .= [ 35.,     35. ]
+    materials.plasticity.ψ   .= [ 10.,     10. ] .* 1
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
-    materials.plasticity.Pt  .= [ -1e5 ,  -1e5 ]./sc.σ 
+    materials.plasticity.Pt  .= [ -1e6 ,  -1e6 ]./sc.σ 
 
     preprocess!(materials)
 
@@ -85,6 +85,10 @@ import Statistics:mean
     ρs, ρf = materials.ρs[1], materials.ρf[1]
     Δ = (t=Δt,)
 
+    ε̇xx = D_BC[1,1] - 1/3*tr(D_BC)
+    ε̇yy = D_BC[2,2] - 1/3*tr(D_BC)
+    ε̇kk = tr(D_BC)
+
     for it=1:nt
 
         @printf("\nStep %04d\n", it)
@@ -100,8 +104,8 @@ import Statistics:mean
         ρf0  = ρf
 
         # Trial deviatoric stress
-        ε̇xx_eff = ε̇ + τxx0/(2*materials.G[1]*Δt)
-        ε̇yy_eff =-ε̇ + τyy0/(2*materials.G[1]*Δt)
+        ε̇xx_eff = ε̇xx + τxx0/(2*materials.G[1]*Δt)
+        ε̇yy_eff = ε̇yy + τyy0/(2*materials.G[1]*Δt)
 
         # OLD STYLE 
 
@@ -148,7 +152,11 @@ import Statistics:mean
         # save("./examples/_TwoPhases/TwoPhasesPlasticity/results/$(fname)", "X", X, "sc", sc, "probes", probes,
         # "λ̇", λ̇, "P", P, "τ", τ, "ε̇", ε̇, "V", V, "η", η, "Φ", Φ, "εp", εp, "niter", niter, "err", err ) 
       
-        data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_remix2.jld2")
+        if abs(D_BC[2,2])>1e-13
+            data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_PS.jld2")
+        else
+            data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_tens.jld2")
+        end
         probes2D = data["probes"]
 
         # Visualise
@@ -212,7 +220,8 @@ function Run()
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = 40*n_nt
-    main(nc, nt, n_nt, homo=true, niter=2)
+    D_BC = @SMatrix([1 0; 0 -1] )
+    main(D_BC, nc, nt, n_nt, homo=true, niter=2)
 end
 
 Run()

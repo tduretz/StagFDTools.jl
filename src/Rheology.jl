@@ -1,5 +1,7 @@
 using ForwardDiff
 
+invII(x) = sqrt(1/2*x[1]^2 + 1/2*x[2]^2 + 1/2*(-x[1]-x[2])^2 + x[3]^2) 
+
 function line(p, K, dt, η_ve, ψ, p1, t1)
     p2 = p1 + K * dt * sind(ψ)  # introduce sinϕ ?
     t2 = t1 - η_ve

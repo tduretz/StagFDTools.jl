@@ -36,7 +36,7 @@ using StaticArrays, StagFDTools, LinearAlgebra
 include("Rheology.jl")
 export LocalRheology, StressVector!
 export LocalRheology_div, StressVector_div!
-export Yield, Potential
+export Yield, Potential, invII
 end
 
 module Poisson

@@ -1,7 +1,5 @@
 using StaticArrays, LinearAlgebra, ForwardDiff
 
-invII(x) = sqrt(1/2*x[1]^2 + 1/2*x[2]^2 + 1/2*(-x[1]-x[2])^2 + x[3]^2) 
-
 function StrainRateTrial(τII, Pt, Pf, ηve, ηϕ, Kϕ, Ks, Kf, C, cosϕ, sinϕ, sinψ, ηvp, Δt)
     ε̇II_trial = τII/2/ηve
     return ε̇II_trial
@@ -123,8 +121,13 @@ end
 
 function Q(r::Golchin2021{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     M, N, Pt, Pc, α, β, γ, ηvp  = r.M[ph], r.N[ph], r.Pt[ph], r.Pc[ph], r.a[ph], r.b[ph], r.c[ph], r.ηvp[ph] 
+    
+p_mean = (Pt + Pc)/2
+Δp  = Pc - Pt
+ΔM  = M - N
+N_p = M - ΔM/2*exp( -(P - 2p_mean)^2 / (Δp/2)^2 ) 
     C = Cf(Pc, Pt, γ)
-    B = Bf(P, Pc, Pt, N, C, α)
+    B = Bf(P, Pc, Pt, N_p, C, α)
     A = Af(P, Pc, Pt, γ)
     Q = yield_Golchin(τ, P, A, B, C, β, λ̇, 0 * ηvp)
     return Q

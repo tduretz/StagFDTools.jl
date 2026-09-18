@@ -396,8 +396,8 @@ function preprocess!(g::Golchin2021)
     @. g.sinϕ = sind(g.ϕ)
     @. g.sinψ = sind(g.ψ)
     @. g.cosψ = cosd(g.ψ)
-    @. g.M = 6 * sind(g.ϕ) / (3 - sind(g.ϕ))
-    @. g.N = 6 * sind(g.ψ) / (3 - sind(g.ψ))
+    @. g.M = 3 * sind(g.ϕ) / (3 - sind(g.ϕ))
+    @. g.N = 3 * sind(g.ψ) / (3 - sind(g.ψ))
 
 end
 
