@@ -5,7 +5,7 @@ import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
 const save = true
-const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/plastic_test_2/"
+const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/power_law/"
 const backend = AutoForwardDiff()
 
 function Analyticalviscous(θ, η, δ, D_BC)
@@ -273,7 +273,7 @@ end
                 # cm.xlims!(ax5, 0, nt)
                 # cm.lines!(ax5, 1:it, Τev.II[1:it])
 
-                # display(fig)
+                display(fig)
             end
         end
     end
@@ -310,9 +310,9 @@ let
     # ]
     D_BCs = @SMatrix([1 0; 0 -1])
 
-    nc = (x=100, y=100)
-    nt = 50
-    L = 1.0
+    nc = (x=150, y=150)
+    nt = 30
+    L = 2.0
 
     # Discretise angle of layer 
     # nθ = 2
@@ -341,20 +341,21 @@ let
     C2 = 10.
     C1 = C2 / 1 #m
 
-    α2 = 0.5
+    α2 = 0.7
     α1 = 1 - α2
 
     ηn = α1 * η1 + α2 * η2
     δ = (α1 + α2 * m) * (α1 + α2 / m)
 
-    n_range = 1:20
+    n_ran = 1:20
+    n_range = collect(n_ran)
 
     # elasticity
     tmax = 1.0
 
     # Single output file holding all power-law exponents, one subgroup per n
     # (e.g. "n5/τ_II", "n5/τ_xx", ...)
-    jld2path = joinpath(@__DIR__, "Layered_pwl.jld2")
+    jld2path = joinpath(@__DIR__, "Layered_pwl_7.jld2")
     jld2file = save ? jldopen(jld2path, "w") : nothing
 
     # Run them all
@@ -404,6 +405,7 @@ let
         end
 
         if save
+            jld2file["nc"] = nc.x
             jld2file["η2"] = η2
             jld2file["η1"] = η1
             jld2file["nθ"] = nθ
@@ -475,7 +477,7 @@ let
 
         # FIGURE 4 -------------------------------------------------------------
         fig4 = cm.Figure(size=(800, 650), px_per_unit=2)
-        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=2", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-15, 15, -6, 6))
+        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=2", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-17, 17, -10, 10))
         τ_yield = zeros(2, nθ)
         local sc
         for Iθ in eachindex(θ)

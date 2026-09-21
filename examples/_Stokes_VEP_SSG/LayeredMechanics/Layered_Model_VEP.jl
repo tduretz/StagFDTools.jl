@@ -4,7 +4,7 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
-const save = true
+const save = false
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/plastic_test_3/"
 const backend = AutoForwardDiff()
 
@@ -286,10 +286,10 @@ let
     # ]
     D_BCs = @SMatrix([1 0; 0 -1])
 
-    nc = (x=200, y=200)
+    nc = (x=70, y=70)
     nt = 150 # 250
     # L = [1.0, 2.0, 3., 4., 5.]
-    L = 4.
+    L = 2.
 
     # Discretise angle of layer 
     # nθ = 1
@@ -317,7 +317,7 @@ let
     C2 = 10.
     C1 = C2 / m
 
-    α2 = 0.5
+    α2 = 0.3
     α1 = 1 - α2
 
     ηn = α1 * η1 + α2 * η2
