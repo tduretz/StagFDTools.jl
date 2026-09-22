@@ -62,15 +62,29 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G,MR<:Abstract
     X::G
 end
 
-function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, nphases, args)
+# randomly distributed
+function JustPICAdvection(backend, a::Allocs, nxcell::Number, max_xcell, min_xcell, nc, nphases, args)
+    grid_vx = (a.X.v.x, a.X.c_e.y)
+    grid_vy = (a.X.c_e.x, a.X.v.y)
+    xi_vel = (grid_vx, grid_vy)
+    xvi = (a.X.v.x, a.X.v.y)
+    particles = init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
+    particle_args = init_cell_arrays(particles, Val(args))
+    phase_ratios = JustPIC.PhaseRatios(backend, nphases, values(nc))
+    return JustPICAdvection(particles, xi_vel, xvi, particle_args, phase_ratios)
+end
+
+# regularly spaced
+function JustPICAdvection(backend, a::Allocs, nxcell::NTuple{N,Integer}, max_xcell, min_xcell, nc, nphases, args) where {N}
     grid_vx = (a.X.v.x, a.X.c_e.y)
     grid_vy = (a.X.c_e.x, a.X.v.y)
     xi_vel = (grid_vx, grid_vy)
     xvi = (a.X.v.x, a.X.v.y)
     d = (step(a.X.v.x), step(a.X.v.y))
-    particles = init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
+    particles = init_particles(backend, nxcell, max_xcell, min_xcell, grid_vx, grid_vy)
+    println("particles initialised")
     particle_args = init_cell_arrays(particles, Val(args))
-    phase_ratios = JustPIC._2D.PhaseRatios(backend, nphases, values(nc))
+    phase_ratios = JustPIC.PhaseRatios(backend, nphases, values(nc))
     return JustPICAdvection(particles, xi_vel, xvi, particle_args, phase_ratios)
 end
 
@@ -291,12 +305,15 @@ function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-    @views V = (a.V.x[2:end-1, 2:end-1], a.V.y[2:end-1, 2:end-1])
+    @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
     # Advection
     advection!(adv.particles, RungeKutta2(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
-    inject_particles_phase!(adv.particles, adv.particle_args[1], (), ())
+    # Nearest-neighbour re-seeding for every particle field (phase, passive colours, ...),
+    # not just the first one - a single field would leave later fields (e.g. a passive
+    # colour used for visualisation) undefined on newly injected particles.
+    inject_particles!(adv.particles, adv.particle_args)
 
     # Update phase_ratios for the solver (includes ghost nodes)
     update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])

@@ -46,7 +46,8 @@ end
 module Stokes
 using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
 using TimerOutputs, Printf
-using JustPIC, JustPIC._2D
+using JustPIC
+import CellArraysIndexing as CAI
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
