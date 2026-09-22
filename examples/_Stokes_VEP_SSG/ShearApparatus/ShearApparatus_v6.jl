@@ -19,7 +19,7 @@ end
 
     # Parameters
     width     = (12e-3 + 38e-3)/sc.L
-    height    = 100e-3/sc.L
+    height    = 140e-3/sc.L #100e-3/sc.L
     thickness = 2*2e-3/sc.L
     θgouge    = (θgouge) /180*π
     Δt0       = 1e2/sc.t
@@ -694,5 +694,5 @@ end
 
 let
     # main((x = 150, y = 250), 1000, 30) # matches friction
-    main((x = 100, y = 200), 100, 30)
+    main((x = 100, y = 200), 100, 20)
 end
