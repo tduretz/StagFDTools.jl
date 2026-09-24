@@ -1,21 +1,5 @@
-function InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
-    num = (x=nmpc.x * (nc.x + 2), y=nmpc.y * (nc.y + 2))
-    Δm = (x=L.x / num.x, y=L.y / num.y)
-    xm = LinRange(x.min - Δ.x + Δm.x / 2, x.max + Δ.x - Δm.x / 2, num.x)
-    ym = LinRange(y.min - Δ.y + Δm.y / 2, y.max + Δ.y - Δm.y / 2, num.y)
-    Xm = repeat(xm, outer=num.y)
-    Ym = repeat(ym, inner=num.x)
-    mphase = ones(Int64, num.x, num.y)
-    mphase = vec(mphase)
-
-    if noise
-        Xm .+= (rand(length(Xm)) .- 0.5) .* Δm.x
-        Ym .+= (rand(length(Ym)) .- 0.5) .* Δm.y
-    end
-    return (Xm=Xm, Ym=Ym, xm=xm, ym=ym, Δm=Δm, num=num, phase=mphase)
-end
-
-function FillPhaseRatios!(a)
+# Set phase ratios with no markers
+function Set_PhaseRatios!(a)
     _fill_phase_ratios!(a.phase_ratios.c, a.phases.c)
     _fill_phase_ratios!(a.phase_ratios.v, a.phases.v)
     return nothing
@@ -28,57 +12,8 @@ function _fill_phase_ratios!(phase_ratios::AbstractMatrix{<:AbstractVector}, pha
     end
 end
 
-function MarkerWeight(xm, x, Δx)
-    # Compute marker-grid distance and weight
-    dst = abs(xm - x)
-    w = 1.0 - 2 * dst / Δx
-    return w
-end
-
-function MarkerWeight_phase!(phase_ratio, phase_weight, x, y, xm, ym, Δ, phase, nphases)
-    w_x = MarkerWeight(xm, x, Δ.x)
-    w_y = MarkerWeight(ym, y, Δ.y)
-    for k = 1:nphases
-        phase_ratio[k] += (k === phase) * w_x * w_y
-        phase_weight[k] += w_x * w_y
-    end
-end
-
-function SetPhaseRatios!(phase_ratios, m, xce, yce, xve, yve, Δ, nphases)
-
-    phase_weights = (
-        c=[zeros(nphases) for _ in axes(phase_ratios.c, 1), _ in axes(phase_ratios.c, 2)],
-        v=[zeros(nphases) for _ in axes(phase_ratios.v, 1), _ in axes(phase_ratios.v, 2)],
-    )
-
-    for I in eachindex(m.Xm)
-        x, y, phase = m.Xm[I], m.Ym[I], m.phase[I]
-        xdx = (x - xve[1]) / Δ.x
-        ydy = (y - yve[1]) / Δ.y
-        ic, jc = ceil(Int, xdx), ceil(Int, ydy)
-        iv, jv = ceil(Int, xdx + 0.5), ceil(Int, ydy + 0.5)
-
-        MarkerWeight_phase!(phase_ratios.c[ic, jc], phase_weights.c[ic, jc], xce[ic], yce[jc], m.Xm[I], m.Ym[I], Δ, phase, nphases)
-        MarkerWeight_phase!(phase_ratios.v[iv, jv], phase_weights.v[iv, jv], xve[iv], yve[jv], m.Xm[I], m.Ym[I], Δ, phase, nphases)
-    end
-
-    # centroids
-    for i in axes(phase_ratios.c, 1), j in axes(phase_ratios.c, 2)
-        #  normalize weights and assign to phase ratios
-        for k = 1:nphases
-            phase_ratios.c[i, j][k] = phase_ratios.c[i, j][k] / (phase_weights.c[i, j][k] == 0.0 ? 1 : phase_weights.c[i, j][k])
-        end
-    end
-    # vertices
-    for i in axes(phase_ratios.v, 1), j in axes(phase_ratios.v, 2)
-        #  normalize weights and assign to phase ratios
-        for k = 1:nphases
-            phase_ratios.v[i, j][k] = phase_ratios.v[i, j][k] / (phase_weights.v[i, j][k] == 0.0 ? 1 : phase_weights.v[i, j][k])
-        end
-    end
-end
-
-function update_JustPIC!(a, phase_ratios, particles, phases)
+# Copy JP phase ratios to solver's phase ratios
+function Set_PhaseRatios!(a, phase_ratios, particles, phases)
     update_phase_ratios!(phase_ratios, particles, phases)
     @views begin
         a.phase_ratios.c[2:(end-1), 2:(end-1)] .= phase_ratios.center

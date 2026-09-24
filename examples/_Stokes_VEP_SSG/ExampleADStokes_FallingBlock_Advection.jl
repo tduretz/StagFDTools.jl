@@ -65,7 +65,6 @@ end
     # Time steps
     nt = 100
     Δt0 = 1e5*year2sec/sc.t
-    @assert 1 <= it_export <= nt "it_export must be between 1 and nt=$(nt)"
 
     # Solver parameters
     iter_params = IterParams(solver_type=:PH, niter=10, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
@@ -104,12 +103,12 @@ end
     max_xcell = 40 # maximum number of particles per cell
     min_xcell = 10 # minimum number of particles per cell
     args = 1 # Fields to be advected (1=phase)
-    adv = JustPICAdvection(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
     phases, = adv.particle_args
 
     # Set material geometry
     set_phases!(phases, adv.particles, block, layering)
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 
     #--------------------------------------------#
 

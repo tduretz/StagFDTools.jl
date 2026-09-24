@@ -55,10 +55,11 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Markers.jl")
-export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!, update_JustPIC!
+export Set_PhaseRatios!, compute_grid_fields!
+include("Allocs.jl")
+export Allocs, Markers
 include("Main.jl")
-export AbstractSolver, Allocs, Solve!, main_loop, IterParams
-export JustPICAdvection
+export AbstractSolver, Solve!, main_loop, IterParams
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
@@ -122,7 +123,7 @@ export TangentOperator!, Porosity
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F
 include("Markers.jl")
-export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
+export Set_PhaseRatios!, compute_grid_fields_two_phases!
 end
 
 # module TwoPhases_v1

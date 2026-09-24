@@ -2,47 +2,10 @@ using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, S
 Makie.update_theme!(fonts=(regular=texfont(), bold=texfont(:bold), italic=texfont(:italic)))
 import Statistics: mean
 using JustPIC, JustPIC._2D
-import JustPIC.@index
 const backend = JustPIC.CPUBackend
 using DifferentiationInterface
 using TimerOutputs, GridGeometryUtils
 using BenchmarkTools
-
-
-function set_phases!(phases, particles, garnets, micas, layering)
-    Threads.@threads for j in axes(phases, 2)
-        for i in axes(phases, 1)
-            for ip in cellaxes(phases)
-                # quick escape
-                @index(particles.index[ip, i, j]) == 0 && continue
-
-                # Set material geometry 
-                x = @index particles.coords[1][ip, i, j]
-                y = @index particles.coords[2][ip, i, j]
-                𝐱 = @SVector([x, y])
-
-                @index phases[ip, i, j] = 1.0
-
-                if inside(𝐱, layering)
-                    @index phases[ip, i, j] = 2.0
-                end
-
-                for igeom in eachindex(garnets) # Garnets: phase 2
-                    if inside(𝐱, garnets[igeom])
-                        @index phases[ip, i, j] = 3.0
-                    end
-                end
-
-                for igeom in eachindex(micas) # Micas: phase 3
-                    if inside(𝐱, micas[igeom])
-                        @index phases[ip, i, j] = 3.0
-                    end
-                end
-
-            end
-        end
-    end
-end
 
 @views function main(nc, BC_template, D_template)
     #--------------------------------------------#
@@ -122,12 +85,12 @@ end
     max_xcell = 36 * 2 # maximum number of particles per cell
     min_xcell = 6 # minimum number of particles per cell
     args = 1 # Fields to be advected (1=phase)
-    adv = JustPICAdvection(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
     phases, = adv.particle_args
     # Set material geometry
-    set_phases!(phases, adv.particles, garnets, micas, layering)
+    set_phases!(phases, adv.particles, 1.0, 2.0 => layering, 3.0 => garnets, 3.0 => micas)
     # update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
     #--------------------------------------------#
 
     rvec = zeros(length(iter_params.α))
