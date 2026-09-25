@@ -30,6 +30,33 @@ function Set_PhaseRatios!(a, phase_ratios, particles, phases)
     end
 end
 
+
+function GridToParticle!(particles, particle_fields::NTuple{N}, grid_fields::NTuple{N}) where {N}
+    map(particle_fields, grid_fields) do pf, gf
+        grid2particle!(pf, gf, particles) #default ghost=true
+    end
+    return nothing
+end
+
+function All_GridToParticle!(allocs, particles, particle_fields::Vararg{Any,N}) where {N}
+    # Temperature
+    grid_fields = ()
+    GridToParticle!(particles, particle_fields, grid_fields)
+end
+
+function All_ParticleToGrid!(allocs, particles, particle_fields::Vararg{Any,N}) where {N}
+    # Temperature
+    grid_fields = ()
+    ParticleToGrid!(particles, particle_fields, grid_fields)
+end
+
+function ParticleToGrid!(particles, particle_fields::NTuple{N}, grid_fields::NTuple{N}) where {N}
+    map(particle_fields, grid_fields) do pf, gf
+        particle2grid!(gf, pf, particles) #default ghost=true
+    end
+    return nothing
+end
+
 function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
     nxc, nyc = size(G.c)
     @inbounds for j in 1:nyc, i in 1:nxc

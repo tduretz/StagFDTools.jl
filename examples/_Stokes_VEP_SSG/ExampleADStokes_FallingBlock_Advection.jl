@@ -99,10 +99,10 @@ end
     end
 
     # Initialize particles
-    nxcell = (5, 5) # initial number of particles per cell
-    max_xcell = 40 # maximum number of particles per cell
-    min_xcell = 10 # minimum number of particles per cell
-    args = 1 # Fields to be advected (1=phase)
+    nxcell = (5, 5)
+    max_xcell = 40
+    min_xcell = 10
+    args = 1
     adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
     phases, = adv.particle_args
 

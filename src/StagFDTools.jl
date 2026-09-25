@@ -47,6 +47,7 @@ module Stokes
 using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
 using TimerOutputs, Printf
 using JustPIC
+using CellArraysIndexing: @index
 import CellArraysIndexing as CAI
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
@@ -54,12 +55,15 @@ export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
 export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
+include("Allocs.jl")
+export Allocs, Markers, StressMarkers
 include("Markers.jl")
 export Set_PhaseRatios!, compute_grid_fields!
-include("Allocs.jl")
-export Allocs, Markers
+include("StressMarkers.jl")
+export stress_ToParticles!, stress_ToGrid!
 include("Main.jl")
 export AbstractSolver, Solve!, main_loop, IterParams
+export compute_vorticity!, compute_rotation!, rotate_stress!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology

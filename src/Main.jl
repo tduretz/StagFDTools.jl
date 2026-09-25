@@ -1,4 +1,42 @@
 
+function compute_vorticity!(a, Δ)
+    @views a.ω.xy_v .= 0.5 .* (
+        (a.V.x[:, 2:end] .- a.V.x[:, 1:(end-1)]) ./ Δ.y .-
+            (a.V.y[2:end, :] .- a.V.y[1:(end-1), :]) ./ Δ.x
+    )
+    a.ω.xy_c .= av2D(a.ω.xy_v)
+    return nothing
+end
+
+# From JR
+function compute_rotation!(sm::StressMarkers, particles, dt)
+    (; index) = particles
+    Threads.@threads for j in axes(sm.pτxx, 2)
+        for i in axes(sm.pτxx, 1)
+            I = (i, j)
+            for ip in cellaxes(index)
+                @index(index[ip, I...]) || continue
+                ω_xy = @inbounds @index sm.pω[ip, I...]
+                τ_xx = @inbounds @index sm.pτxx[ip, I...]
+                τ_yy = @inbounds @index sm.pτyy[ip, I...]
+                τ_xy = @inbounds @index sm.pτxy[ip, I...]
+                tmp = 2 * τ_xy * ω_xy
+                @inbounds @index sm.pτxx[ip, I...] = muladd(dt, tmp, τ_xx)
+                @inbounds @index sm.pτyy[ip, I...] = muladd(dt, tmp, τ_yy)
+                @inbounds @index sm.pτxy[ip, I...] = muladd(dt, (τ_xx - τ_yy) * ω_xy, τ_xy)
+            end
+        end
+    end
+    return nothing
+end
+
+function rotate_stress!(allocs, sm::StressMarkers, particles, Δ)
+    compute_vorticity!(allocs, Δ)
+    stress_ToParticles!(allocs, sm, particles)
+    compute_rotation!(sm, particles, Δ.t)
+    return nothing
+end
+
 function _assemble!(a::Allocs, materials, BC, nc, Δ)
     # Jacobian
     AssembleContinuity2D!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.β, a.ξ,
@@ -47,11 +85,6 @@ end
 
 function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-    a.τ0.xx .= a.τ.xx
-    a.τ0.yy .= a.τ.yy
-    a.τ0.xy .= a.τ.xy
-    a.Pt0 .= a.Pt
-
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c,
     inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
     nVx = maximum(a.number.Vx)
@@ -95,10 +128,13 @@ main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = m
 
 function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     @printf("Step %04d\n", it)
+    a.τ0.xx .= a.τ.xx
+    a.τ0.yy .= a.τ.yy
+    a.τ0.xy .= a.τ.xy
+    a.Pt0 .= a.Pt
     return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
-# JustPIC advection
 function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     # Solve
@@ -106,10 +142,26 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
-    # Advection
     advection!(adv.particles, RungeKutta2(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
+
+    # Update phase_ratios for the solver (includes ghost nodes)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+end
+
+function main_loop(a::Allocs, adv::Markers, sm::StressMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+    # Solve
+    main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+    @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
+
+    rotate_stress!(a, sm, adv.particles, Δ)
+    advection!(adv.particles, RungeKutta2(), V, Δ.t)
+    move_particles!(adv.particles, adv.particle_args)
+    inject_particles!(adv.particles, adv.particle_args)
+    stress_ToGrid!(sm, a, adv.particles)
 
     # Update phase_ratios for the solver (includes ghost nodes)
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])

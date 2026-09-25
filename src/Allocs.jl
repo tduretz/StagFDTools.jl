@@ -8,7 +8,15 @@ struct Markers{P,G,X,PA,PR} <: AbstractAdvection
     phase_ratios::PR
 end
 
-struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G}
+struct StressMarkers{T} <: AbstractAdvection
+    pτxx::T
+    pτyy::T
+    pτxy::T
+    pP::T
+    pω::T
+end
+
+struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,ONT,PNT,DNT,DC,DV,PHNT,PRNT,G}
     type::t
     number::n
     pattern::p
@@ -35,7 +43,8 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G}
     ρ::FNT
     ε̇::SNT
     τ0::TNT
-    τ::SNT
+    τ::TAUNT
+    ω::ONT
     Pt::Matrix{Float64}
     Pti::Matrix{Float64}
     Pt0::Matrix{Float64}
@@ -49,6 +58,11 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G}
     phases::PHNT
     phase_ratios::PRNT
     X::G
+end
+
+function StressMarkers(particles)
+    pτxx, pτyy, pτxy, pP, pω = init_cell_arrays(particles, Val(5))
+    return StressMarkers(pτxx, pτyy, pτxy, pP, pω)
 end
 
 function Markers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,Integer}}, max_xcell, min_xcell, nc, nphases, args) where {N}
@@ -104,8 +118,9 @@ function allocate(nc, config, x, y, Δ, nphases)
     ε̇ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
         II=zeros(size_c...), θ=zeros(size_c...))
     τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...))
-    τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
+    τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), xy_c=zeros(size_c...),
         II=zeros(size_c...), θ=zeros(size_c...))
+    ω = (xy_c=zeros(size_c...), xy_v=zeros(size_v...))
     Pt = zeros(size_c...)
     Pti = zeros(size_c...)
     Pt0 = zeros(size_c...)
@@ -123,7 +138,7 @@ function allocate(nc, config, x, y, Δ, nphases)
     X = GenerateGrid(x, y, Δ, nc)
 
     return type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, ω,
     Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X
 end
 
@@ -144,7 +159,7 @@ end
 
 function Allocs(nc, config, x, y, Δ, nphases)
     type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, ω,
     Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
         allocate(nc, config, x, y, Δ, nphases)
 
@@ -152,6 +167,6 @@ function Allocs(nc, config, x, y, Δ, nphases)
     M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
 
     return Allocs(type, number, pattern,
-        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
+        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, ω,
         Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
 end
