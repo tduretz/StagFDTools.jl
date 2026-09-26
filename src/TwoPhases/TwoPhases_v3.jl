@@ -299,8 +299,7 @@ end
 
     # Single phase
     if materials.single_phase
-        dPsdt   = dPtdt 
-        dlnρsdt = dPsdt / Ks
+        dlnρsdt = dPtdt ./ Ks
     end
 
     divVs   = (Vx[2,2] - Vx[1,2]) * invΔx + (Vy[2,2] - Vy[2,1]) * invΔy 
@@ -313,6 +312,7 @@ end
             Pt[2,2] - Pf[2,2]
         else
             dlnρsdt[2,2] - dΦdt[2,2] / (1 - Φ[2,2]) + divVs
+            # @show Ks[2,2], dlnρsdt[2,2],  dΦdt[2,2], (1 - Φ[2,2]), divVs
         end
     else
         # Solid mass / immobile solid mass: ∂ρim∂t  + ∇⋅(q) with q = ρim⋅Vs

@@ -4,6 +4,21 @@ import Statistics:mean
 @views function main(D_BC, nc, nt, n_nt; 
     homo=false, niter=100, Φini=5e-2, ηvp=0.0)
 
+    if abs(D_BC[2,2])>1e-13 && abs(D_BC[1,1])>1e-13
+        data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DP_PS_v2.jld2")
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_PS_v2.jld2")
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPHyp_PS_v2.jld2")
+    elseif abs(D_BC[2,2])<1e-13 && (D_BC[1,1])>1e-13
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DP_tens_v2.jld2")
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPHyp_tens_v2.jld2")
+        data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_tens_v2.jld2")
+    elseif abs(D_BC[2,2])<1e-13 && (D_BC[1,1])<1e-13
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DP_comp_v2.jld2")
+        # data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPHyp_comp_v2.jld2")
+        data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DPC_comp_v2.jld2")
+    end
+
+    probes2D = data["probes"]
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
@@ -32,7 +47,9 @@ import Statistics:mean
         linearizeΦ   = false, 
         single_phase = false,
         conservative = false,
-        plasticity   = DruckerPrager,
+        # plasticity   = DruckerPrager,
+        plasticity   = DruckerPragerCap,
+        # plasticity   = DruckerHyperbolic,
     )
 
     materials.n     .= [  1.0,    1.0 ]
@@ -51,6 +68,7 @@ import Statistics:mean
     materials.plasticity.ψ   .= [ 10.,     10. ] .* 1
     materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
+    materials.plasticity.Pt   .= [-1e6,   -1e6 ]./sc.σ 
     preprocess!(materials)
 
     Φ0      = Φini
@@ -145,13 +163,6 @@ import Statistics:mean
         # save("./examples/_TwoPhases/TwoPhasesPlasticity/results/$(fname)", "X", X, "sc", sc, "probes", probes,
         # "λ̇", λ̇, "P", P, "τ", τ, "ε̇", ε̇, "V", V, "η", η, "Φ", Φ, "εp", εp, "niter", niter, "err", err ) 
       
-        if abs(D_BC[2,2])>1e-13
-            data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DP_PS.jld2")
-        else
-            data = load("./examples/_TwoPhases/TwoPhasesPlasticity/VEP_loading_homogeneous_DP_tens.jld2")
-        end
-        probes2D = data["probes"]
-
         # Visualise
         function figure()
             fig  = Figure(fontsize = 20, size = (900, 600) )    
@@ -192,6 +203,10 @@ import Statistics:mean
         with_theme(figure, theme_latexfonts())
         #-------------------------------------------# 
     end
+    # save("/Users/tduretz/PowerFolders/_manuscripts/TwoPhasePressure/_PoroVEP/data/VEP_loading_homogeneous_1D_2D_DP.jld2", "probes", probes, "data", data, "sc", sc) 
+    # save("/Users/tduretz/PowerFolders/_manuscripts/TwoPhasePressure/_PoroVEP/data/VEP_loading_homogeneous_1D_2D_DPC_tens.jld2", "probes", probes, "data", data, "sc", sc) 
+    save("/Users/tduretz/PowerFolders/_manuscripts/TwoPhasePressure/_PoroVEP/data/VEP_loading_homogeneous_1D_2D_DPC_comp.jld2", "probes", probes, "data", data, "sc", sc) 
+    
     #--------------------------------------------#
     return 
 end
@@ -202,7 +217,7 @@ function Run()
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = 40*n_nt
-    D_BC = @SMatrix([1 0; 0 -1] )
+    D_BC = @SMatrix([-1 0; 0 -1*0] )
     main(D_BC, nc, nt, n_nt, homo=true, niter=2)
 end
 

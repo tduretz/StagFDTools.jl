@@ -161,13 +161,17 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
      
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
     D = typeof(τII)
-    ϵ  = -1e-13 
-    # α1 = single_phase ? 0.0 : 1.0 
+    ϵ  = D(-1e-13) 
+    # α1 = single_phase ? zero(D) : one(D) 
 
     Pe = single_phase ? Pt : Pt .- Pf
     # Pe = @. Pt - Pf * single_phase
 
-    dΦdt = PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1]  
+    dΦdt = if single_phase
+        zero(D)
+    else
+        PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1]  
+    end
 
     ∂Q∂τ  = ForwardDiff.derivative( τII -> Q(pl, τII, Pe, zero(D),  λ̇, ph), τII )
 
@@ -218,6 +222,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
     pl   = materials.plasticity
+    𝑎    = materials.single_phase ?  D(0.0) :  D(1.0)
 
     # Initial guess
     η         = η0 * ε̇II_eff^(1 / n - 1 )
@@ -226,14 +231,14 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     ηvep      = ηve
 
     # Initial solution array
-    x = @SVector [τII, Pt, Pf, zero(D), Φ0]
+    x = @SVector [τII, Pt, 𝑎*Pf, zero(D), Φ0]
     nr   = D(1.0)
     nr0  = D(1.0)
     tol  = D(1e-10)
 
     #############################
     # Return mapping
-    args = (ηve, Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, materials.single_phase)
+    args = (ηve, Δ.t, ε̇II_eff, τII,       Pt,       𝑎*Pf,       divVs, divqD,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, materials.single_phase)
     for iter in 1:20
         r, J = fd_value_and_jacobian(residual_two_phase_P, x, args...)
         Δx   = -J \ r
@@ -248,16 +253,27 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
 
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
     #############################
+    # Pe = Pt - 𝑎*Pf
+    # λ̇  = 0.0
+    # Φ  = Φ0
+    # f  = F(materials.plasticity, τII, Pe, zero(D), λ̇, ph)
+    # if f > 0.0
+    #     λ̇ = f / (Ks*Δ.t*pl.sinψ[ph]*pl.sinϕ[ph] + ηve)
+    #     τII = τII - λ̇*ηve
+    #     Pt  = Pt + Ks*Δ.t*λ̇*pl.sinψ[ph]
+    # end
+
+    #############################
 
     # Effective viscosity
     ηvep = τII/(2*ε̇II_eff)
 
     # Yield function
-    Pe = Pt - Pf
+    Pe = Pt - 𝑎*Pf
     f  = F(materials.plasticity, τII, Pe, zero(D), λ̇, ph)
     
     # EOS
-    dlnρsdt, dlnρfdt = EOS(Ks, Kf, Pt, Pf, Φ, Pt0, Pf0, Φ0, Δ.t)
+    dlnρsdt, dlnρfdt = EOS(Ks, Kf, Pt, 𝑎*Pf, Φ, Pt0, Pf0, Φ0, Δ.t)
 
     return ηvep, λ̇, Pt, Pf, τII, Φ, f, dlnρsdt, dlnρfdt
 end
@@ -319,8 +335,8 @@ end
 function residual_two_phase_P3(x, ηve, Δt, ε̇II_eff, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, pl, ph, single_phase )
      
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
-
-    ϵ = -1e-13
+    D = typeof(τII)
+    ϵ = D(-1e-13)
 
     Pe    = Pt .- Pf
     dPtdt = (Pt - Pt0) / Δt
@@ -328,10 +344,10 @@ function residual_two_phase_P3(x, ηve, Δt, ε̇II_eff, divVs, divqD, Pt0, Pf0,
     dΦdt = StagFDTools.TwoPhases.PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, τII, pl, ph, λ̇, Δt)[1]  
     dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
     
-    ∂Q∂τ  = ForwardDiff.derivative( τII -> Q(pl, τII, Pe, 0.0,  λ̇, ph), τII )
+    ∂Q∂τ  = ForwardDiff.derivative( τII -> Q(pl, τII, Pe,  D(0.0),  λ̇, ph), τII )
 
     # Plasticity residual
-    fy =  F(pl, τII, Pe, 0.0, λ̇, ph)
+    fy =  F(pl, τII, Pe, D(0.0), λ̇, ph)
     
     # Porosity residual
     fΦ =  @muladd Φ - (Φ0  + dΦdt * Δt)  
@@ -372,16 +388,16 @@ function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materi
     KΦ   = materials.KΦ[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
-
     pl   = materials.plasticity
-
+    𝑎    = materials.single_phase ?  D(0.0) :  D(1.0)
+  
     # Initial guess
     η         = η0 * ε̇II_eff^(1 / n - 1 )
     ηve       = inv(1/η + 1/(G*Δ.t))
     τII       = 2*ηve*ε̇II_eff
     ηvep      = ηve
 
-    x = @SVector [τII, Pt, Pf, 0.0, Φ0]
+    x = @SVector [τII, Pt, 𝑎*Pf, 0.0, Φ0]
 
     nr   = D(1.0)
     nr0  = D(1.0)
@@ -410,11 +426,15 @@ function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materi
     ηvep = τII/(2*ε̇II_eff)
 
     # Yield function
-    Pe = Pt - Pf
+    Pe = Pt - 𝑎*Pf
     f  = F(materials.plasticity, τII, Pe, 0.0, λ̇, ph)
     
     # EOS
-    dlnρsdt, dlnρfdt = EOS(Ks, Kf, Pt, Pf, Φ, Pt0, Pf0, Φ0, Δ.t)
+    dlnρsdt, dlnρfdt = EOS(Ks, Kf, Pt, 𝑎*Pf, Φ, Pt0, Pf0, Φ0, Δ.t)
+
+    if materials.single_phase
+        Φ = Φ0
+    end
 
     return ηvep, λ̇, Pt, Pf, τII, Φ, f, dlnρsdt, dlnρfdt
 end
@@ -483,7 +503,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ,
             Pt0 = SetBCPf1(Pt0_loc, typepf, bcpf, Δ, ρfg)
 
             # Porosity
-            Φ_loc = if materials.linearizeΦ
+            Φ_loc = if materials.linearizeΦ || materials.single_phase
                         SMatrix{3,3}( Φ0_loc ) 
                     else
                         SMatrix{3,3}( Porosity(Φ0_loc[i,j], Pt[i,j], Pf[i,j], Pt0[i,j], Pf0[i,j], KΦ_loc[i,j], ηΦ_loc[i,j], m_loc[i,j], Δ.t )[1] for i=1:3, j=1:3)
@@ -561,10 +581,8 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ,
             τ.f[i,j]      = f_local
             ε̇.xx[i,j]     = ε̇xx[1]
             ε̇.yy[i,j]     = ε̇yy[1]
-            ε̇.II[i,j]     = sqrt(1 / 2 * (ε̇xx^2 + ε̇yy^2) + ε̇xy^2)
+            ε̇.II[i,j]     = sqrt(1 / 2 * (ε̇xx^2 + ε̇yy^2 + (-ε̇xx-ε̇yy)^2) + ε̇xy^2)
             λ̇.c[i,j]      = λ̇_local
-            Φ.c[i,j]      = Φ_local
-            η.c[i,j]      = η_local
             Φ.c[i,j]      = Φ_local
             η.c[i,j]      = η_local
             ρ.s[i,j]      = ρ0.s[i,j] * (1 + dlnρsdt * Δ.t)
