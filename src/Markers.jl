@@ -57,7 +57,12 @@ function ParticleToGrid!(particles, particle_fields::NTuple{N}, grid_fields::NTu
     return nothing
 end
 
-function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases)
+@inline interpolate(::Val{:harmonic}, r, x) = r / x
+@inline interpolate(::Val{:arithmetic}, r, x) = r * x
+@inline weight_sum(::Val{:harmonic}, x) = 1 / x
+@inline weight_sum(::Val{:arithmetic}, x) = x
+
+function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases, mode::Val)
     nxc, nyc = size(G.c)
     @inbounds for j in 1:nyc, i in 1:nxc
         if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
@@ -68,15 +73,15 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
             pr = phase_ratios.c[i, j]
             for p = 1:nphases
                 r = pr[p]
-                βc += r * materials.β[p]
-                Gc += r * materials.G[p]
-                ρc += r * materials.ρ[p]
-                ξc += r * materials.ξ0[p]
+                βc += interpolate(mode, r, materials.β[p])
+                Gc += interpolate(mode, r, materials.G[p])
+                ρc += interpolate(Val(:arithmetic), r, materials.ρ[p])
+                ξc += interpolate(mode, r, materials.ξ0[p])
             end
-            β.c[i, j] = βc
-            G.c[i, j] = Gc
-            ρ.c[i, j] = ρc
-            ξ.c[i, j] = ξc
+            β.c[i, j] = weight_sum(mode, βc)
+            G.c[i, j] = weight_sum(mode, Gc)
+            ρ.c[i, j] = weight_sum(Val(:arithmetic), ρc)
+            ξ.c[i, j] = weight_sum(mode, ξc)
         else
             β.c[i, j] = 0.0
             G.c[i, j] = 0.0
@@ -112,9 +117,9 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
             Gv = 0.0
             pr = phase_ratios.v[i, j]
             for p = 1:nphases
-                Gv += pr[p] * materials.G[p]
+                Gv += interpolate(mode, pr[p], materials.G[p])
             end
-            G.v[i, j] = Gv
+            G.v[i, j] = weight_sum(mode, Gv)
         else
             G.v[i, j] = 0.0
         end
@@ -131,7 +136,10 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
     return nothing
 end
 
-function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases; mode::Symbol=:harmonic) =
+    compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases, Val(mode))
+
+function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases, mode::Val)
     nxc, nyc = size(G.c)
 
     # Centroid arrays
@@ -153,8 +161,8 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
                 Ksc += r * materials.Ks[p]
                 KΦc += r * materials.KΦ[p]
                 Kfc += r * materials.Kf[p]
-                Gc += r * materials.G[p]
-                ξc += r * materials.ξ0[p]
+                Gc += interpolate(mode, r, materials.G[p])
+                ξc += interpolate(mode, r, materials.ξ0[p])
                 mc += r * materials.m[p]
                 ρsic += r * materials.ρs[p]
                 ρfic += r * materials.ρf[p]
@@ -164,8 +172,8 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
             Ks.c[i, j] = Ksc
             KΦ.c[i, j] = KΦc
             Kf.c[i, j] = Kfc
-            G.c[i, j] = Gc
-            ξ.c[i, j] = ξc
+            G.c[i, j] = weight_sum(mode, Gc)
+            ξ.c[i, j] = weight_sum(mode, ξc)
             m.c[i, j] = mc
             ρsi.c[i, j] = ρsic
             ρfi.c[i, j] = ρfic
@@ -206,9 +214,9 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
             Gv = 0.0
             pr = phase_ratios.v[i, j]
             for p = 1:nphases
-                Gv += pr[p] * materials.G[p]
+                Gv += pr[p] / materials.G[p]
             end
-            G.v[i, j] = Gv
+            G.v[i, j] = 1/Gv
         else
             G.v[i, j] = 0.0
         end
@@ -224,3 +232,6 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
     end
     return nothing
 end
+
+compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases; mode::Symbol=:harmonic) =
+    compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases, Val(mode))
