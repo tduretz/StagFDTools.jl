@@ -1,7 +1,7 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs, MAT
 import Statistics:mean
 
-@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0)
+@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0, ψ=5.0, k_μf0=1e-15, Pe_ini=4.6e7)
 
     # Load data
     filepath = joinpath(@__DIR__, "DataM2Di_EP_test01.mat")
@@ -34,8 +34,8 @@ import Statistics:mean
     α     = LinRange(0.05, 1.0, 5)
 
     rad     = 1e2/sc.L 
-    Pt_ini  = 5e7/sc.σ
     Pf_ini  = 4e6/sc.σ
+    Pt_ini  = (Pf_ini + Pe_ini)/sc.σ
     ε̇bg     = -5e-15.*sc.t
     τ_ini   = 0*(sind(35)*(Pt_ini-Pf_ini) + 0*1e7/sc.σ*cosd(35))  
 
@@ -66,23 +66,18 @@ import Statistics:mean
     materials.n_CK  .= [  0.0,    0.0 ]
     materials.η0    .= [ 1e32,   1e32 ]/sc.σ/sc.t 
     materials.ξ0    .= [ 2e32,   2e32 ]/sc.σ/sc.t
-    materials.G     .= [1e10,   0.25e10]./sc.σ 
+    materials.G     .= [ 1e10, 0.25e10]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 2e10,   2e10 ]./sc.σ
     materials.KΦ    .= [  5e9,    5e9 ]./sc.σ
     materials.Kf    .= [  2e9,    2e9 ]./sc.σ 
-    materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
+    materials.k_ηf0 .= [k_μf0,  k_μf0 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 30.,     30. ] * 1
-    materials.plasticity.ψ   .= [ 5.,     5. ] * 1
+    materials.plasticity.ψ   .= [   ψ,       ψ ] * 1
     materials.plasticity.C   .= [ 3e7,     3e7 ]./sc.σ
     materials.plasticity.ηvp .= [ 0.0,     0.0 ]./sc.σ/sc.t 
-    # materials.plasticity.Pt  .= [-1.e6,    -1e6 ]./sc.σ 
-    # materials.plasticity.Pt  .= [-1.e6,    -1e6 ]./sc.σ 
-    # materials.plasticity.Pc  .= [ 1e8,     1e8 ]./sc.σ
-    # materials.plasticity.a   .= [ 0.8,     0.8 ]
-    # materials.plasticity.b   .= [ 0.0,     0.0 ]
-    # materials.plasticity.c   .= [ 0.8,     0.8 ]
+    materials.plasticity.Pt  .= [-1.e6,    -1e6 ]./sc.σ 
 
     preprocess!(materials)
 
@@ -572,6 +567,7 @@ end
 
 function Run()
 
+    # Highest resolution
     n_nx = 8
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
@@ -579,7 +575,14 @@ function Run()
     nt   = Int64(80*n_nt)
     D_BC = @SMatrix([-1 0; 0 1] )
     main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, niter=100, visualization=true); #1e20
-    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=1e-3, niter=100, visualization=true); #1e20
+
+    # n_nx = 1
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # # nt   = Int64(1*n_nt)
+    # nt   = Int64(80*n_nt)
+    # D_BC = @SMatrix([-1 0; 0 1] )
+    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, visualization=true); #1e20
 end
 
 @time Run()
