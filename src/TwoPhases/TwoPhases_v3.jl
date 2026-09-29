@@ -207,7 +207,7 @@ end
     # if materials.linearizeΦ == true
     #     Φ         = @. Φ0 
     # else 
-        Φ         = SVector{2}( Porosity(Φ0[ii], Ptc[ii], Pfc[ii], Ptc0[ii], Pfc0[ii], KΦ[ii], ξ0[ii], m[ii], Δ.t)[1] for ii in eachindex(Φ0))
+        Φ         = SVector{2}( Porosity(Φ0[ii], Ptc[ii], Pfc[ii], Ptc0[ii], Pfc0[ii], KΦ[ii], ξ0[ii], m[ii], Gc[ii], Δ.t)[1] for ii in eachindex(Φ0))
     # end
 
     # Density
@@ -263,7 +263,7 @@ end
 
 @inline function Continuity(Vx, Vy, Pt_loc, Pf_loc, old, rheo, materials, type, bcv, Δ, ::Val{PC}) where {PC}
     Pt0, Pf0, Φ0, ρs0, ρf0 = old
-    Ks, KΦ, Kf, ξ0, m, ρsi, ρfi = rheo
+    G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi = rheo
     invΔx   = get_invΔx(Δ)
     invΔy   = get_invΔy(Δ)
     Δt      = Δ.t
@@ -287,9 +287,9 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], G[ii], Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], G[ii], Δt)[2] for ii in eachindex(Φ0) )
+        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt)
         Φ, dΦdt 
     end
 
@@ -348,7 +348,7 @@ end
 @inline function FluidContinuity(Vx, Vy, Pt_loc, Pf_loc, ΔPf_loc, old, rheo, materials, type, bcv, Δ, ::Val{PC}) where {PC}
     
     Pt0, Pf0, Φ0, ρs0, ρf0 = old
-    Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, kμ, n_CK = rheo
+    G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, kμ, n_CK = rheo
     invΔx   = get_invΔx(Δ)
     invΔy   = get_invΔy(Δ)
     Δt      = Δ.t
@@ -371,9 +371,9 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
-        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt)
+        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], G[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
+        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], G[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
+        Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt)
         Φ, dΦdt 
     end
 
@@ -440,11 +440,11 @@ end
 end
 
 
-@generated function compute_Φ_and_dΦdt_trial(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, Δt) where {M,T,N}
+@generated function compute_Φ_and_dΦdt_trial(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt) where {M,T,N}
     quote
        Base.@nexprs $N i -> begin
             @inline 
-            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], Δt)
+            out = Porosity(Φ0[i], Pt[i], Pf[i], Pt0[i], Pf0[i], KΦ[i], ξ0[i], m[i], G[i], Δt)
             Φ_i = out[1]
             dΦdt_i = out[2]
        end
@@ -764,6 +764,7 @@ function ResidualContinuity2D!(R, V, P, ΔP, old, rheo, materials, number, type,
             bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
             type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
 
+            G_loc      = SMatrix{3,3}(      G.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Ks_loc     = SMatrix{3,3}(     Ks.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             KΦ_loc     = SMatrix{3,3}(     KΦ.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Kf_loc     = SMatrix{3,3}(     Kf.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
@@ -773,7 +774,7 @@ function ResidualContinuity2D!(R, V, P, ΔP, old, rheo, materials, number, type,
             ρfi_loc    = SMatrix{3,3}(    ρfi.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
 
             old_loc    = (Pt = Pt0, Pf=Pf0, ϕ=Φ0, ρs=ρs0, ρf=ρf0 )
-            rheo_loc   = (Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc)
+            rheo_loc   = (G = G_loc, Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc)
             
             R.pt[i,j]  = Continuity(Vx_loc, Vy_loc, Pt, Pf, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ)
         end
@@ -825,6 +826,7 @@ function AssembleContinuity2D!(K_loc, V, P, ΔP, old, rheo, materials, num, patt
             bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
             type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
 
+            G_loc      = SMatrix{3,3}(      G.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Ks_loc     = SMatrix{3,3}(     Ks.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             KΦ_loc     = SMatrix{3,3}(     KΦ.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Kf_loc     = SMatrix{3,3}(     Kf.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
@@ -834,7 +836,7 @@ function AssembleContinuity2D!(K_loc, V, P, ΔP, old, rheo, materials, num, patt
             ρfi_loc    = SMatrix{3,3}(    ρfi.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
 
             old_loc    = (Pt = Pt0, Pf = Pf0, ϕ = Φ0, ρs = ρs0, ρf = ρf0 )
-            rheo_loc   = (Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc)
+            rheo_loc   = (G = G_loc, Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc)
 
             ∂R∂Vx = ad_gradient(Vx_loc -> Continuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ, pc), Vx_loc)
             ∂R∂Vy = ad_gradient(Vy_loc -> Continuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ, pc), Vy_loc)
@@ -905,6 +907,7 @@ function ResidualFluidContinuity2D!(R, V, P, ΔP, old, rheo, materials, number, 
                 bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
                 type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
                 
+                G_loc      = SMatrix{3,3}(      G.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
                 Ks_loc     = SMatrix{3,3}(     Ks.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
                 KΦ_loc     = SMatrix{3,3}(     KΦ.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
                 Kf_loc     = SMatrix{3,3}(     Kf.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
@@ -915,7 +918,7 @@ function ResidualFluidContinuity2D!(R, V, P, ΔP, old, rheo, materials, number, 
                 n_CK_loc   = SMatrix{3,3}(   n_CK.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
                 
                 old_loc    = (Pt = Pt0, Pf = Pf0, ϕ = Φ0, ρs = ρs0, ρf = ρf0 )
-                rheo_loc   = (Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc, kμ = kμ_loc, n_CK = n_CK_loc)
+                rheo_loc   = (G = G_loc, Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc, kμ = kμ_loc, n_CK = n_CK_loc)
 
                 R.pf[i,j]  = FluidContinuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ)
             end
@@ -968,6 +971,7 @@ function AssembleFluidContinuity2D!(K_loc, V, P, ΔP, old, rheo, materials, num,
             bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
             type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
             
+            G_loc      = SMatrix{3,3}(      G.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Ks_loc     = SMatrix{3,3}(     Ks.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             KΦ_loc     = SMatrix{3,3}(     KΦ.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             Kf_loc     = SMatrix{3,3}(     Kf.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
@@ -978,7 +982,7 @@ function AssembleFluidContinuity2D!(K_loc, V, P, ΔP, old, rheo, materials, num,
             n_CK_loc   = SMatrix{3,3}(   n_CK.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             
             old_loc    = (Pt = Pt0, Pf=Pf0, ϕ=Φ0, ρs=ρs0, ρf=ρf0 )
-            rheo_loc   = (Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc, kμ = kμ_loc, n_CK = n_CK_loc)
+            rheo_loc   = (G = G_loc, Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc, kμ = kμ_loc, n_CK = n_CK_loc)
 
             ∂R∂Vx = ad_gradient(Vx_loc -> FluidContinuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ, pc), Vx_loc)
             ∂R∂Vy = ad_gradient(Vy_loc -> FluidContinuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPf_loc, old_loc, rheo_loc, materials, type_loc, bcv_loc, Δ, pc), Vy_loc)
@@ -1027,6 +1031,8 @@ function UpdatePorosity2D!(R, V, P, P0, Φ, Φ0, phases, materials, number, type
             ηΦ        = materials.ξ0[phases.c[i,j]]
             dPtdt     = (P.t[i,j] - P0.t[i,j]) / Δ.t
             dPfdt     = (P.f[i,j] - P0.f[i,j]) / Δ.t
+            # ηΦ1     = bulk_viscosity(Φ, ξ0, m)
+            # KΦ1     = bulk_elasticity(Φ, G)
             dΦdt      = (dPfdt - dPtdt)/KΦ + (P.f[i,j] - P.t[i,j])/ηΦ
             Φ.c[i,j]  = Φ0.c[i,j] + dΦdt*Δ.t
         end
@@ -1043,6 +1049,8 @@ function ResidualPorosity2D!(R, V, P, P0, Φ, Φ0, phases, materials, number, ty
             ηΦ        = materials.ξ0[phases.c[i,j]]
             dPtdt     = (P.t[i,j] - P0.t[i,j]) / Δ.t
             dPfdt     = (P.f[i,j] - P0.f[i,j]) / Δ.t
+            # ηΦ1     = bulk_viscosity(Φ, ξ0, m)
+            # KΦ1     = bulk_elasticity(Φ, G)
             dΦdt      = (dPfdt - dPtdt)/KΦ + (P.f[i,j] - P.t[i,j])/ηΦ
             R.Φ[i,j]  = Φ.c[i,j] - (Φ0.c[i,j] + dΦdt*Δ.t)
         end
