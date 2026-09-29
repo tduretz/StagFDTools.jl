@@ -21,10 +21,10 @@ function set_geometry!(phases, colors, particles, plate, cell_size)
                 cb = iseven(Int(fld(x, cell_size)) + Int(fld(y, cell_size))) ? 0. : 1.
                 if inside(𝐱, plate)
                     @index phases[ip, i, j] = 1.
-                    @index colors[ip, i, j] = 2. + cb   # plate checkerboard: 2/3
+                    @index colors[ip, i, j] = 2. + cb
                 else
                     @index phases[ip, i, j] = 2.
-                    @index colors[ip, i, j] = cb         # matrix checkerboard: 0/1
+                    @index colors[ip, i, j] = cb
                 end
             end
         end
@@ -59,7 +59,7 @@ end
 
     # Time steps
     nt = 200 #200
-    Δt0 = 5e3*year2sec/sc.t
+    Δt0 = 1e3*year2sec/sc.t
 
     # Solver parameters
     iter_params = IterParams(solver_type=:PH, niter=10, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
@@ -99,12 +99,8 @@ end
     max_xcell = 25
     min_xcell = 10
     args = 2
-    # Square marker side (in km), sized to the particle spacing in the sparsest
-    # allowed case (min_xcell particles per cell) so tiles cover the domain
-    # with no gaps (small overlap factor for safety against uneven spacing)
-    marker_size_km = (Δ.x * sc.L / 1e3) / sqrt(min_xcell) * 1.3
-    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
-    sm = StressMarkers(adv.particles)
+    particles, tm = TensorMarkers(backend, a, nxcell, max_xcell, min_xcell)
+    adv = Markers(backend, a, particles, tm, nc, nphases; args)
     phases, colors = adv.particle_args
 
     # Set material geometry
@@ -133,7 +129,7 @@ end
         idxv = adv.particles.index.data[:]
         # 0/1=matrix checkerboard (blues), 2/3=plate checkerboard (greys)
         checker_colors = cgrad([:lightskyblue, :dodgerblue, :grey70, :grey20], 4, categorical=true)
-        scatter!(ax, Array(pxv[idxv]) .* sc.L ./ 1e3, Array(pyv[idxv]) .* sc.L ./ 1e3, color=Array(clr[idxv]), colormap=checker_colors, colorrange=(-0.5, 3.5), marker=:rect, markersize=marker_size_km, markerspace=:data, strokewidth=0)
+        scatter!(ax, Array(pxv[idxv]) .* sc.L ./ 1e3, Array(pyv[idxv]) .* sc.L ./ 1e3, color=Array(clr[idxv]), colormap=checker_colors, colorrange=(-0.5, 3.5), marker=:rect, markerspace=:data, strokewidth=0)
 
         display(fig)
     end
@@ -151,7 +147,7 @@ end
             Δ = (x=Δ.x, y=Δ.y, t=min(Δt0, 0.5*min(Δ.x, Δ.y)/Vmax))
         end
         time_tot += Δ.t
-        @time main_loop(a, adv, sm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+        @time main_loop(a, adv, tm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
         #--------------------------------------------#
 

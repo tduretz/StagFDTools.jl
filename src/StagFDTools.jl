@@ -56,14 +56,16 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Allocs.jl")
-export Allocs, Markers, StressMarkers
+export Allocs, Markers, TensorMarkers, TensorConstructor, initialise_markers
 include("Markers.jl")
 export Set_PhaseRatios!, compute_grid_fields!
 include("StressMarkers.jl")
-export stress_ToParticles!, stress_ToGrid!
+export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
+    update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_advected!,
+    rotation_increments!, constitutive_increments!
 include("Main.jl")
 export AbstractSolver, Solve!, main_loop, IterParams
-export compute_vorticity!, compute_rotation!, rotate_stress!
+export compute_vorticity!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology

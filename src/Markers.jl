@@ -136,7 +136,7 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
     return nothing
 end
 
-compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases; mode::Symbol=:harmonic) =
+compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases; mode::Symbol=:arithmetic) =
     compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases, Val(mode))
 
 function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases, mode::Val)
