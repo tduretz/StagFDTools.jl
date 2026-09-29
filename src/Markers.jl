@@ -75,12 +75,12 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
                 r = pr[p]
                 βc += interpolate(mode, r, materials.β[p])
                 Gc += interpolate(mode, r, materials.G[p])
-                ρc += interpolate(Val(:arithmetic), r, materials.ρ[p])
+                ρc += interpolate(mode, r, materials.ρ[p])
                 ξc += interpolate(mode, r, materials.ξ0[p])
             end
             β.c[i, j] = weight_sum(mode, βc)
             G.c[i, j] = weight_sum(mode, Gc)
-            ρ.c[i, j] = weight_sum(Val(:arithmetic), ρc)
+            ρ.c[i, j] = weight_sum(mode, ρc)
             ξ.c[i, j] = weight_sum(mode, ξc)
         else
             β.c[i, j] = 0.0
