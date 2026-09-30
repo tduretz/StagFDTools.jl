@@ -138,7 +138,7 @@ function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δ)
 end
 
 # Interpolate stress increments to particles
-function stress_ToParticles!(allocs, tm::TensorMarkers, particles)
+function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, particles)
     centroid2particle!(tm.Δ.τxx, allocs.D.τxx, particles)
     centroid2particle!(tm.Δ.τyy, allocs.D.τyy, particles)
     centroid2particle!(tm.Δ.P, allocs.ΔPt.c, particles)
