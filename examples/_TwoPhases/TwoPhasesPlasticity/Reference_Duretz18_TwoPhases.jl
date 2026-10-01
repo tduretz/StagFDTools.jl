@@ -8,7 +8,7 @@ import Statistics:mean
     data = matread(filepath)
     @show keys(data)
 
-   sc = (σ =1e7, L = 1e3, t = 1e10)
+    sc = (σ =1e7, L = 1e3, t = 1e10)
 
     # Load data
     filepath = joinpath(@__DIR__, "DataM2Di_EP_test01.mat")

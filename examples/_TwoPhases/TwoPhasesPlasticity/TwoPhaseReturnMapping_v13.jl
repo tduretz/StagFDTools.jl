@@ -4,13 +4,9 @@ using DifferentiationInterface
 import ForwardDiff: ForwardDiff
 import ForwardDiff as FD
 
-const benchmark = true
+const benchmark = false
 
-# Intends to implement constitutive updates as in RheologicalCalculator
-
-# use the trial to determine corrected pressures
-
-# for pratical allocation free implemetation with Albert
+# This script shows the equivalence between trial pressure and true pressure formulations 
 
 @inline mynorm(x) = sum(xi^2 for xi in x)
 
@@ -32,61 +28,6 @@ function PorosityRate(Φ, Pt, Pf, λ̇, Pt0, Pf0, p)
     return dΦdt, ηΦ
 end
 
-# Equation of states solid and fluid
-function EOS(Pt, Pf, Φ, Pt0, Pf0, Φ0, p)
-    Ks, Kf, Δt = p.Ks, p.Kf, p.Δt
-    dPtdt   = (Pt - Pt0) / Δt
-    dPfdt   = (Pf - Pf0) / Δt
-    dlnρfdt = dPfdt / Kf
-    # Approximation in Yarushina ≈
-    dPsdt   = ((Pt - Φ*Pf)/(1-Φ) - (Pt0 - Φ0*Pf0)/(1-Φ0))/Δt
-    # Exact, but non linear
-    # dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
-    dlnρsdt = 1/Ks * dPsdt 
-    return dlnρsdt, dlnρfdt
-end
-
-# This function compute plastic pressure increments as function of multiplier
-# It allows to write up corrected pressure as P_corr = Pt_trial + ΔP
-function ΔPΦ_residual(x, λ̇, Pt0, Pf0, Φ0, p)
-
-    Pt, Pf  = x[1], x[2]
-    Φ       = Φ0 # one could make phi a variable too
-
-    # Porosity rate
-    dΦdt, ηΦ = PorosityRate(Φ, Pt, Pf, λ̇, Pt0, Pf0, p)
-
-    # Equations of state
-    dlnρsdt, dlnρfdt = EOS(Pt, Pf, Φ, Pt0, Pf0, Φ0, p)
-
-    return @SVector [ 
-        dlnρsdt - dΦdt/(1-Φ),
-        (Φ*dlnρfdt + dΦdt),
-    ]
-end
-
-function ΔPΦ(λ̇, Pt0, Pf0, Φ0, p)
-
-    x   = @SVector[0.0, 0.0 ]
-    r0  = 1.0
-    tol = 1e-13
-
-    for iter=1:10
-        r, J  = value_and_jacobian(x -> ΔPΦ_residual(x, λ̇, Pt0, Pf0, Φ0, p), AutoForwardDiff(), x)
-        x -= J\r
-        nr = mynorm(r)
-        # @show J
-        if iter==1 && nr>1e-17
-            r0 = nr
-        end
-        r = nr/r0
-        if r<tol
-            break
-        end
-    end
-    return x
-end
-
 function residual_two_phase_trial(x, ε̇II_eff, Pt_trial, Pf_trial, Φ_trial, divVs, divqD, Pt0, Pf0, Φ0, p)
     
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
@@ -102,29 +43,10 @@ function residual_two_phase_trial(x, ε̇II_eff, Pt_trial, Pf_trial, Φ_trial, d
     # Porosity rate
     dΦdt    = PorosityRate(Φ, Pt, Pf, λ̇, Pt0, Pf0, p)[1]
 
-    # Φ1 = Φ0 + dΦdt*Δt
-
-
-    # # Form 1 - requires one additional solve: here it's done by hand
-    # ΔP = SA[
-    #     KΦ .* sinψ .* Δt .* Φ1 .* ηΦ .* λ̇ .* (-Kf + Ks) ./ (-Kf .* KΦ .* Δt .* Φ1 + Kf .* KΦ .* Δt - Kf .* Φ1 .* ηΦ + Kf .* ηΦ + Ks .* KΦ .* Δt .* Φ1 + Ks .* Φ1 .* ηΦ + KΦ .* Φ1 .* ηΦ),
-    #     Kf .* KΦ .* sinψ .* Δt .* ηΦ .* λ̇ ./ (Kf .* KΦ .* Δt .* Φ1 - Kf .* KΦ .* Δt + Kf .* Φ1 .* ηΦ - Kf .* ηΦ - Ks .* KΦ .* Δt .* Φ1 - Ks .* Φ1 .* ηΦ - KΦ .* Φ1 .* ηΦ)
-    # ]
-    # rpt = Pt - (Pt_trial + ΔP[1])
-    # rpf = Pf - (Pf_trial + ΔP[2])
-
-    # !!!! It would be better to have this version working 
-    # Form 2 - requires one additional solve: one more nested AD loop
-    # ΔP  = ΔPΦ(λ̇, 0.0*Pt0, 0.0*Pf0, Φ0, p)
-    # rpt = Pt - (Pt_trial + ΔP[1])
-    # rpf = Pf - (Pf_trial + ΔP[2])
-
-    # Form 3 - needs to build full continuity does not give the correct P trial dependence
+    # Mass conservations
     dPfdt   = (Pf - Pf0) / Δt
     dPtdt   = (Pt - Pt0) / Δt 
     dlnρfdt = dPfdt / Kf
-    # dPsdt = dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
-    # dlnρsdt = 1/Ks * dPsdt 
     dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
     rpt = dlnρsdt - dΦdt/(1-Φ) + divVs
     rpf = Φ*dlnρfdt + dΦdt     + Φ*divVs + divqD
@@ -190,22 +112,22 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
 
     #### All checks!!!
     typeof(λ̇)==Float64 && @info "Post solve residual"
-    typeof(λ̇)==Float64 && @show r
+    typeof(λ̇)==Float64 && @show norm(r)/norm(ε̇_eff)
 
     KΦ, ηΦ, sinψ, Δt = p.KΦ, p.ηΦ, p.sinψ, p.Δt
     Kf, Ks = p.Kf, p.Ks 
 
-    #### Check residual with trial state pressures: it is also zero !!!
+    #### Check residual with trial state pressures: it is zero !!!
     typeof(λ̇)==Float64 && @info "Trial pressure formulation: general form"
     dPtdt   = (Pt_trial - Pt0) / Δt
     dPfdt   = (Pf_trial - Pf0) / Δt
     dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf_trial - Pt_trial)
-    Φ       = Φ_trial
+    Φ       = Φ_trial       #### !!!!!!! Trial porosity
     dlnρfdt = dPfdt / Kf
     dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
     f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
     f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
-    typeof(f1)==Float64 && @show f1, f2
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
 
     ### Check residuals with corrected pressures: should be zero !
 
@@ -214,12 +136,12 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
     dPtdt   = (Pt - Pt0) / Δt
     dPfdt   = (Pf - Pf0) / Δt
     dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf - Pt) + λ̇*sinψ
-    Φ       = Φ0 + Δt * dΦdt 
+    Φ       = Φ0 + Δt * dΦdt  #### !!!!!!! Correct porosity
     dlnρfdt = dPfdt / Kf
     dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
     f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
     f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
-    typeof(f1)==Float64 && @show f1, f2
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
 
     # Specific form 
     typeof(λ̇)==Float64 && @info "True pressure formulation: specific form 1"
@@ -228,13 +150,38 @@ function StressVector_trial(ϵ̇::SVector{N,T}, divVs, divqD, τ0, Pt0, Pf0, Φ0
     B  = (1/Kd - 1/Ks) / (1/Kd - 1/Ks + Φ*(1/Kf - 1/Ks))
     f1 = divVs     + 1/Kd*(dPtdt -   α*dPfdt) - 1/(1-Φ)*λ̇*sinψ + (Pt-Pf)/((1-Φ)*ηΦ)
     f2 = divqD     - α/Kd*(dPtdt - 1/B*dPfdt) + 1/(1-Φ)*λ̇*sinψ - (Pt-Pf)/((1-Φ)*ηΦ)
-    typeof(f1)==Float64 && @show f1, f2
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
 
     # Specific form (rederived)
     typeof(λ̇)==Float64 && @info "True pressure formulation: specific form 2"
     f1 = divVs    + (1/Ks)/(1-Φ) * (dPtdt - Φ*dPfdt) + (1/KΦ)/(1-Φ) * (dPtdt - dPfdt) + (Pt-Pf)/((1-Φ)*ηΦ) - 1/(1-Φ)*λ̇*sinψ
     f2 = divqD    - (dPtdt - dPfdt)/KΦ + Φ*dPfdt/Kf + Φ*divVs - (Pt-Pf)/ηΦ + λ̇*sinψ
-    typeof(f1)==Float64 && @show f1, f2
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
+
+
+    ### What if you mix them: correct Φ in trial pressure form
+    typeof(λ̇)==Float64 && @info "Trial pressure formulation with corrected porosity: NO GO!"
+    dPtdt   = (Pt_trial - Pt0) / Δt
+    dPfdt   = (Pf_trial - Pf0) / Δt
+    dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf_trial - Pt_trial)
+    Φ       = Φ0 + Δt * dΦdt  #### !!!!!!! Correct porosity
+    dlnρfdt = dPfdt / Kf
+    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
+    f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
+    f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
+
+    ### What if you mix them: trial Φ in correct pressure form
+    typeof(λ̇)==Float64 && @info "True pressure formulation with trial porosity: NO GO!"
+    dPtdt   = (Pt - Pt0) / Δt
+    dPfdt   = (Pf - Pf0) / Δt
+    dΦdt    = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (Pf - Pt) + λ̇*sinψ
+    Φ       = Φ_trial       #### !!!!!!! Trial porosity
+    dlnρfdt = dPfdt / Kf
+    dlnρsdt = 1/(1-Φ) *(dPtdt - Φ*dPfdt) / Ks
+    f1      = dlnρsdt   - dΦdt/(1-Φ) +   divVs
+    f2      = Φ*dlnρfdt + dΦdt       + Φ*divVs + divqD
+    typeof(f1)==Float64 && @show f1/norm(ε̇_eff), f2/norm(ε̇_eff)
 
     return @SVector[τ[1], τ[2], τ[3], Pt, Pf, λ̇, Φ1, nr]
 end
