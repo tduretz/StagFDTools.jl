@@ -22,7 +22,7 @@ import Statistics:mean
     Δt0    = 1e10/sc.t / n_nt
 
     # Linear solver
-    solver       = :LU #:GCR
+    solver       = :GCR # or :LU
     GCR_restart  = 25
     GCR_maxit    = 100
     ϵ_l          = 1e-11

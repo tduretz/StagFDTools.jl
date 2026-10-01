@@ -390,7 +390,7 @@ end
     # Interp Vy -> Vx, Vx - > Vy
     # this section allocates
     V̄y = av2D(Vy) 
-    V̄x = av2D(Vx) # this allocates - 54 MiB
+    V̄x = av2D(Vx)
 
     # Velocity gradient - centroids
     # this section allocates
@@ -1022,12 +1022,12 @@ function AssembleFluidContinuity2D!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials
             ρfi_loc    = SMatrix{3,3}(    ρfi.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             n_CK_loc   = SMatrix{3,3}(   n_CK.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             
-            𝐷_loc      = SMatrix{3,3}(      𝐷.c[ii,jj] for ii in i-1:i+1,   jj in j-1:j+1)
+            𝐷_loc      = SMatrix{3,3}(      𝐷.c[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             τxx0       = SMatrix{3,3}(    τ0.xx[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             τyy0       = SMatrix{3,3}(    τ0.yy[ii,jj] for ii in i-1:i+1, jj in j-1:j+1)
             τxy0       = SMatrix{3,3}(    0.25*(τ0.xy[ii,jj] + τ0.xy[ii+1,jj] + τ0.xy[ii,jj+1] + τ0.xy[ii+1,jj+1]) for ii in i-1:i+1, jj in j-1:j+1)
 
-            old_loc    = (Pt = Pt0, Pf = Pf0, ϕ = Φ0, ρs = ρs0, ρf = ρf0, τxx0=τxx0, τyy0=τyy0, τxy0=τxy0 )
+            old_loc    = (Pt = Pt0, Pf = Pf0, ϕ = Φ0, ρs = ρs0, ρf = ρf0, τxx0 = τxx0, τyy0 = τyy0, τxy0 = τxy0 )
             rheo_loc   = (G = G_loc, Ks = Ks_loc, KΦ = KΦ_loc, Kf = Kf_loc, ξ = ξ_loc, m = m_loc, ρfi = ρfi_loc, ρsi = ρsi_loc, kμ = kμ_loc, n_CK = n_CK_loc)
 
             ∂R∂Vx = ad_gradient(Vx_loc -> FluidContinuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPf_loc, old_loc, rheo_loc, 𝐷_loc, materials, type_loc, bcv_loc, Δ, pc), Vx_loc)
@@ -1036,37 +1036,28 @@ function AssembleFluidContinuity2D!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials
             ∂R∂Pf = ad_gradient(Pf_loc -> FluidContinuity(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPf_loc, old_loc, rheo_loc, 𝐷_loc, materials, type_loc, bcv_loc, Δ, pc), Pf_loc)
                 
             # Pf --- Vx
-            Local = SMatrix{4, 5}(num.Vx[ii, jj] for ii in i-1:i+2, jj in j-1:j+3).* pattern[4][1]
+            Local = SMatrix{4, 5}(num.Vx[ii, jj] for ii in i-1:i+2, jj in j-1:j+3) .* pattern[4][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
                     K_loc[tid-1][4][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
-                # if ii==1 && jj==1 && abs(∂R∂Vx[ii,jj])>1e-13
-                #     display(∂R∂Vx)
-                # end
             end
             # Pf --- Vy
-            Local = SMatrix{5, 4}(num.Vy[ii, jj] for ii in i-1:i+3, jj in j-1:j+2).* pattern[4][2]
+            Local = SMatrix{5, 4}(num.Vy[ii, jj] for ii in i-1:i+3, jj in j-1:j+2) .* pattern[4][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
                     K_loc[tid-1][4][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
                 end
-                # if ii==1 && jj==1 && abs(∂R∂Vy[ii,jj])>1e-13
-                #     display(∂R∂Vy)
-                # end
             end
             # Pf --- Pt
-            Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[4][3]
+            Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1) .* pattern[4][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
                     K_loc[tid-1][4][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end
-                # if ii==1 && jj==2 && abs(∂R∂Pt[ii,jj])>1e-13
-                #     display(Local)
-                # end
             end
             # Pf --- Pf
-            Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[4][4]
+            Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1) .* pattern[4][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
                     K_loc[tid-1][4][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
