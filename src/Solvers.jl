@@ -397,7 +397,7 @@ function two_phases_mechanical_solver!(dx, M, r, M_PC;
     ]
     if solver == :LU
         # Backslash 
-        dx .= -𝑀 \ r    
+        dx .= -𝑀 \ r 
     elseif solver == :GCR
         # Coupled GCR with fancy PC from Raess et al., 2017
         KSP_GCR_TwoPhases_opt!(dx, 𝑀, .-r, noisy, M_PC, solver_cache; reltol=ϵ_l, abstol=ϵ_l )

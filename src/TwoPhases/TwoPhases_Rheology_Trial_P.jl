@@ -23,8 +23,9 @@ end
 # bulk_viscosity(ϕ, η0, m) = η0*abs(ϕ)^m
 @inline @inline bulk_viscosity(ϕ::T, η0, m) where T = iszero(m) ? T(η0) : η0*abs(ϕ)^m
 
-@inline @inline bulk_elasticity(ϕ::T, G, KΦ) where T = G / abs(ϕ) #  KΦ
+# @inline @inline bulk_elasticity(ϕ::T, G, KΦ) where T = G / abs(ϕ) #  KΦ
 
+@inline @inline bulk_elasticity(ϕ::T, G, KΦ) where T = KΦ
 
 # @inline new_porosity(Φ0,  dΦdt,  Δt) = Φ0  + dΦdt * Δt
 @inline function new_porosity(Φ0,  dΦdt,  Δt) 

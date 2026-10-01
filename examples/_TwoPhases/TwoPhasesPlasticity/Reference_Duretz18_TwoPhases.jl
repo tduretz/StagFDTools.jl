@@ -22,11 +22,11 @@ import Statistics:mean
     Δt0    = 1e10/sc.t / n_nt
 
     # Linear solver
-    solver       = :GCR
+    solver       = :LU #:GCR
     GCR_restart  = 25
     GCR_maxit    = 100
     ϵ_l          = 1e-11
-    Pic2Newt     = 0.8   # more than 1.0 - always Newton
+    Pic2Newt     = 1.8   # more than 1.0 - always Newton
     solver_ready = false
 
     # Newton solver
@@ -63,7 +63,7 @@ import Statistics:mean
 
     materials.n     .= [  1.0,    1.0 ]
     materials.m     .= [  0.0,    0.0 ]
-    materials.n_CK  .= [  0.0,    0.0 ]
+    materials.n_CK  .= [ n_CK,   n_CK ]
     materials.η0    .= [ 1e32,   1e32 ]/sc.σ/sc.t 
     materials.ξ0    .= [ 2e32,   2e32 ]/sc.σ/sc.t
     materials.G     .= [ 1e10, 0.25e10]./sc.σ 
@@ -72,12 +72,12 @@ import Statistics:mean
     materials.Ks    .= [ 2e10,   2e10 ]./sc.σ
     materials.KΦ    .= [  5e9,    5e9 ]./sc.σ
     materials.Kf    .= [  2e9,    2e9 ]./sc.σ 
-    materials.k_ηf0 .= [k_μf0,  k_μf0 ]./(sc.L^2/sc.σ/sc.t)
+    materials.k_ηf0 .= [k_μf0/Φini^n_CK,  k_μf0/Φini^n_CK ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 30.,     30. ] * 1
     materials.plasticity.ψ   .= [   ψ,       ψ ] * 1
     materials.plasticity.C   .= [ 3e7,     3e7 ]./sc.σ
     materials.plasticity.ηvp .= [ 0.0,     0.0 ]./sc.σ/sc.t 
-    materials.plasticity.Pt  .= [-1.e6,    -1e6 ]./sc.σ 
+    materials.plasticity.Pt  .= [-1.e6,   -1e6 ]./sc.σ 
 
     preprocess!(materials)
 
@@ -85,7 +85,6 @@ import Statistics:mean
     # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
     @show Φ0
     # error()
-    Φ_ini   = Φ0
 
     # Resolution
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -133,10 +132,10 @@ import Statistics:mean
 
     # Stencil extent for each block matrix
     pattern = Fields(
-        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),                 @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]), @SMatrix([1 1 1;  1 1 1]),        @SMatrix([1 1 1;  1 1 1])), 
-        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),  @SMatrix([1 1 1; 1 1 1; 1 1 1]),                @SMatrix([1 1; 1 1; 1 1]),        @SMatrix([1 1; 1 1; 1 1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1]),                   @SMatrix([1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1]),                   @SMatrix([1 1 1; 1 1 1; 1 1 1])),
+        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1;  1 1 1]),        @SMatrix([1 1 1;  1 1 1])), 
+        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([1 1; 1 1; 1 1]),        @SMatrix([1 1; 1 1; 1 1])),
+        Fields(@SMatrix([0 1 0;  0 1 0]),                               @SMatrix([0 0; 1 1; 0 0]),                               @SMatrix([1]),                    @SMatrix([1])),
+        Fields(@SMatrix([1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1]),  @SMatrix([1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1]), @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
     )
 
     # Sparse matrix assembly
@@ -169,8 +168,8 @@ import Statistics:mean
     V       = (x=zeros(size_x...), y=zeros(size_y...))
     Vi      = (x=zeros(size_x...), y=zeros(size_y...))
     η       = (c  =  ones(size_c...), v  =  ones(size_v...) )
-    Φ       = (c=Φ_ini.*ones(size_c...), v=Φ_ini.*ones(size_v...) )
-    Φ0      = (c=Φ_ini.*ones(size_c...), v=Φ_ini.*ones(size_v...) )
+    Φ       = (c=Φini.*ones(size_c...), v=Φini.*ones(size_v...) )
+    Φ0      = (c=Φini.*ones(size_c...), v=Φini.*ones(size_v...) )
     εp      = zeros(size_c...)
     ε̇       = (xx = zeros(size_c...), yy = zeros(size_c...), xy = zeros(size_v...), II = zeros(size_c...), θ = zeros(size_c...) )
     τ0      = (xx = τxx_ini.*ones(size_c...), yy = τyy_ini.*ones(size_c...), xy = zeros(size_v...) )
@@ -219,7 +218,7 @@ import Statistics:mean
         #     i, j = I[1], I[2]
         #     if i>1 && i<size(Φ.c,1) && j>1 && j<size(Φ.c,2)
         #         if (X.c.x[i-1]^2 + X.c.y[j-1]^2) < rad^2
-        #             Φ.c[i,j] = 1.1*Φ_ini
+        #             Φ.c[i,j] = 1.1*Φini
         #         end
         #     end 
         # end
@@ -301,8 +300,8 @@ import Statistics:mean
             @timeit to "Residual" begin
                 ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
                 ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-                ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+                ResidualContinuity2D!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+                ResidualFluidContinuity2D!(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
             end
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
@@ -337,8 +336,8 @@ import Statistics:mean
                 M_PC_threads = reset_parallel_storage(number)
                 AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M, M_PC_threads)
                 end
@@ -347,8 +346,8 @@ import Statistics:mean
                 M_PC_threads = reset_parallel_storage(number)
                 AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
                 AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M_PC, M_PC_threads)
                 end
@@ -565,24 +564,24 @@ import Statistics:mean
     return 
 end
 
-function Run()
+function Run(nt)
 
-    # Highest resolution
-    n_nx = 8
-    n_nt = 1
-    nc   = (x=n_nx*50, y=n_nx*25)
-    # nt   = Int64(1*n_nt)
-    nt   = Int64(80*n_nt)
-    D_BC = @SMatrix([-1 0; 0 1] )
-    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, niter=100, visualization=true); #1e20
-
-    # n_nx = 1
+    # # Highest resolution
+    # n_nx = 8
     # n_nt = 1
     # nc   = (x=n_nx*50, y=n_nx*25)
     # # nt   = Int64(1*n_nt)
     # nt   = Int64(80*n_nt)
     # D_BC = @SMatrix([-1 0; 0 1] )
-    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, visualization=true); #1e20
+    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, niter=100, visualization=true); #1e20
+
+    n_nx = 1
+    n_nt = 1
+    nc   = (x=n_nx*50, y=n_nx*25)
+    nt   = Int64(nt*n_nt)
+    D_BC = @SMatrix([-1 0; 0 1] )
+    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=50, Pe_ini=4.6e7, visualization=true); #1e20
 end
 
-@time Run()
+@time Run(1)
+@time Run(80)
