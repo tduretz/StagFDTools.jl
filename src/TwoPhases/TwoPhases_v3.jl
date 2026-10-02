@@ -360,6 +360,10 @@ end
 
     Pfc_loc = SMatrix{3,3}( (Pf_loc[i, j] + ΔPf_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
     # Ptc_loc  = SMatrix{3,3}((Pt_loc[i, j] + ΔPt_loc[i, j]) for i ∈ 1:3, j ∈ 1:3 )
+   
+    # BC 
+    Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
+    Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
 
     # Density - currently explicit in time (= using old fluid density)
     ρ0f  = ρfi
@@ -383,10 +387,15 @@ end
     end
 
     ########################
-    # BC 
-    Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
-    Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
 
+    # # Old code section
+    # Pfc = SMatrix{3,3}(
+    #     Pf_loc[i,j] 
+    # for i ∈ 1:3, j ∈ 1:3)
+    # δPfc  = SetBCPf1(Pfc, type.pf, bcv.pf, Δ, ρfg)
+
+    ########################
+    # New code section
     # Interp Vy -> Vx, Vx - > Vy
     # this section allocates
     V̄y = av2D(Vy) 
@@ -415,8 +424,9 @@ end
         Pf_loc[i,j] + ΔPf_loc[i,j] + ( (𝐷[i,j][5,5] - 1.0)*Pf_loc[i,j] + 𝐷[i,j][5,4]*Pt_loc[i,j] + 𝐷[i,j][5,3]*ϵ̇xy[i,j] + 𝐷[i,j][5,2]*ϵ̇yy[i,j] + 𝐷[i,j][5,1]*ϵ̇xx[i,j] )
     for i ∈ 1:3, j ∈ 1:3)    
     δPfc  = SetBCPf1(Pfc, type.pf, bcv.pf, Δ, ρfg)
+    
     ########################
-
+    
     # EOS
     dlnρfdt = dPfdt[2,2] / Kf[2,2]
     dPsdt   = @. dΦdt*(Pt - Pf*Φ)/(1-Φ)^2 + (dPtdt - Φ*dPfdt - Pf*dΦdt) / (1 - Φ)
