@@ -15,7 +15,7 @@ av2D(x) = @views @. 0.25 * (x[1:end-1, 1:end-1] + x[2:end-0, 1:end-1,] + x[1:end
                 x[i+1, j+1]
             )
 
-        end, (M - 1) * (N - 1)))
+        end, Val((M - 1) * (N - 1))))
 end
 
 
