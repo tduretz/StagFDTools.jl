@@ -7,6 +7,22 @@ using ForwardDiff: ForwardDiff
 const save = false
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/high_res_test/"
 const backend = AutoForwardDiff()
+using JustPIC
+import CellArraysIndexing: @index
+const pic_backend = JustPIC.CPU
+
+function set_phases!(phases, particles, layering)
+    Threads.@threads for j in axes(phases, 2)
+        for i in axes(phases, 1)
+            for ip in cellaxes(phases)
+                @index(particles.index[ip, i, j]) == 0 && continue
+                x = @index particles.coords[1][ip, i, j]
+                y = @index particles.coords[2][ip, i, j]
+                @index phases[ip, i, j] = inside(@SVector([x, y]), layering) ? 2.0 : 1.0
+            end
+        end
+    end
+end
 
 function Analyticalviscous(θ, η, δ, D_BC)
     #= define velocity gradient components and resulting deviatoric strain rate components
@@ -130,8 +146,9 @@ end
     materials.plasticity.ηvp .= [1e-3, 1e-3]
     preprocess!(materials)
 
-    nmpc = (x=4, y=4)
-    noise = false
+    nxcell = (4, 4)   # markers per cell
+    max_xcell = 40
+    min_xcell = 4
 
     # Time steps
     Δt0 = 0.5
@@ -145,7 +162,7 @@ end
     y = (min=-L.y / 2, max=L.y / 2)
 
     # Allocate all fields and solver structures
-    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
+    a = Allocs(nc, config, x, y, Δ, nphases)
     τIIev = ones(nt)
     α2 = 1 - α1
 
@@ -181,15 +198,10 @@ end
 
     # MARKERS ------------------------------------------------------------
     # Assign marker phases from layering geometry (1 or 2) #           |
-    for I in CartesianIndices(a.m.phase) #                                |
-        xm = a.m.Xm[I]
-        ym = a.m.Ym[I]
-        isin = inside(@SVector([xm, ym]), layering)
-        a.m.phase[I] = isin ? 2 : 1
-    end
-
-    # Build extended vertex arrays (with ghost vertices) and accumulate marker contributions
-    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
+    adv = Markers(pic_backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args=1)
+    phases, = adv.particle_args
+    set_phases!(phases, adv.particles, layering)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
 
     #--------------------------------------------#
 
@@ -250,7 +262,7 @@ end
                 σ1x=σ1.x,
                 σ1y=σ1.y,
                 phase_ratio=a.phase_ratios.c,
-                phases=a.m.phase
+                phases=argmax.(a.phase_ratios.c)
             )
         end
 
@@ -258,7 +270,7 @@ end
             cm.with_theme(cm.theme_latexfonts()) do
                 fig = cm.Figure(size=(700, 600), px_per_unit=2)
                 ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect(), xlabelsize=26, ylabelsize=26, titlesize=26)
-                hm = cm.heatmap!(ax, a.X.c.x, a.X.c.y, a.τ.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
+                hm = cm.heatmap!(ax, a.X.c.x, a.X.c.y, a.τ.II[inx_c, iny_c], colormap=cm.cgrad(:roma, rev=true))
                 # cm.poly!(ax, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
                 st = 15
                 # cm.arrows2d!(ax, a.X.c.x[1:st:end], a.X.c.y[1:st:end], σ1.x[inx_c, iny_c][1:st:end, 1:st:end], σ1.y[inx_c, iny_c][1:st:end, 1:st:end], tiplength=0, lengthscale=0.02, tipwidth=1, color=:white)
@@ -266,7 +278,7 @@ end
 
                 ax2 = cm.Axis(fig[1, 3], aspect=cm.DataAspect())
                 # hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.η.c[inx_c, iny_c], colormap=:roma)
-                hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.ε̇.II[inx_c, iny_c], colormap=cgrad(:roma, rev=true))
+                hm2 = cm.heatmap!(ax2, a.X.c.x, a.X.c.y, a.ε̇.II[inx_c, iny_c], colormap=cm.cgrad(:roma, rev=true))
                 # cm.poly!(ax2, cm.Rect(a.X.c_e.x[imin_x], a.X.c_e.y[imin_y], a.X.c_e.x[imax_x] - a.X.c_e.x[imin_x], a.X.c_e.y[imax_y] - a.X.c_e.y[imin_y]), strokecolor=:white, strokewidth=2, color=:transparent)
                 # cm.Colorbar(fig[1, 4], hm2, label="η")
                 cm.Colorbar(fig[1, 4], hm2, label=cm.L"$\dot\varepsilon_{II} \ [-]$", labelsize=18)
