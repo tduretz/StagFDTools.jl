@@ -26,7 +26,7 @@ import Statistics:mean
     GCR_restart  = 25
     GCR_maxit    = 100
     ϵ_l          = 1e-11
-    Pic2Newt     = 1.8   # more than 1.0 - always Newton
+    Pic2Newt     = 0.8   # more than 1.0 - always Newton
     solver_ready = false
 
     # Newton solver
@@ -582,7 +582,7 @@ function Run(nt)
     # D_BC = @SMatrix([-1 0; 0 1] )
     # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, niter=100, visualization=true); #1e20
 
-    n_nx = 1
+    n_nx = 4
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = Int64(nt*n_nt)
@@ -592,6 +592,8 @@ end
 
 @time Run(1)
 @time Run(80)
+
+# 38 s / 97 s / 356 s
 
 
 # # Residual check
