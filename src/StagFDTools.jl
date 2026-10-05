@@ -100,7 +100,7 @@ export LineSearch!, BackTrackingLineSearch!
 export AssembleContinuity2D!, ResidualContinuity2D!, Continuity, ResidualPorosity2D!, UpdatePorosity2D!
 export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
 export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
-export reduce_sparse_matrix!, reset_parallel_storage
+export reduce_sparse_matrix!, reset_parallel_storage, pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!
 export compute_Φ_and_dΦdt_trial, compute_Φ_and_dΦdt
 # export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
 # export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE

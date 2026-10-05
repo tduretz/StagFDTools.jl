@@ -27,6 +27,94 @@ end
 
 @inline Base.size(A::TripletBlock) = (A.m, A.n)
 
+# Records every position an assembly kernel writes, whatever the value, so that
+# entries that happen to be zero in the current state still enter the pattern.
+struct PatternBlock
+    I::Vector{Int}
+    J::Vector{Int}
+end
+
+PatternBlock() = PatternBlock(Int[], Int[])
+
+@inline function Base.setindex!(A::PatternBlock, val, i::Integer, j::Integer)
+    push!(A.I, i)
+    push!(A.J, j)
+    return val
+end
+
+# Writes into the existing nonzeros of a SparseMatrixCSC. Assembly kernels write each
+# row from a single loop iteration, so concurrent writes never touch the same slot
+# and need no thread-local storage. Writes accumulate (like the duplicate
+# summation of `sparse(I, J, V, m, n, +)`), so values must be zeroed before assembly.
+struct FixedPattern{T<:SparseMatrixCSC}
+    A::T
+end
+
+@inline function Base.setindex!(K::FixedPattern, val, i::Integer, j::Integer)
+    A  = K.A
+    rv = rowvals(A)
+    r  = nzrange(A, j)
+    k  = first(r) - 1 + searchsortedfirst(view(rv, r), i)
+    (k <= last(r) && rv[k] == i) || error("entry ($i, $j) is not in the sparsity pattern; build it with set_sparsity_pattern!")
+    nonzeros(A)[k] += val
+    return val
+end
+
+# Kernels index per-thread storage (a vector) by thread, and shared storage directly.
+@inline _target(K::AbstractVector, tid) = K[tid - nthreads(:interactive)]
+@inline _target(K, tid) = K
+
+"""
+    pattern_storage()
+
+Per-thread `PatternBlock` storage to pass to the `Assemble*2D!` kernels in place of
+the matrix, before calling `set_sparsity_pattern!`.
+"""
+pattern_storage() = [Fields(ntuple(_ -> Fields(ntuple(_ -> PatternBlock(), 4)...), 4)...) for _ in 1:nthreads()]
+
+"""
+    set_sparsity_pattern!(M, K_pattern)
+
+Replace the structure of every block `M[a][b]` with the positions recorded in
+`K_pattern` (from `pattern_storage`), all values set to zero.
+"""
+function set_sparsity_pattern!(M, K_pattern)
+    for a in 1:4, b in 1:4
+        A = M[a][b]
+        I = reduce(vcat, (K[a][b].I for K in K_pattern))
+        J = reduce(vcat, (K[a][b].J for K in K_pattern))
+        S = sparse(I, J, zeros(length(I)), size(A)...)
+        copyto!(SparseArrays.getcolptr(A), SparseArrays.getcolptr(S))
+        copy!(rowvals(A), rowvals(S))
+        copy!(nonzeros(A), nonzeros(S))
+    end
+    return M
+end
+
+"""
+    fixed_pattern(M)
+
+Wrap each block of `M` so the `Assemble*2D!` kernels write directly into its nonzeros.
+The pattern must already hold every written entry (see `set_sparsity_pattern!`).
+"""
+fixed_pattern(M) = Fields(ntuple(a -> Fields(ntuple(b -> FixedPattern(M[a][b]), 4)...), 4)...)
+
+"""
+    zero_values!(M)
+
+Set all stored values of every block of `M` to zero, keeping the sparsity pattern.
+"""
+function zero_values!(M)
+    for a in 1:4, b in 1:4
+        fill!(nonzeros(M[a][b]), 0)
+    end
+    return M
+end
+
+# The fixed pattern stores structural zeros; downstream sparse products and
+# factorizations of the blocks are cheaper without them.
+SparseArrays.dropzeros(M::Fields) = Fields(ntuple(a -> Fields(ntuple(b -> dropzeros(M[a][b]), 4)...), 4)...)
+
 @inline function get_invΔx(Δ)
     return hasproperty(Δ, :invΔx) ? getproperty(Δ, :invΔx) : inv(getproperty(Δ, :x))
 end
@@ -292,8 +380,6 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], G[ii], Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], m[ii], G[ii], Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt)
         Φ, dΦdt 
     end
@@ -380,8 +466,6 @@ end
         dΦdt    = TΦ(zeros(3,3))
         Φ, dΦdt 
     else
-        Φ       = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], G[ii], m[ii], Δt)[1] for ii in eachindex(Φ0) )
-        dΦdt    = SMatrix{3, 3}( Porosity(Φ0[ii], Pt[ii], Pf[ii], Pt0[ii], Pf0[ii], KΦ[ii], ξ0[ii], G[ii], m[ii], Δt)[2] for ii in eachindex(Φ0) )
         Φ, dΦdt = compute_Φ_and_dΦdt_trial(Φ0, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt)
         Φ, dΦdt 
     end
@@ -597,28 +681,28 @@ function AssembleMomentum2D_x!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials, num
             Local = SMatrix{3, 3}(num.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[1][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][1][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+                    _target(K_loc, tid)[1][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
             end
             # Vx --- Vy
             Local = SMatrix{4, 4}(num.Vy[ii, jj] for ii in i-1:i+2, jj in j-2:j+1) .* pattern[1][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][1][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj]  
+                    _target(K_loc, tid)[1][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj]  
                 end
             end
             # Vx --- Pt
             Local = SMatrix{2, 3}(num.Pt[ii, jj] for ii in i-1:i, jj in j-2:j) .* pattern[1][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][1][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+                    _target(K_loc, tid)[1][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end
             end 
             # Vx --- Pf
             Local = SMatrix{2, 3}(num.Pf[ii, jj] for ii in i-1:i, jj in j-2:j) .* pattern[1][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][1][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+                    _target(K_loc, tid)[1][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
                 end
             end 
         end
@@ -747,28 +831,28 @@ function AssembleMomentum2D_y!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials, num
             Local = SMatrix{4, 4}(num.Vx[ii, jj] for ii in i-2:i+1, jj in j-1:j+2).* pattern[2][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][2][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+                    _target(K_loc, tid)[2][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
             end
             # Vy --- Vy
             Local = SMatrix{3, 3}(num.Vy[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[2][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][2][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj]  
+                    _target(K_loc, tid)[2][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj]  
                 end
             end
             # Vy --- Pt
             Local = SMatrix{3, 2}(num.Pt[ii, jj] for ii in i-2:i, jj in j-1:j).* pattern[2][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][2][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+                    _target(K_loc, tid)[2][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end       
             end
             # Vy --- Pf
             Local = SMatrix{3, 2}(num.Pf[ii, jj] for ii in i-2:i, jj in j-1:j).* pattern[2][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][2][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+                    _target(K_loc, tid)[2][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
                 end
             end       
         end
@@ -889,28 +973,28 @@ function AssembleContinuity2D!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials, num
             Local = SMatrix{2, 3}(num.Vx[ii, jj] for ii in i:i+1, jj in j:j+2).* pattern[3][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+                    _target(K_loc, tid)[3][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
             end
             # Pt --- Vy
             Local = SMatrix{3, 2}(num.Vy[ii, jj] for ii in i:i+2, jj in j:j+1).* pattern[3][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
+                    _target(K_loc, tid)[3][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
                 end
             end
             # Pt --- Pt
             Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+                    _target(K_loc, tid)[3][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end
             end
             # Pt --- Pf
             Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+                    _target(K_loc, tid)[3][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
                 end
             end
         end
@@ -1049,28 +1133,28 @@ function AssembleFluidContinuity2D!(K_loc, V, P, ΔP, old, 𝐷, rheo, materials
             Local = SMatrix{4, 5}(num.Vx[ii, jj] for ii in i-1:i+2, jj in j-1:j+3) .* pattern[4][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][4][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+                    _target(K_loc, tid)[4][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
             end
             # Pf --- Vy
             Local = SMatrix{5, 4}(num.Vy[ii, jj] for ii in i-1:i+3, jj in j-1:j+2) .* pattern[4][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][4][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
+                    _target(K_loc, tid)[4][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
                 end
             end
             # Pf --- Pt
             Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1) .* pattern[4][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][4][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+                    _target(K_loc, tid)[4][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end
             end
             # Pf --- Pf
             Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1) .* pattern[4][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][4][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+                    _target(K_loc, tid)[4][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
                 end
             end
         end   
@@ -1582,8 +1666,8 @@ function reset_parallel_storage(number)
 
     # Parallel storage
     return M_PC_threads = [Fields(
-        Fields(TripletBlock(nVx, nVx), TripletBlock(nVx, nVy), TripletBlock(nVx, nPt), TripletBlock(nVx, nPt)), 
-        Fields(TripletBlock(nVy, nVx), TripletBlock(nVy, nVy), TripletBlock(nVy, nPt), TripletBlock(nVy, nPt)), 
+        Fields(TripletBlock(nVx, nVx), TripletBlock(nVx, nVy), TripletBlock(nVx, nPt), TripletBlock(nVx, nPf)), 
+        Fields(TripletBlock(nVy, nVx), TripletBlock(nVy, nVy), TripletBlock(nVy, nPt), TripletBlock(nVy, nPf)), 
         Fields(TripletBlock(nPt, nVx), TripletBlock(nPt, nVy), TripletBlock(nPt, nPt), TripletBlock(nPt, nPf)),
         Fields(TripletBlock(nPf, nVx), TripletBlock(nPf, nVy), TripletBlock(nPf, nPt), TripletBlock(nPf, nPf)),
     ) for _ in 1:nthreads()]
@@ -1654,28 +1738,28 @@ function AssembleContinuity2D_test!(K, K_loc, V, P, ΔP, old, rheo, materials, n
             Local = SMatrix{2, 3}(num.Vx[ii, jj] for ii in i:i+1, jj in j:j+2).* pattern[3][1]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
+                    _target(K_loc, tid)[3][1][row, Local[ii,jj]] = ∂R∂Vx[ii,jj] 
                 end
             end
             # Pt --- Vy
             Local = SMatrix{3, 2}(num.Vy[ii, jj] for ii in i:i+2, jj in j:j+1).* pattern[3][2]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
+                    _target(K_loc, tid)[3][2][row, Local[ii,jj]] = ∂R∂Vy[ii,jj] 
                 end
             end
             # Pt --- Pt
             Local = SMatrix{3, 3}(num.Pt[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][3]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
+                    _target(K_loc, tid)[3][3][row, Local[ii,jj]] = ∂R∂Pt[ii,jj]  
                 end
             end
             # Pt --- Pf
             Local = SMatrix{3, 3}(num.Pf[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[3][4]
             @inbounds for jj in axes(Local,2), ii in axes(Local,1)
                 if Local[ii,jj]>0
-                    K_loc[tid-1][3][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
+                    _target(K_loc, tid)[3][4][row, Local[ii,jj]] = ∂R∂Pf[ii,jj]  
                 end
             end
         end

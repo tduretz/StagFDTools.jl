@@ -144,14 +144,14 @@ import Statistics:mean
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
     M     = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
     M_PC  = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
@@ -256,7 +256,19 @@ import Statistics:mean
     )
 
     err  = (x = zeros(niter), y = zeros(niter), pt = zeros(niter), pf = zeros(niter))
-    
+
+    # Sparsity pattern: every position the assembly kernels write (values are discarded)
+    K_pattern = pattern_storage()
+    old  = τ0, P0, Φ0, ρ0
+    rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
+    AssembleMomentum2D_x!(     K_pattern, V, P, ΔP, old, 𝐷, rheo, materials, number, pattern, type, BC, nc, Δ)
+    AssembleMomentum2D_y!(     K_pattern, V, P, ΔP, old, 𝐷, rheo, materials, number, pattern, type, BC, nc, Δ)
+    AssembleContinuity2D!(     K_pattern, V, P, ΔP, old, 𝐷, rheo, materials, number, pattern, type, BC, nc, Δ)
+    AssembleFluidContinuity2D!(K_pattern, V, P, ΔP, old, 𝐷, rheo, materials, number, pattern, type, BC, nc, Δ)
+    set_sparsity_pattern!(M,    K_pattern)
+    set_sparsity_pattern!(M_PC, K_pattern)
+    M_fp, M_PC_fp = fixed_pattern(M), fixed_pattern(M_PC)
+
     to   = TimerOutput()
     solver_ready = false
 
@@ -333,41 +345,36 @@ import Statistics:mean
             @timeit to "Assembly" begin
                 # Assemble global Jacobian
                 @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M, M_PC_threads)
-                end
+                zero_values!(M)
+                AssembleMomentum2D_x!(     M_fp, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_fp, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_fp, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_fp, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M_PC, M_PC_threads)
-                end
+                zero_values!(M_PC)
+                AssembleMomentum2D_x!(     M_PC_fp, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_fp, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_fp, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_fp, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
             end
+            M_s, M_PC_s = @timeit to "Drop zeros" (dropzeros(M), dropzeros(M_PC))
 
             Newton = (ϵ/ϵ0 < Pic2Newt) ? true : false 
 
             @info "Solver - Newton = $(Newton)"
             # Prepare work space (symbolic factorization)
             if !solver_ready && solver == :GCR
-                solver_cache = KSP_GCR_TwoPhases_setup( M_PC; restart=GCR_restart, maxit=GCR_maxit)
+                solver_cache = KSP_GCR_TwoPhases_setup( M_PC_s; restart=GCR_restart, maxit=GCR_maxit)
                 solver_ready = true
             end
 
             # Sparse-direct-iterative solver
             @timeit to "Linear solve" begin
-                Newton && two_phases_mechanical_solver!(dx, M, r, M_PC;
+                Newton && two_phases_mechanical_solver!(dx, M_s, r, M_PC_s;
                     solver=solver, solver_cache=solver_cache,
                     ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
-                !Newton && two_phases_mechanical_solver!(dx, M_PC, r, M_PC;
+                !Newton && two_phases_mechanical_solver!(dx, M_PC_s, r, M_PC_s;
                     solver=solver, solver_cache=solver_cache,
                     ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
             end
@@ -585,3 +592,37 @@ end
 
 @time Run(1)
 @time Run(80)
+
+
+# # Residual check
+# TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+# ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+# ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+# ResidualContinuity2D!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+# @edit ResidualFluidContinuity2D!(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+         
+# @b TangentOperator!($( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)...)
+# @b ResidualMomentum2D_x!($(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)...)
+# @b ResidualMomentum2D_y!($(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)...)
+# @b ResidualContinuity2D!($(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)...)
+
+# @b ResidualFluidContinuity2D!($(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)...)
+
+
+## REFERENCE 
+
+# ────────────────────────────────────────────────────────────────────
+#                            Time                    Allocations      
+#                   ───────────────────────   ────────────────────────
+# Tot / % measured:      45.3s /  69.2%           16.5GiB /  54.7%    
+
+# Section   ncalls     time    %tot     avg     alloc    %tot      avg
+# ────────────────────────────────────────────────────────────────────
+# Assembly     266    15.8s   50.3%  59.2ms   4.87GiB   54.1%  18.8MiB
+#   Redu...    532    1.83s    5.9%  3.44ms   2.43GiB   27.0%  4.67MiB
+# Linear...    266    6.93s   22.1%  26.1ms   4.08GiB   45.3%  15.7MiB
+# Line s...    266    4.32s   13.8%  16.2ms   43.6MiB    0.5%   168KiB
+# Tangen...    346    2.56s    8.2%  7.40ms   4.97MiB    0.1%  14.7KiB
+# Residual     346    1.74s    5.5%  5.02ms   8.46MiB    0.1%  25.1KiB
+# ────────────────────────────────────────────────────────────────────
+#  45.267545 seconds (86.84 M allocations: 16.483 GiB, 11.42% gc time)
