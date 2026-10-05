@@ -1,7 +1,7 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs, MAT
 import Statistics:mean
 
-@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0, ψ=5.0, k_μf0=1e-15, Pe_ini=4.6e7)
+@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0, ψ=5.0, k_μf0=1e-15, Pe_ini=4.6e7, ϵ_nl0=1e-10)
 
     # Load data
     filepath = joinpath(@__DIR__, "DataM2Di_EP_test01.mat")
@@ -26,11 +26,11 @@ import Statistics:mean
     GCR_restart  = 25
     GCR_maxit    = 100
     ϵ_l          = 1e-11
-    Pic2Newt     = 1.8   # more than 1.0 - always Newton
+    Pic2Newt     = 0.8   # more than 1.0 - always Newton
     solver_ready = false
 
     # Newton solver
-    ϵ_nl  = 1e-10
+    ϵ_nl  = ϵ_nl0
     α     = LinRange(0.05, 1.0, 5)
 
     rad     = 1e2/sc.L 
@@ -76,7 +76,7 @@ import Statistics:mean
     materials.plasticity.ϕ   .= [ 30.,     30. ] * 1
     materials.plasticity.ψ   .= [   ψ,       ψ ] * 1
     materials.plasticity.C   .= [ 3e7,     3e7 ]./sc.σ
-    materials.plasticity.ηvp .= [ 0.0,     0.0 ]./sc.σ/sc.t 
+    materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
     materials.plasticity.Pt  .= [-1.e6,   -1e6 ]./sc.σ 
 
     preprocess!(materials)
@@ -525,7 +525,6 @@ import Statistics:mean
             P_ax       = LinRange(minimum(Pe),  maximum(Pe),  300)
             τ_ax       = LinRange(minimum(τII), maximum(τII), 300)
 
-
             # P_ax       = LinRange(0, 2*mean(Pe), 100)
             τ_ax_rock = materials.plasticity.C[1]*sc.σ*materials.plasticity.cosϕ[1] .+ P_ax.*materials.plasticity.sinϕ[1]
             # lines!(ax, P_ax/1e6, τ_ax_rock/1e6, color=:black)
@@ -573,15 +572,22 @@ function Run(nt)
     # # nt   = Int64(1*n_nt)
     # nt   = Int64(80*n_nt)
     # D_BC = @SMatrix([-1 0; 0 1] )
-    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, niter=100, visualization=true); #1e20
+    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, niter=100, visualization=true); #1e20
 
-    n_nx = 1
+    n_nx = 8
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = Int64(nt*n_nt)
     D_BC = @SMatrix([-1 0; 0 1] )
-    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, ε̇_fact=2.5, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=50, Pe_ini=4.6e7, visualization=true); #1e20
+    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=15.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, ϵ_nl0=1e-6, visualization=true ); #1e20
+
+    # n_nx = 8
+    # n_nt = 1
+    # nc   = (x=n_nx*50, y=n_nx*25)
+    # nt   = Int64(nt*n_nt)
+    # D_BC = @SMatrix([1 0; 0 0] )
+    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=0.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e6, ϵ_nl0=1e-6, visualization=true ); #1e20
+
 end
 
-@time Run(1)
 @time Run(80)
