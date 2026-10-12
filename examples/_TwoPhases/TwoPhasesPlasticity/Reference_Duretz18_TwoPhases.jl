@@ -260,6 +260,8 @@ import Statistics:mean
     
     to   = TimerOutput()
     solver_ready = false
+    pattern_ready = false
+    M_fixed = M_PC_fixed = nothing
 
     for it=1:nt
 
@@ -334,25 +336,39 @@ import Statistics:mean
             #--------------------------------------------#
             @timeit to "Assembly" begin
                 # Assemble global Jacobian
-                @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M, M_PC_threads)
+                # Record the sparsity pattern once (first assembly), then write straight into the CSC nonzeros
+                if !pattern_ready
+                    @timeit to "Pattern" begin
+                        K_pat = pattern_storage()
+                        AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                        AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                        AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                        AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                        set_sparsity_pattern!(M, K_pat)
+                        K_pat = pattern_storage()
+                        AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                        AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                        AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                        AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                        set_sparsity_pattern!(M_PC, K_pat)
+                        M_fixed, M_PC_fixed = fixed_pattern(M), fixed_pattern(M_PC)
+                        pattern_ready = true
+                    end
                 end
+                # Assemble global Jacobian
+                @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
+                zero_values!(M)
+                AssembleMomentum2D_x!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M_PC, M_PC_threads)
-                end
+                zero_values!(M_PC)
+                AssembleMomentum2D_x!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
             end
 
             Newton = (ϵ/ϵ0 < Pic2Newt) ? true : false 
