@@ -509,9 +509,8 @@ end
     for i ∈ 1:3, j ∈ 1:3)    
     δPfc  = SetBCPf1(Pfc, type.pf, bcv.pf, Δ, ρfg)
 
-    δΦ = SMatrix{3,3}(
-        Φ[i,j] + ΔΦ[i,j] #+ ( (𝐷[i,j][5,5] - 1.0)*Pf_loc[i,j] + 𝐷[i,j][5,4]*Pt_loc[i,j] + 𝐷[i,j][5,3]*ϵ̇xy[i,j] + 𝐷[i,j][5,2]*ϵ̇yy[i,j] + 𝐷[i,j][5,1]*ϵ̇xx[i,j] )
-    for i ∈ 1:3, j ∈ 1:3) 
+    # Broadcast, not a generator: a generator would capture the multiply-assigned Φ in a boxed closure
+    δΦ = Φ .+ ΔΦ
     
     ########################
     
@@ -568,7 +567,6 @@ end
     end
     return fp
 end
-
 
 @generated function compute_Φ_and_dΦdt_trial(Φ0::SMatrix{M,M,T,N}, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt) where {M,T,N}
     quote
