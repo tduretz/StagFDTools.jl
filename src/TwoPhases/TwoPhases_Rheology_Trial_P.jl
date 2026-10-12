@@ -231,8 +231,8 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
     fΦ   =  @muladd Φ - Φnew 
 
     return @SVector [ 
-        # ε̇II_eff   -  τII/(2*ηve) - λ̇*∂Q∂τ/2,
-        τII - (τII_trial - ηve*λ̇*∂Q∂τ),
+        ε̇II_eff   -  τII/(2*ηve) - λ̇*∂Q∂τ/2,
+        # τII - (τII_trial - ηve*λ̇*∂Q∂τ),
         Pt - (Pt_trial + ΔPt),
         Pf - (Pf_trial + ΔPf),
         fy*(fy>=ϵ) + λ̇*(fy<ϵ), 
@@ -489,14 +489,14 @@ end
 #################################################################################
 #################################################################################
 
-function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
 
     _ones = @SVector ones(5)
     G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK = rheo
     τ0, P0, Φ0, ρ0 = old 
     invΔx, invΔy, Δt = 1 / Δ.x, 1 / Δ.y, Δ.t
 
-    style = :P_trial
+    # style = :P_trial
     # style = :div_trial
 
     ########################### Loop over centroids ###########################
@@ -568,39 +568,41 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ,
             _2GΔt = inv(2 * G.c[i, j] * Δ.t)
             ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
 
-            # Darcy flux
-            k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
-            kx_μ_xx = SVector{2,   Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
-            k_μ_yy  = k_μ_xx
-            ky_μ_yy = SVector{2,   Float64}( @. (k_μ_yy[2,j] + k_μ_yy[2,j+1]) / 2 for j=1:2 )
-            ∂Pf∂x   = SVector{2,   Float64}( @. (Pf[i+1,2] - Pf[i,2] ) / Δ.x for i=1:2 )
-            ∂Pf∂y   = SVector{2,   Float64}( @. (Pf[2,j+1] - Pf[2,j] ) / Δ.y for j=1:2 )
-            qDx     = SVector{2,   Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
-            qDy     = SVector{2,   Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
-            divqD   = ((qDx[2] - qDx[1]) / Δ.x + (qDy[2] - qDy[1]) / Δ.y)
+            # # Darcy flux
+            # k_μ_xx  = SMatrix{3,3, Float64}( @.  k_ηf0_loc * max.(Φ_loc, 1e-6).^n_loc  )
+            # kx_μ_xx = SVector{2,   Float64}( @. (k_μ_xx[i,2] + k_μ_xx[i+1,2]) / 2 for i=1:2 )
+            # k_μ_yy  = k_μ_xx
+            # ky_μ_yy = SVector{2,   Float64}( @. (k_μ_yy[2,j] + k_μ_yy[2,j+1]) / 2 for j=1:2 )
+            # ∂Pf∂x   = SVector{2,   Float64}( @. (Pf[i+1,2] - Pf[i,2] ) / Δ.x for i=1:2 )
+            # ∂Pf∂y   = SVector{2,   Float64}( @. (Pf[2,j+1] - Pf[2,j] ) / Δ.y for j=1:2 )
+            # qDx     = SVector{2,   Float64}( - kx_μ_xx .*  ∂Pf∂x       ) 
+            # qDy     = SVector{2,   Float64}( - ky_μ_yy .*  ∂Pf∂y - ρfg ) 
+            # divqD   = ((qDx[2] - qDx[1]) / Δ.x + (qDy[2] - qDy[1]) / Δ.y)
             
+            # Darcy flux divergence is not needed in trial/corrector procedure 
+            divqD   = 0.0
             ##################################
 
             # TODO: adapt to phase ratios
 
             # Tangent operator used for Newton Linearisation
-            if style == :P_trial
+            # if style == :P_trial
                 ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P.t[i, j], P.f[i,j])
                 τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
                 η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
                 @views 𝐷_ctl.c[i,j] .= jac
-            elseif style == :div_trial
+            # elseif style == :div_trial
 
-                𝑃 =  @SVector[P.t[i,j], P.f[i,j]]
-                J_pp = ForwardDiff.jacobian(𝑃 -> divergence(𝑃, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ), 𝑃)
-                Mpp = Matrix{Float64}(I, 5, 5)
-                Mpp[4:5,4:5] .= J_pp
+            #     𝑃 =  @SVector[P.t[i,j], P.f[i,j]]
+            #     J_pp = ForwardDiff.jacobian(𝑃 -> divergence(𝑃, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ), 𝑃)
+            #     Mpp = Matrix{Float64}(I, 5, 5)
+            #     Mpp[4:5,4:5] .= J_pp
 
-                ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, ε̇kk, divqD)
-                τ_vec, jac = fd_value_and_jacobian(StressVector_P3!, ε̇vec, P.t[i,j], P.f[i,j], P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
-                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P3(ε̇vec,  P.t[i,j], P.f[i,j], P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
-                @views 𝐷_ctl.c[i,j] .= jac*Mpp
-            end
+            #     ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, ε̇kk, divqD)
+            #     τ_vec, jac = fd_value_and_jacobian(StressVector_P3!, ε̇vec, P.t[i,j], P.f[i,j], P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+            #     η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P3(ε̇vec,  P.t[i,j], P.f[i,j], P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+            #     @views 𝐷_ctl.c[i,j] .= jac*Mpp
+            # end
 
             ##################################
 
@@ -629,11 +631,13 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ,
             if  λ̇.c[i,j] > 0
                 ΔP.t[i,j] =  (τ_vec[4] - P.t[i,j])
                 ΔP.f[i,j] =  (τ_vec[5] - P.f[i,j])
+                ΔΦ[i,j]   = Φ_local - Φ_loc[3,3]
             else
                 # No plastic flow here, so no pressure correction: ΔP must not
                 # keep the value left by a previous evaluation at a different state.
                 ΔP.t[i,j] = 0.0
                 ΔP.f[i,j] = 0.0
+                ΔΦ[i,j]   = 0.0
             end
         end
     end
@@ -728,31 +732,32 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ,
             _2GΔt = inv(2 * G.v[i, j] * Δ.t)
             ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
 
-            # Darcy flux divergence
-            divqD̄   = 0.25*(div_qD.c[i-1,j-1] + div_qD.c[i,j-1] + div_qD.c[i-1,j] + div_qD.c[i,j])
-
+            # # Darcy flux divergence
+            # divqD̄   = 0.25*(div_qD.c[i-1,j-1] + div_qD.c[i,j-1] + div_qD.c[i-1,j] + div_qD.c[i,j])
+            
+            divqD̄   = 0.0
             ##################################
 
             # TODO: adapt to phase ratios
 
             # Tangent operator used for Newton Linearisation
-            if style == :P_trial
+            # if style == :P_trial
                 ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄t, P̄f)
                 τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
                 η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
                 @views 𝐷_ctl.v[i,j] .= jac
-            elseif style == :div_trial
+            # elseif style == :div_trial
 
-                𝑃 =  @SVector[P̄t, P̄f]
-                J_pp = ForwardDiff.jacobian(𝑃 -> divergence(𝑃, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ), 𝑃)
-                Mpp = Matrix{Float64}(I, 5, 5)
-                Mpp[4:5,4:5] .= J_pp
+            #     𝑃 =  @SVector[P̄t, P̄f]
+            #     J_pp = ForwardDiff.jacobian(𝑃 -> divergence(𝑃, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ), 𝑃)
+            #     Mpp = Matrix{Float64}(I, 5, 5)
+            #     Mpp[4:5,4:5] .= J_pp
 
-                ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, ε̇kk, divqD̄)
-                τ_vec, jac = fd_value_and_jacobian(StressVector_P3!, ε̇vec, P̄t, P̄f, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
-                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P3(ε̇vec, P̄t, P̄f, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
-                @views 𝐷_ctl.v[i,j] .= jac*Mpp
-            end
+            #     ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, ε̇kk, divqD̄)
+            #     τ_vec, jac = fd_value_and_jacobian(StressVector_P3!, ε̇vec, P̄t, P̄f, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
+            #     η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P3(ε̇vec, P̄t, P̄f, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
+            #     @views 𝐷_ctl.v[i,j] .= jac*Mpp
+            # end
 
             ##################################
 

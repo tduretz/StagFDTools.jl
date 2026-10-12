@@ -1,7 +1,7 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs, MAT
 import Statistics:mean
 
-@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0, ψ=5.0, k_μf0=1e-15, Pe_ini=4.6e7, ϵ_nl0=1e-10)
+@views function main_Duretz18(D_BC, nc, nt, n_nt; homo=false, niter=20, Φini=5e-2, ηvp=0.0, r_fact=1.0, ε̇_fact=1.0, visualization=true, n_CK=0.0, ψ=5.0, k_μf0=1e-15, Pe_ini=4.6e7, ϵ_nl0=1e-10, ηs=1e32)
 
     # Load data
     filepath = joinpath(@__DIR__, "DataM2Di_EP_test01.mat")
@@ -64,8 +64,8 @@ import Statistics:mean
     materials.n     .= [  1.0,    1.0 ]
     materials.m     .= [  0.0,    0.0 ]
     materials.n_CK  .= [ n_CK,   n_CK ]
-    materials.η0    .= [ 1e32,   1e32 ]/sc.σ/sc.t 
-    materials.ξ0    .= [ 2e32,   2e32 ]/sc.σ/sc.t
+    materials.η0    .= [   ηs,     ηs ]/sc.σ/sc.t 
+    materials.ξ0    .= [ 2*ηs,   2*ηs ]/sc.σ/sc.t
     materials.G     .= [ 1e10, 0.25e10]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
@@ -188,6 +188,7 @@ import Statistics:mean
     Pi      = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
     P0      = (t = zeros(size_c...), f = zeros(size_c...))
     ΔP      = (t = zeros(size_c...), f = zeros(size_c...))
+    ΔΦ      = zeros(size_c...)
     ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
@@ -295,13 +296,13 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
             end
             @timeit to "Residual" begin
-                ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                ResidualContinuity2D!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
-                ResidualFluidContinuity2D!(R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+                ResidualMomentum2D_x!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualMomentum2D_y!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualContinuity2D!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+                ResidualFluidContinuity2D!(R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
             end
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
@@ -318,6 +319,7 @@ import Statistics:mean
             println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
             println("min/max ΔP.f - ",  extrema(ΔP.f[inx_c,iny_c]))
             println("min/max Φ    - ",  extrema(Φ.c[inx_c,iny_c]))
+            println("min/max ΔΦ   - ",  extrema( ΔΦ[inx_c,iny_c]))
             minimum(Φ.c)<0 && error("negative Φ")
             ϵ = max(err.x[iter], err.y[iter], err.pt[iter], 0*err.pf[iter])
             (iter == 1) && (ϵ0 = ϵ)
@@ -334,20 +336,20 @@ import Statistics:mean
                 # Assemble global Jacobian
                 @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M, M_PC_threads)
                 end
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
                 M_PC_threads = reset_parallel_storage(number)
-                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
-                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
                 @timeit to "Reduction" begin
                     reduce_sparse_matrix!(M_PC, M_PC_threads)
                 end
@@ -377,7 +379,7 @@ import Statistics:mean
                 # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
                 # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
                 αmax   = Newton ? 1.0 : 3.0
-                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
                 UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 
@@ -394,20 +396,6 @@ import Statistics:mean
         P.f  .= P.f .+ ΔP.f
         εp  .+= ε̇.II*Δ.t
         
-    #     # τxyc = av2D(τ.xy)
-    #     # ε̇xyc = av2D(ε̇.xy)
-
-    #     # # # Post process 
-    #     # # @time for i in eachindex(Φ.c)
-    #     # #     KΦ     = materials.KΦ[phases.c[i]]
-    #     # #     ηΦ     = materials.ξ0[phases.c[i]] 
-    #     # #     sinψ   = materials.sinψ[phases.c[i]] 
-    #     # #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t
-    #     # #     dPfdt  = (P.f[i] - P0.f[i]) / Δ.t
-    #     # #     dΦdt   = 1/KΦ * (dPfdt - dPtdt) + 1/ηΦ * (P.f[i] - P.t[i]) + λ̇.c[i]*sinψ
-    #     # #     Φ.c[i] = Φ0.c[i] + dΦdt*Δ.t
-    #     # # end
-
         k_ηΦ_x = materials.k_ηf0[1] .* ((Φ.c[2:end,:] .+ Φ.c[1:end-1,:]) / 2).^ materials.n_CK[1]
         k_ηΦ_y = materials.k_ηf0[1] .* ((Φ.c[:,2:end] .+ Φ.c[:,1:end-1]) / 2).^ materials.n_CK[1]
 
@@ -420,7 +408,7 @@ import Statistics:mean
         Vxfc = 0.5*(Vxf[1:end-1,2:end-1] .+ Vxf[2:end,2:end-1])
         Vyfc = 0.5*(Vyf[2:end-1,1:end-1] .+ Vyf[2:end-1,2:end])
         Vf   = (x=Vxfc, y=Vyfc )
-        Vf_mag   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+        Vf_mag  = sqrt.( Vxfc.^2 .+ Vyfc.^2)
 
         dΦdt = (Φ.c .- Φ0.c) / Δ.t
 
@@ -574,12 +562,12 @@ function Run(nt)
     # D_BC = @SMatrix([-1 0; 0 1] )
     # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=0*1e19, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, niter=100, visualization=true); #1e20
 
-    n_nx = 8
+    n_nx = 1
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = Int64(nt*n_nt)
     D_BC = @SMatrix([-1 0; 0 1] )
-    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=15.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, ϵ_nl0=1e-6, visualization=true ); #1e20
+    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=4.0, r_fact=1.0, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, ϵ_nl0=1e-6, ηs=1e32, visualization=true ); #1e20
 
     # n_nx = 8
     # n_nt = 1
@@ -590,4 +578,5 @@ function Run(nt)
 
 end
 
+@time Run(1)
 @time Run(80)
