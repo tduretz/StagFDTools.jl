@@ -8,10 +8,11 @@ struct Markers{P,G,X,PA,PR} <: AbstractAdvection
     phase_ratios::PR
 end
 
-struct TensorMarkers{np,nt,nd,Tp,Tt,Td} <: AbstractAdvection
-    p::NamedTuple{np,Tp}
-    t::NamedTuple{nt,Tt}
-    Δ::NamedTuple{nd,Td}
+struct TensorMarkers{P,T,D,S} <: AbstractAdvection
+    p::P     # particles 
+    t::T     # temporary 
+    Δ::D     # increments
+    Δ_sub::S # subgrid increments
 end
 struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT,G}
     type::t
@@ -42,8 +43,8 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT
     τ0::TNT
     τ::TAUNT
     D::DENT
+    D_sub::DENT
     ω::ONT
-    ω0::ONT
     Pt::Matrix{Float64}
     Pti::Matrix{Float64}
     Pt0::Matrix{Float64}
@@ -92,20 +93,26 @@ function initialise_markers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,In
     return init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
 end
 
-# !! Need to create a dispatch for no-upper advected (just Jaumann)
-function TensorConstructor(particles)
-    τxx, τyy, P, ε̇xx, ε̇yy = init_cell_arrays(particles, Val(5))
-    τxy, ω, ε̇xy = init_cell_arrays(particles, Val(3))
-    p = (τxx=τxx, τyy=τyy, P=P, τxy=τxy, ω=ω)
-    Δ = (τxx=copy(τxx), τyy=copy(τyy), P=copy(P), τxy=copy(τxy), ω=copy(ω))
-    t = (τxx=copy(τxx), τyy=copy(τyy), P=copy(P), τxy=copy(τxy), ω=copy(ω), ε̇xx=ε̇xx, ε̇yy=ε̇yy, ε̇xy=ε̇xy)
-    return TensorMarkers(p, t, Δ)
-end
-
 function TensorMarkers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,Integer}}, max_xcell, min_xcell) where {N}
     particles = initialise_markers(backend, a, nxcell, max_xcell, min_xcell)
     tm = TensorConstructor(particles)
     return particles, tm
+end
+
+# !! Need to create a dispatch for no-upper advected (just Jaumann), no rotation, no stress subgrid diffusion:
+# maybe add a rotation field in the struct that contains either :UpperAdvected, :nothing, etc
+
+# NamedTuple of fresh CellArrays with the given names
+cell_fields(particles, names::Symbol...) = NamedTuple{names}(init_cell_arrays(particles, Val(length(names))))
+
+function TensorConstructor(particles)
+    p = cell_fields(particles, :τxx, :τyy, :τxy, :P)
+    Δ = cell_fields(particles, :τxx, :τyy, :τxy, :P)
+    Δ_sub = cell_fields(particles, :τxx, :τyy, :τxy, :P)
+    t = cell_fields(particles, :τxx, :τyy, :τxy, :P, :ω,
+        :τ0xx, :τ0yy, :τ0xy, :P0, :ε̇xx, :ε̇yy, :ε̇xy,
+        :η, :G, :ξ, :K)
+    return TensorMarkers(p, t, Δ, Δ_sub)
 end
 
 function allocate(nc, config, x, y, Δ, nphases)
@@ -152,10 +159,11 @@ function allocate(nc, config, x, y, Δ, nphases)
     τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...))
     τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), xy_c=zeros(size_c...),
         II=zeros(size_c...), θ=zeros(size_c...))
-    D = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...), ω=zeros(size_v...),
-        Pt=zeros(size_c))
+    D = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
+        Pt=zeros(size_c...))
+    D_sub = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
+        Pt=zeros(size_c...))
     ω = (xy_c=zeros(size_c...), xy_v=zeros(size_v...))
-    ω0 = (xy_c=zeros(size_c...), xy_v=zeros(size_v...))
     Pt = zeros(size_c...)
     Pti = zeros(size_c...)
     Pt0 = zeros(size_c...)
@@ -173,7 +181,7 @@ function allocate(nc, config, x, y, Δ, nphases)
     X = GenerateGrid(x, y, Δ, nc)
 
     return type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, ω, ω0,
+    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
     Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X
 end
 
@@ -194,7 +202,7 @@ end
 
 function Allocs(nc, config, x, y, Δ, nphases)
     type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, ω, ω0,
+    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
     Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
         allocate(nc, config, x, y, Δ, nphases)
 
@@ -202,6 +210,6 @@ function Allocs(nc, config, x, y, Δ, nphases)
     M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
 
     return Allocs(type, number, pattern,
-        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, ω, ω0,
+        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
         Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
 end

@@ -128,12 +128,12 @@ function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
-    increment_stress!(a, tm, adv.particles, Δ)
+    stress_ToParticles!(a, tm, adv.particles, Δ)
     advection!(adv.particles, RungeKutta2(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
-    stress_ToGrid!(tm, a, adv.particles)
 
-    # Update phase_ratios for the solver (includes ghost nodes)
+    # Update fields with new positions
+    stress_ToGrid!(tm, a, adv.particles)
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 end
