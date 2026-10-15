@@ -4,7 +4,7 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
-const save = true
+const save = false
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/power_law/"
 const backend = AutoForwardDiff()
 
@@ -212,7 +212,7 @@ end
         # using the live grid/field arrays already in scope here instead of a loaded `data` Dict)
         if it == nt
             cm.with_theme(cm.theme_latexfonts()) do
-                fig = cm.Figure(size=(700, 600), px_per_unit=2)
+                fig = cm.Figure(size=(800, 800), px_per_unit=2)
                 ax = cm.Axis(fig[1, 1], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5], xlabelsize=26, ylabelsize=26, titlesize=20, title=@sprintf("θ = %d°", angle_deg))
                 hm = cm.heatmap!(ax, a.X.c.x, a.X.c.y, a.τ.II[inx_c, iny_c], colormap=cm.cgrad(:vik)) #:roma, rev=true
                 # Inner-box overlay and principal-stress arrows (uncomment to use)
@@ -245,29 +245,29 @@ end
                 #     strokecolor=:white, strokewidth=2, color=:transparent)
                 cm.Colorbar(fig[1, 4], hm2, label=cm.L"$\tau_{xy} \ [-]$", labelsize=18)
 
-                ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5])
-                hm3 = cm.heatmap!(ax3, a.X.c.x, a.X.c.y, a.τ.yy[inx_c, iny_c], colormap=cm.cgrad(:vik)) #:roma, rev=true
-                # cm.poly!(ax2, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]],
-                #         a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]],
-                #         a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]),
-                #     strokecolor=:white, strokewidth=2, color=:transparent)
-                cm.Colorbar(fig[2, 2], hm3, label=cm.L"$\tau_{yy} \ [-]$", labelsize=18)
+                # ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5])
+                # hm3 = cm.heatmap!(ax3, a.X.c.x, a.X.c.y, a.τ.yy[inx_c, iny_c], colormap=cm.cgrad(:vik)) #:roma, rev=true
+                # # cm.poly!(ax2, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]],
+                # #         a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]],
+                # #         a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]),
+                # #     strokecolor=:white, strokewidth=2, color=:transparent)
+                # cm.Colorbar(fig[2, 2], hm3, label=cm.L"$\tau_{yy} \ [-]$", labelsize=18)
 
-                ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5])
-                hm4 = cm.heatmap!(ax4, a.X.c.x, a.X.c.y, a.τ.xx[inx_c, iny_c], colormap=cm.cgrad(:vik)) #:roma, rev=true
-                # cm.poly!(ax2, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]],
-                #         a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]],
-                #         a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]),
-                #     strokecolor=:white, strokewidth=2, color=:transparent)
-                cm.Colorbar(fig[2, 4], hm4, label=cm.L"$\tau_{xx} \ [-]$", labelsize=18)
+                # ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect(), xticks=[-0.5, 0.0, 0.5])
+                # hm4 = cm.heatmap!(ax4, a.X.c.x, a.X.c.y, a.τ.xx[inx_c, iny_c], colormap=cm.cgrad(:vik)) #:roma, rev=true
+                # # cm.poly!(ax2, cm.Rect(a.X.c_e.x[inner_x[1]], a.X.c_e.y[inner_y[1]],
+                # #         a.X.c_e.x[inner_x[end]] - a.X.c_e.x[inner_x[1]],
+                # #         a.X.c_e.y[inner_y[end]] - a.X.c_e.y[inner_y[1]]),
+                # #     strokecolor=:white, strokewidth=2, color=:transparent)
+                # cm.Colorbar(fig[2, 4], hm4, label=cm.L"$\tau_{xx} \ [-]$", labelsize=18)
 
-                # ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect())
-                # hm3 = cm.heatmap!(ax3, a.X.vx.x, a.X.vx.y, a.V.x[inx_Vx, iny_Vx], colormap=:vik)
-                # cm.Colorbar(fig[2, 2], hm3, label=cm.L"$v_x \ [-]$", labelsize=18)
+                ax3 = cm.Axis(fig[2, 1], aspect=cm.DataAspect())
+                hm3 = cm.heatmap!(ax3, a.X.vx.x, a.X.vx.y, a.V.x[inx_Vx, iny_Vx], colormap=:vik)
+                cm.Colorbar(fig[2, 2], hm3, label=cm.L"$v_x \ [-]$", labelsize=18)
 
-                # ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect())
-                # hm4 = cm.heatmap!(ax4, a.X.vy.x, a.X.vy.y, a.V.y[inx_Vy, iny_Vy], colormap=:vik)
-                # cm.Colorbar(fig[2, 4], hm4, label=cm.L"$v_y \ [-]$", labelsize=18)
+                ax4 = cm.Axis(fig[2, 3], aspect=cm.DataAspect())
+                hm4 = cm.heatmap!(ax4, a.X.vy.x, a.X.vy.y, a.V.y[inx_Vy, iny_Vy], colormap=:vik)
+                cm.Colorbar(fig[2, 4], hm4, label=cm.L"$v_y \ [-]$", labelsize=18)
 
                 # ax5 = cm.Axis(fig[3, 1:4], xlabel="time step", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18)
                 # cm.xlims!(ax5, 0, nt)
@@ -310,7 +310,7 @@ let
     # ]
     D_BCs = @SMatrix([1 0; 0 -1])
 
-    nc = (x=150, y=150)
+    nc = (x=100, y=100)
     nt = 30
     L = 2.0
 
@@ -338,7 +338,7 @@ let
     G2 = 1e6
     G1 = G2 / m
 
-    C2 = 10.
+    C2 = 1000.
     C1 = C2 / 1 #m
 
     α2 = 0.7
@@ -477,7 +477,7 @@ let
 
         # FIGURE 4 -------------------------------------------------------------
         fig4 = cm.Figure(size=(800, 650), px_per_unit=2)
-        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=2", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-17, 17, -10, 10))
+        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=$(n)", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-17, 17, -10, 10))
         τ_yield = zeros(2, nθ)
         local sc
         for Iθ in eachindex(θ)

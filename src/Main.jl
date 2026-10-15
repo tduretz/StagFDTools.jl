@@ -70,7 +70,7 @@ function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, 
     d = (step(a.X.v.x), step(a.X.v.y))
     particles = init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
     particle_args = init_cell_arrays(particles, Val(args))
-    phase_ratios = JustPIC._2D.PhaseRatios(backend, nphases, values(nc))
+    phase_ratios = JustPIC.PhaseRatios(backend, nphases, values(nc))
     return JustPICAdvection(particles, xi_vel, xvi, particle_args, phase_ratios)
 end
 
