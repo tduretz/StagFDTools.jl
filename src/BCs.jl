@@ -70,7 +70,7 @@ function SetBCPt1(Pt, type, bc, Δ, ρtg  )
         # North
         if type[ii,end] === :Dirichlet
             MPt[ii,end] = muladd(2, bc[ii,end], -Pt[ii,end-1])
-        elseif type[ii,end] === :Dirichlet
+        elseif type[ii,end] === :Neumann
             MPt[ii,end] = Pt[ii,end-1]
         end
     end

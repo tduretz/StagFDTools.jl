@@ -28,6 +28,15 @@ function _fill_phase_ratios!(phase_ratios::AbstractMatrix{<:AbstractVector}, pha
     end
 end
 
+# Allocating variant, still used by the TwoPhases examples
+function InitialisePhaseRatios(phases::NamedTuple, nphases::Int)
+    c = [zeros(nphases) for _ in axes(phases.c, 1), _ in axes(phases.c, 2)]
+    v = [zeros(nphases) for _ in axes(phases.v, 1), _ in axes(phases.v, 2)]
+    _fill_phase_ratios!(c, phases.c)
+    _fill_phase_ratios!(v, phases.v)
+    return (c=c, v=v)
+end
+
 function MarkerWeight(xm, x, Δx)
     # Compute marker-grid distance and weight
     dst = abs(xm - x)

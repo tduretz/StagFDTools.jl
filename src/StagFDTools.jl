@@ -6,6 +6,7 @@ using DifferentiationInterface, ForwardDiff
 include("AD.jl")
 export ad_gradient, ad_value_and_gradient, ad_derivative, ad_value_and_derivative
 export ad_jacobian, ad_value_and_jacobian, ad_partial_gradients, ad_value_and_jacobian_first
+export fd_value_and_jacobian, fd_value_and_derivative
 export Const, Duplicated, forwarddiff_gradients!, forwarddiff_gradient, forwarddiff_jacobian
 
 include("operators.jl")
@@ -23,7 +24,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
 export initialize_materials, initialize_materials_TwoPhases
 
 # module markers
@@ -35,7 +36,7 @@ using StaticArrays, StagFDTools, LinearAlgebra
 include("Rheology.jl")
 export LocalRheology, StressVector!
 export LocalRheology_div, StressVector_div!
-export Yield, Potential
+export Yield, Potential, invII
 end
 
 module Poisson
@@ -46,7 +47,7 @@ end
 module Stokes
 using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
 using TimerOutputs, Printf
-using JustPIC, JustPIC._2D
+using JustPIC#, JustPIC._2D
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
@@ -94,47 +95,24 @@ end
 
 module TwoPhases
 using StagFDTools, StaticArrays, ExtendableSparse, StaticArrays, LinearAlgebra, ForwardDiff
-# Material produced before 09/25 wew done with this
-# include("TwoPhases/TwoPhases_v2.jl")
-# Now this one is preferred because it fully accounts for porosity evolution
 include("TwoPhases/TwoPhases_v3.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1, SetBCPf1
 export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
 export LineSearch!, BackTrackingLineSearch!
-export AssembleContinuity2D!, ResidualContinuity2D!, Continuity, ResidualPorosity2D!, UpdatePorosity2D!
+export AssembleContinuity2D!, ResidualContinuity2D!, Continuity
 export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
 export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
-export reduce_sparse_matrix!, reset_parallel_storage
-# export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
-# export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
-# include("TwoPhases.jl")
-# export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1
-# export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
-# export AssembleContinuity2D!, ResidualContinuity2D!, Continuity
-# export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
-# export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
-# include("TwoPhases_VE.jl")
-# export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
-# export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
+export reduce_sparse_matrix!, reset_parallel_storage, pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!
+export compute_Φ_and_dΦdt_trial, compute_Φ_and_dΦdt
 include("TwoPhases/TwoPhases_Rheology_Trial_P.jl")
-export TangentOperator!, Porosity
+export TangentOperator!, Porosity, LocalRheology_P, residual_two_phase_P, bt_line_search
+export LocalRheology_P3, residual_two_phase_P3, bt_line_search_P3
+include("TwoPhases/TwoPhases_Rheology.jl")
+export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
-export invII, StrainRateTrial, F
+export invII, StrainRateTrial, F, Q, compute_Q, compute_F#, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
-export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
+export InitialiseMarkerFiaeld, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
 end
-
-# module TwoPhases_v1
-# using StagFDTools, StaticArrays, ExtendableSparse, StaticArrays
-# include("TwoPhases/TwoPhases_v1.jl")
-# export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1
-# export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
-# export AssembleContinuity2D!, ResidualContinuity2D!, Continuity
-# export AssembleMomentum2D_y!, ResidualMomentum2D_y!, Momentum_y
-# export AssembleMomentum2D_x!, ResidualMomentum2D_x!, Momentum_x
-# include("TwoPhases/TwoPhases_VE.jl")
-# export AssembleFluidContinuity2D_VE!, ResidualFluidContinuity2D_VE!, FluidContinuity_VE
-# export AssembleContinuity2D_VE!, ResidualContinuity2D_VE!, Continuity_VE
-# end
 
 end # module StagFDTools
