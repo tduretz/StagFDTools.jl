@@ -62,10 +62,10 @@ import Statistics:mean
     )
 
     materials.n     .= [  1.0,    1.0 ]
-    materials.m     .= [  0.0,    0.0 ]
+    materials.m     .= [ -1.0,   -1.0 ]
     materials.n_CK  .= [ n_CK,   n_CK ]
     materials.η0    .= [   ηs,     ηs ]/sc.σ/sc.t 
-    materials.ξ0    .= [ 2*ηs,   2*ηs ]/sc.σ/sc.t
+    materials.ξ0    .= [   ηs,     ηs ]/sc.σ/sc.t
     materials.G     .= [ 1e10, 0.25e10]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
@@ -583,7 +583,7 @@ function Run(nt)
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = Int64(nt*n_nt)
     D_BC = @SMatrix([-1 0; 0 1] )
-    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=4.0, r_fact=1.0, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=100, Pe_ini=4.6e7, ϵ_nl0=1e-6, ηs=1e32, visualization=true ); #1e20
+    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=40, Pe_ini=4.6e7, ϵ_nl0=1e-8, ηs=9e21, visualization=true ); #1e20
 
     # n_nx = 8
     # n_nt = 1
@@ -595,4 +595,4 @@ function Run(nt)
 end
 
 @time Run(1)
-@time Run(80)
+@time Run(80*2)

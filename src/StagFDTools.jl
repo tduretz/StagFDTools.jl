@@ -47,7 +47,7 @@ end
 module Stokes
 using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
 using TimerOutputs, Printf
-using JustPIC, JustPIC._2D
+using JustPIC#, JustPIC._2D
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
@@ -112,7 +112,7 @@ export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F, Q, compute_Q, compute_F#, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
-export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
+export InitialiseMarkerFiaeld, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
 end
 
 end # module StagFDTools
