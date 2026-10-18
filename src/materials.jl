@@ -1,5 +1,14 @@
 abstract type AbstractPlasticity end
 
+Base.@kwdef struct IterParams
+    niter::Int64 = 10
+    γ::Float64 = 1e5
+    ϵ_l::Float64 = 1e-11
+    ϵ_nl::Float64 = 1e-8
+    inexact::Bool = false
+    solver_type::Symbol = :PH
+    α::Vector{Float64} = collect(LinRange(0.05, 1.0, 6))
+end
 Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     C::T = Float64[]
     cosϕ::T = Float64[]
@@ -124,17 +133,17 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
 end
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T               = [0.0, 0.0]
-    ρ::T               = Float64[]
-    n::T               = Float64[]
-    η0::T              = Float64[]
-    ξ0::T              = Float64[]
-    G::T               = Float64[]
-    β::T               = Float64[]
-    B::T               = Float64[]
-    plasticity::P      = NoPlasticity()
+    g::T = [0.0, 0.0]
+    ρ::T = Float64[]
+    n::T = Float64[]
+    η0::T = Float64[]
+    ξ0::T = Float64[]
+    G::T = Float64[]
+    β::T = Float64[]
+    B::T = Float64[]
+    plasticity::P = NoPlasticity()
     compressible::Bool = false
-    phase_avg::Symbol  = :arithmetic
+    phase_avg::Symbol = :arithmetic
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -160,7 +169,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     single_phase::Bool = false
     conservative::Bool = false
     compressible::Bool = false
-    phase_avg::Symbol  = :arithmetic
+    phase_avg::Symbol = :arithmetic
 end
 
 struct NoPlasticity <: AbstractPlasticity end
@@ -424,7 +433,7 @@ function preprocess!(mat::Materials)
 end
 
 # This is same as above, could be Union ? 
-function preprocess!(mat::Materials_TwoPhases) 
+function preprocess!(mat::Materials_TwoPhases)
     @. mat.B = (2 * mat.η0)^(-mat.n)
     preprocess!(mat.plasticity)
 end

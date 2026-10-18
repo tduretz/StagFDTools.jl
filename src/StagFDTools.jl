@@ -17,7 +17,7 @@ include("Utils.jl")
 export GenerateGrid, printxy, av2D, Plot_Tangent_Operator
 
 include("Solvers.jl")
-export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt! 
+export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt!
 
 include("BCs.jl")
 export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
@@ -45,7 +45,9 @@ include("Poisson.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!
 end
 module Stokes
-using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
+using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
+using TimerOutputs, Printf
+using JustPIC, JustPIC._2D
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
@@ -53,7 +55,10 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Markers.jl")
-export InitialiseMarkerField, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields!
+export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!, update_JustPIC!
+include("Main.jl")
+export AbstractSolver, Allocs, Solve!, main_loop, IterParams
+export JustPICAdvection
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
