@@ -1,19 +1,4 @@
 abstract type AbstractAdvection end
-
-struct Markers{P,G,X,PA,PR} <: AbstractAdvection
-    particles::P
-    grid_vi::G
-    xvi::X
-    particle_args::PA
-    phase_ratios::PR
-end
-
-struct TensorMarkers{P,T,D,S} <: AbstractAdvection
-    p::P     # particles 
-    t::T     # temporary 
-    Δ::D     # increments
-    Δ_sub::S # subgrid increments
-end
 struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT,G}
     type::t
     number::n
@@ -58,6 +43,20 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT
     phases::PHNT
     phase_ratios::PRNT
     X::G
+end
+struct Markers{P,G,X,PA,PR} <: AbstractAdvection
+    particles::P
+    grid_vi::G
+    xvi::X
+    particle_args::PA
+    phase_ratios::PR
+end
+
+struct TensorMarkers{P,T,D,S} <: AbstractAdvection
+    p::P     # particles 
+    t::T     # temporary 
+    Δ::D     # increments
+    Δ_sub::S # subgrid increments
 end
 
 # Method with no advection of stresses -----------------------
