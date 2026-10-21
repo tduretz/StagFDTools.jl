@@ -65,8 +65,10 @@ function upper_advected!(tm::TensorMarkers, particles, dt)
                 Δτyy = @inbounds @index tm.Δ.τyy[ip, I...]
                 Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
                 tmp = 2 * τ_xy * ω_xy
-                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy)), Δτxx)
-                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy)), Δτyy)
+                # trace correction?
+                tr = 2(ε̇_xx*τ_xx+ε̇_yy*τ_yy+ε̇_xy*τ_xy)/3
+                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy) - tr), Δτxx)
+                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy)) - tr, Δτyy)
                 @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy)), Δτxy)
             end
         end
