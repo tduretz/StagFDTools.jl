@@ -120,7 +120,7 @@ Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
     B::T = Float64[]
     plasticity::P = NoPlasticity()
     compressible::Bool = false
-    phase_avg::Symbol = :arithmetic
+    phase_avg::Symbol = :harmonic
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -145,7 +145,7 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     single_phase = false
     conservative = false
     compressible::Bool = false
-    phase_avg::Symbol = :arithmetic
+    phase_avg::Symbol = :harmonic
 end
 
 struct NoPlasticity <: AbstractPlasticity end
@@ -257,7 +257,7 @@ initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 function initialize_materials(nphases::Integer;
     plasticity=NoPlasticity(),
     compressible::Bool=false,
-    phase_avg::Symbol=:arithmetic)
+    phase_avg::Symbol=:harmonic)
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials(
         ρ=ones(nphases),
@@ -280,7 +280,7 @@ function initialize_materials_TwoPhases(nphases::Integer;
     oneway::Bool=false,
     linearizeΦ::Bool=false,
     conservative::Bool=false,
-    phase_avg::Symbol=:arithmetic)
+    phase_avg::Symbol=:harmonic)
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials_TwoPhases(
         ρs=ones(nphases),

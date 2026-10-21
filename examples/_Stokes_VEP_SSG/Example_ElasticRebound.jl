@@ -164,7 +164,6 @@ end
             idxv = adv.particles.index.data[:]
             checker_colors = cgrad([:lightskyblue, :dodgerblue, :grey70, :grey20], 4, categorical=true)
             scatter!(ax, Array(pxv[idxv]) .* sc.L ./ 1e3, Array(pyv[idxv]) .* sc.L ./ 1e3, color=Array(clr[idxv]), colormap=checker_colors, colorrange=(-0.5, 3.5), markersize=4)
-
             display(fig)
         end
         with_theme(visualisation, theme_latexfonts())
