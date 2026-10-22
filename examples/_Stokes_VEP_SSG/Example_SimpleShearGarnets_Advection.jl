@@ -85,7 +85,7 @@ using BenchmarkTools
     max_xcell = 36 * 2 # maximum number of particles per cell
     min_xcell = 6 # minimum number of particles per cell
     args = 1 # Fields to be advected (1=phase)
-    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args)
     phases, = adv.particle_args
     # Set material geometry
     set_phases!(phases, adv.particles, 1.0, 2.0 => layering, 3.0 => garnets, 3.0 => micas)

@@ -103,7 +103,7 @@ end
     max_xcell = 40
     min_xcell = 10
     args = 1
-    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases, args)
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args)
     phases, = adv.particle_args
 
     # Set material geometry

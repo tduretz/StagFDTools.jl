@@ -19,7 +19,6 @@ Base.@kwdef mutable struct NumberingPoisson{N}
     pattern ::Union{SMatrix{N, N, Int64},  Missing} = missing
 end
 
-
 struct NumberingPoisson2{T1,T2,T3,T4}
     num     ::Matrix{T1}
     type    ::Matrix{T2}

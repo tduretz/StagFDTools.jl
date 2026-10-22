@@ -110,7 +110,7 @@ using TimerOutputs
         end
     end
 
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     #--------------------------------------------#
 

@@ -1,8 +1,20 @@
 # Set phase ratios with no markers
-function Set_PhaseRatios!(a)
-    _fill_phase_ratios!(a.phase_ratios.c, a.phases.c)
-    _fill_phase_ratios!(a.phase_ratios.v, a.phases.v)
+Set_PhaseRatios!(a) = Set_PhaseRatios!(a.phase_ratios, a.phases)
+
+function Set_PhaseRatios!(phase_ratios::NamedTuple, phases::NamedTuple)
+    _fill_phase_ratios!(phase_ratios.c, phases.c)
+    _fill_phase_ratios!(phase_ratios.v, phases.v)
     return nothing
+end
+
+# Allocating variant, used by the TwoPhases examples
+function InitialisePhaseRatios(phases::NamedTuple, nphases::Int)
+    phase_ratios = (
+        c = [zeros(nphases) for _ in axes(phases.c, 1), _ in axes(phases.c, 2)],
+        v = [zeros(nphases) for _ in axes(phases.v, 1), _ in axes(phases.v, 2)],
+    )
+    Set_PhaseRatios!(phase_ratios, phases)
+    return phase_ratios
 end
 
 function _fill_phase_ratios!(phase_ratios::AbstractMatrix{<:AbstractVector}, phases)

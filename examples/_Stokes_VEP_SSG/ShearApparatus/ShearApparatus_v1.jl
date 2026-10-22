@@ -104,7 +104,7 @@ using TimerOutputs, CairoMakie
             end
         end
     end
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     a.Pt .= 200 * rand(size(a.Pt)...)
     a.Pt0 .= a.Pt

@@ -1,4 +1,5 @@
 using DifferentiationInterface
+using ForwardDiff: Dual, Partials, Tag, value, partials
 
 const AUTO_DIFF_BACKEND = AutoForwardDiff()
 export ad_jacobian_first, gradient, gradient!, prepare_gradient, prepare_jacobian, jacobian!, Constant, AUTO_DIFF_BACKEND
@@ -25,6 +26,28 @@ Duplicated(x, grad) = DuplicatedArg(x, grad)
 @inline ad_value_and_derivative(f, x, args...) = value_and_derivative(f, AUTO_DIFF_BACKEND, x, _ad_contexts(args...)...)
 @inline ad_jacobian(f, x, args...) = jacobian(f, AUTO_DIFF_BACKEND, x, _ad_contexts(args...)...)
 @inline ad_value_and_jacobian(f, x, args...) = value_and_jacobian(f, AUTO_DIFF_BACKEND, x, _ad_contexts(args...)...)
+
+# Allocation-free value+jacobian: manually seeds dual inputs so f is called
+# once with no DI overhead. Requires x::SVector so N and T are known statically.
+@inline function fd_value_and_jacobian(f::F, x::SVector{N, T}, args...) where {F, N, T}
+    Tg  = typeof(Tag(f, T))
+    D   = Dual{Tg, T, N}
+    xd  = SVector{N, D}(ntuple(
+        i -> D(x[i], Partials(ntuple(j -> ifelse(i == j, one(T), zero(T)), Val(N)))),
+        Val(N)))
+    yd  = f(xd, args...)
+    val = map(value, yd)
+    jac = hcat(ntuple(j -> map(yi -> partials(yi)[j], yd), Val(N))...)
+    return val, jac
+end
+
+# Allocation-free value+derivative for scalar → scalar (or scalar → Dual).
+@inline function fd_value_and_derivative(f::F, x::T, args...) where {F, T <: Real}
+    Tg = typeof(Tag(f, T))
+    xd = Dual{Tg, T, 1}(x, Partials((one(T),)))
+    yd = f(xd, args...)
+    return value(yd), partials(yd)[1]
+end
 
 @inline function _replace_tuple_entry(xs::Tuple, idx::Int, x)
     return ntuple(i -> i == idx ? x : xs[i], length(xs))

@@ -106,7 +106,10 @@ function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphas
     return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
-function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect::Bool=true)
+
+    # Static markers: phase ratios are set once from JustPIC and never change
+    !advect && return main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
