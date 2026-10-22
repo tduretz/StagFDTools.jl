@@ -47,7 +47,7 @@ function Jaumann_rate!(tm::TensorMarkers, particles, dt)
     return nothing
 end
 
-function upper_advected!(tm::TensorMarkers, particles, dt)
+function upper_convected!(tm::TensorMarkers, particles, dt)
     (; index) = particles
     Threads.@threads for j in axes(tm.p.τxx, 2)
         for i in axes(tm.p.τxx, 1)
@@ -64,12 +64,18 @@ function upper_advected!(tm::TensorMarkers, particles, dt)
                 Δτxx = @inbounds @index tm.Δ.τxx[ip, I...]
                 Δτyy = @inbounds @index tm.Δ.τyy[ip, I...]
                 Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
+                ΔP = @inbounds @index tm.Δ.P[ip, I...]
                 tmp = 2 * τ_xy * ω_xy
-                # trace correction?
-                tr = 2(ε̇_xx*τ_xx+ε̇_yy*τ_yy+ε̇_xy*τ_xy)/3
-                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy) - tr), Δτxx)
-                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy)) - tr, Δτyy)
+                # Full velocity gradient correction
+                ε̇_zz = -(ε̇_xx + ε̇_yy)
+                τ_zz = -(τ_xx + τ_yy)
+                ε̇_kk = 3*(ε̇_xx + ε̇_yy)
+                # trace correction
+                tr = 2(ε̇_xx*τ_xx+ε̇_yy*τ_yy+ε̇_zz*τ_zz+ε̇_xy*τ_xy)/3
+                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3)), Δτxx)
+                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3)), Δτyy)
                 @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy)), Δτxy)
+                @inbounds @index tm.Δ.P[ip, I...] = muladd(-dt, tr, ΔP)
             end
         end
     end
@@ -77,7 +83,7 @@ function upper_advected!(tm::TensorMarkers, particles, dt)
 end
 
 function rotation_increments!(tm::TensorMarkers, particles, dt)
-    return upper_advected!(tm, particles, dt)
+    return upper_convected!(tm, particles, dt)
 end
 
 function constitutive_increments!(allocs::Allocs)
@@ -113,7 +119,7 @@ function update_stress_markers!(tm::TensorMarkers, particles)
     return nothing
 end
 
-function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles, Δt; d=1.)
+function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles, Δt, comp; d=1.)
 
     # Interpolate old grid stresses and Maxwell time parameters to markers
     centroid2particle!(tm.t.τ0xx, allocs.τ0.xx, particles)
@@ -143,9 +149,9 @@ function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles,
                 η = @inbounds @index tm.t.η[ip, I...]
                 G = @inbounds @index tm.t.G[ip, I...]
                 Δt_mxw = η / G
-                # ξ = @inbounds @index particles.ξ[ip, I...]
-                # K = @inbounds @index particles.K[ip, I...]
-                # Δt_P = compressible * ξ/K
+                # ξ = @inbounds @index tm.t.ξ[ip, I...]
+                # K = @inbounds @index tm.t.K[ip, I...]
+                # Δt_P = comp * ξ/K
 
                 diff = -expm1(dΔt / Δt_mxw)
                 @inbounds @index tm.Δ_sub.τxx[ip, I...] = (nτ0_xx - τ0_xx)*diff
@@ -163,13 +169,13 @@ function subgrid_toGrid!(tm::TensorMarkers, allocs::Allocs, particles)
     particle2centroid!(allocs.D_sub.τxx, tm.Δ_sub.τxx, particles)
     particle2centroid!(allocs.D_sub.τyy, tm.Δ_sub.τyy, particles)
     particle2grid!(allocs.D_sub.τxy, tm.Δ_sub.τxy, particles)
-    # particle2centroid!(allocs.D_sub.Pt, tm.Δ_sub.P, particles)
+    particle2centroid!(allocs.D_sub.Pt, tm.Δ_sub.P, particles)
 
     # Correct increments in the grid
     allocs.D.τxx .-= allocs.D_sub.τxx
     allocs.D.τyy .-= allocs.D_sub.τyy
     allocs.D.τxy .-= allocs.D_sub.τxy
-    # allocs.D.Pt .-= allocs.D_sub.Pt
+    allocs.D.Pt .-= allocs.D_sub.Pt
     return nothing
 end
 
@@ -208,19 +214,20 @@ function add_increments!(tm::TensorMarkers, allocs::Allocs, particles)
 end
 
 # Compute stress increments on markers 
-function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt)
+function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt, comp)
     constitutive_increments!(allocs)
-    stress_subgrid_diffusion!(tm, allocs, particles, Δt)
+    stress_subgrid_diffusion!(tm, allocs, particles, Δt, comp)
     subgrid_toGrid!(tm, allocs, particles)
     add_increments!(tm, allocs, particles)
     return nothing
 end
 
-function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, particles, Δ)
+function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Materials, particles, Δ)
 
     # Interpolate stress increments
+    comp = materials.compressible
     compute_vorticity!(allocs, Δ)
-    increment_stress!(allocs, tm, particles, Δ.t)
+    increment_stress!(allocs, tm, particles, Δ.t, comp)
 
     # temporary τ and ε̇ interpolaton
     centroid2particle!(tm.t.τxx, allocs.τ.xx, particles)
@@ -228,6 +235,7 @@ function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, particles, Δ)
     centroid2particle!(tm.t.P, allocs.Pt, particles)
     grid2particle!((tm.t.τxy, tm.t.ω), (allocs.τ.xy, allocs.ω.xy_v), particles)
     centroid2particle!(tm.t.ε̇xx, allocs.ε̇.xx, particles)
+    centroid2particle!(tm.t.ε̇yy, allocs.ε̇.yy, particles)
     centroid2particle!(tm.t.ε̇yy, allocs.ε̇.yy, particles)
     grid2particle!(tm.t.ε̇xy, allocs.ε̇.xy, particles)
 

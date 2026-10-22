@@ -61,7 +61,7 @@ include("Markers.jl")
 export Set_PhaseRatios!, compute_grid_fields!
 include("StressMarkers.jl")
 export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
-    update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_advected!,
+    update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_convected!,
     rotation_increments!, constitutive_increments!,
     stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")

@@ -350,10 +350,9 @@ function PhaseAverage(a_average, averaging)
     return a_avg
 end
 
-function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ)
+function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
-    phase_avg = :arithmetic
     eps0 = 1e-17
 
     # Effective strain rate & pressure

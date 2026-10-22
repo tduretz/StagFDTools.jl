@@ -92,15 +92,6 @@ function initialise_markers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,In
     return init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
 end
 
-function TensorMarkers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,Integer}}, max_xcell, min_xcell) where {N}
-    particles = initialise_markers(backend, a, nxcell, max_xcell, min_xcell)
-    tm = TensorConstructor(particles)
-    return particles, tm
-end
-
-# !! Need to create a dispatch for no-upper advected (just Jaumann), no rotation, no stress subgrid diffusion:
-# maybe add a rotation field in the struct that contains either :UpperAdvected, :nothing, etc
-
 # NamedTuple of fresh CellArrays with the given names
 cell_fields(particles, names::Symbol...) = NamedTuple{names}(init_cell_arrays(particles, Val(length(names))))
 
@@ -112,6 +103,12 @@ function TensorConstructor(particles)
         :τ0xx, :τ0yy, :τ0xy, :P0, :ε̇xx, :ε̇yy, :ε̇xy,
         :η, :G, :ξ, :K)
     return TensorMarkers(p, t, Δ, Δ_sub)
+end
+
+function TensorMarkers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,Integer}}, max_xcell, min_xcell) where {N}
+    particles = initialise_markers(backend, a, nxcell, max_xcell, min_xcell)
+    tm = TensorConstructor(particles)
+    return particles, tm
 end
 
 function allocate(nc, config, x, y, Δ, nphases)
