@@ -144,7 +144,7 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
 
     # Centroid arrays
     @inbounds for j in 1:nyc, i in 1:nxc
-        if 1 <= i <= nc.x + 2 && 1 <= j <= nc.y + 2
+        if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
             Ksc = 0.0
             KΦc = 0.0
             Kfc = 0.0
@@ -179,6 +179,17 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
             ρfi.c[i, j] = ρfic
             k_ηf0.c[i, j] = k_ηf0c
             n_CK.c[i, j] = n_CKc
+        else
+            Ks.c[i, j] = 0.0
+            KΦ.c[i, j] = 0.0
+            Kf.c[i, j] = 0.0
+            G.c[i, j] = 0.0
+            ξ.c[i, j] = 0.0
+            m.c[i, j] = 0.0
+            ρsi.c[i, j] = 0.0
+            ρfi.c[i, j] = 0.0
+            k_ηf0.c[i, j] = 0.0
+            n_CK.c[i, j] = 0.0
         end
     end
 
@@ -193,6 +204,16 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
         Kf.c[nxc, j] = Kf.c[nxc-1, j]
         ξ.c[1, j] = ξ.c[2, j]
         ξ.c[nxc, j] = ξ.c[nxc-1, j]
+        m.c[1, j] = m.c[2, j]
+        m.c[nxc, j] = m.c[nxc-1, j]
+        ρsi.c[1, j] = ρsi.c[2, j]
+        ρsi.c[nxc, j] = ρsi.c[nxc-1, j]
+        ρfi.c[1, j] = ρfi.c[2, j]
+        ρfi.c[nxc, j] = ρfi.c[nxc-1, j]
+        k_ηf0.c[1, j] = k_ηf0.c[2, j]
+        k_ηf0.c[nxc, j] = k_ηf0.c[nxc-1, j]
+        n_CK.c[1, j] = n_CK.c[2, j]
+        n_CK.c[nxc, j] = n_CK.c[nxc-1, j]
     end
     @inbounds for i in 1:nxc
         G.c[i, 1] = G.c[i, 2]
@@ -205,6 +226,16 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
         Kf.c[i, nyc] = Kf.c[i, nyc-1]
         ξ.c[i, 1] = ξ.c[i, 2]
         ξ.c[i, nyc] = ξ.c[i, nyc-1]
+        m.c[i, 1] = m.c[i, 2]
+        m.c[i, nyc] = m.c[i, nyc-1]
+        ρsi.c[i, 1] = ρsi.c[i, 2]
+        ρsi.c[i, nyc] = ρsi.c[i, nyc-1]
+        ρfi.c[i, 1] = ρfi.c[i, 2]
+        ρfi.c[i, nyc] = ρfi.c[i, nyc-1]
+        k_ηf0.c[i, 1] = k_ηf0.c[i, 2]
+        k_ηf0.c[i, nyc] = k_ηf0.c[i, nyc-1]
+        n_CK.c[i, 1] = n_CK.c[i, 2]
+        n_CK.c[i, nyc] = n_CK.c[i, nyc-1]
     end
 
     # Vertex arrays
@@ -214,9 +245,9 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
             Gv = 0.0
             pr = phase_ratios.v[i, j]
             for p = 1:nphases
-                Gv += pr[p] / materials.G[p]
+                Gv += interpolate(mode, pr[p], materials.G[p])
             end
-            G.v[i, j] = 1/Gv
+            G.v[i, j] = weight_sum(mode, Gv)
         else
             G.v[i, j] = 0.0
         end
