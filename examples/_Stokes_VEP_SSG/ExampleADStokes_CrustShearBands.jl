@@ -111,7 +111,7 @@ end
     @views a.phases.v[inx_v, iny_v][(a.X.v.x.^2 .+ (a.X.v.y' .- a.X.v.y[1]).^2) .<= rad^2] .= 2
     a.phases.v[:, end-1] .= 3
     a.phases.c[:, end-1] .= 3
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     a.Pt0 .= a.Pt
     a.Pti .= a.Pt

@@ -68,7 +68,7 @@ using TimerOutputs
     @views a.phases.v[:, [2,end-1]] .= 3
     @views a.phases.c[[2,end-1], :] .= 3
     @views a.phases.c[:, [2,end-1]] .= 3
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     rvec = zeros(length(iter_params.α))
     err = (x=zeros(iter_params.niter), y=zeros(iter_params.niter), p=zeros(iter_params.niter))

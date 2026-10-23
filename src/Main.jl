@@ -1,189 +1,11 @@
-abstract type AbstractMarkers end
-struct NoMarkers <: AbstractMarkers end
 
-# Keeping a Solver struct if one wants to add solvers
-struct JustPICAdvection{P,G,X,PA,PR}
-    particles::P
-    grid_vi::G
-    xvi::X
-    particle_args::PA
-    phase_ratios::PR
-end
-struct Markers{Xm,xm,dm,n,ph} <: AbstractMarkers
-    Xm::Xm
-    Ym::Xm
-    xm::xm
-    ym::xm
-    Δm::dm
-    num::n
-    phase::ph
-end
-struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,PNT,DNT,DC,DV,PHNT,PRNT,G,MR<:AbstractMarkers}
-    type::t
-    number::n
-    pattern::p
-    M::M
-    M_PC::M
-    𝐊::ExtendableSparseMatrix
-    𝐊_PC::ExtendableSparseMatrix
-    𝐐::ExtendableSparseMatrix
-    𝐐_PC::ExtendableSparseMatrix
-    𝐐ᵀ::ExtendableSparseMatrix
-    𝐐ᵀ_PC::ExtendableSparseMatrix
-    𝐏::ExtendableSparseMatrix
-    𝐏_PC::ExtendableSparseMatrix
-    dx::Vector{Float64}
-    r::Vector{Float64}
-    m::MR
-    R::RNT
-    V::VNT
-    Vi::VNT
-    η::FNT
-    ξ::FNT
-    λ̇::FNT
-    G::FNT
-    β::FNT
-    ρ::FNT
-    ε̇::SNT
-    τ0::TNT
-    τ::SNT
-    Pt::Matrix{Float64}
-    Pti::Matrix{Float64}
-    Pt0::Matrix{Float64}
-    ΔPt::PNT
-    Dc::DC
-    Dv::DV
-    𝐷::DNT
-    D_ctl_c::DC
-    D_ctl_v::DV
-    𝐷_ctl::DNT
-    phases::PHNT
-    phase_ratios::PRNT
-    X::G
-end
-
-function JustPICAdvection(backend, a::Allocs, nxcell, max_xcell, min_xcell, nc, nphases, args)
-    grid_vx = (a.X.v.x, a.X.c_e.y)
-    grid_vy = (a.X.c_e.x, a.X.v.y)
-    xi_vel = (grid_vx, grid_vy)
-    xvi = (a.X.v.x, a.X.v.y)
-    d = (step(a.X.v.x), step(a.X.v.y))
-    particles = init_particles(backend, nxcell, max_xcell, min_xcell, xi_vel)
-    particle_args = init_cell_arrays(particles, Val(args))
-    phase_ratios = JustPIC._2D.PhaseRatios(backend, nphases, values(nc))
-    return JustPICAdvection(particles, xi_vel, xvi, particle_args, phase_ratios)
-end
-
-function allocate(nc, config, x, y, Δ, nphases)
-    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c,
-    inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
-
-    type = Fields(
-        fill(:out, (nc.x + 3, nc.y + 4)),
-        fill(:out, (nc.x + 4, nc.y + 3)),
-        fill(:out, (nc.x + 2, nc.y + 2)),
+function compute_vorticity!(allocs, Δ)
+    @views allocs.ω.xy_v .= 0.5 .* (
+        (allocs.V.x[:, 2:end] .- allocs.V.x[:, 1:(end-1)]) ./ Δ.y .-
+            (allocs.V.y[2:end, :] .- allocs.V.y[1:(end-1), :]) ./ Δ.x
     )
-    set_boundaries_template!(type, config, nc)
-
-    number = Fields(fill(0, size_x), fill(0, size_y), fill(0, size_c))
-    Numbering!(number, type, nc)
-
-    pattern = Fields(
-        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),
-            @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),
-            @SMatrix([1 1 1; 1 1 1])),
-        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),
-            @SMatrix([1 1 1; 1 1 1; 1 1 1]),
-            @SMatrix([1 1; 1 1; 1 1])),
-        Fields(@SMatrix([0 1 0; 0 1 0]),
-            @SMatrix([0 0; 1 1; 0 0]),
-            @SMatrix([1]))
-    )
-
-    nVx = maximum(number.Vx)
-    nVy = maximum(number.Vy)
-    nPt = maximum(number.Pt)
-
-    R = (x=zeros(size_x...), y=zeros(size_y...), p=zeros(size_c...))
-    V = (x=zeros(size_x...), y=zeros(size_y...))
-    Vi = (x=zeros(size_x...), y=zeros(size_y...))
-    η = (c=ones(size_c...), v=ones(size_v...))
-    ξ = (c=ones(size_c...), v=ones(size_v...))
-    λ̇ = (c=zeros(size_c...), v=zeros(size_v...))
-    G = (c=zeros(size_c...), v=zeros(size_v...))
-    β = (c=zeros(size_c...), v=zeros(size_v...))
-    ρ = (c=zeros(size_c...), v=zeros(size_v...))
-    ε̇ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
-        II=zeros(size_c...), θ=zeros(size_c...))
-    τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...))
-    τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
-        II=zeros(size_c...), θ=zeros(size_c...))
-    Pt = zeros(size_c...)
-    Pti = zeros(size_c...)
-    Pt0 = zeros(size_c...)
-    ΔPt = (c=zeros(size_c...), Vx=zeros(size_x...), Vy=zeros(size_y...))
-
-    Dc = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xx, 1), _ in axes(ε̇.xx, 2)]
-    Dv = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)]
-    𝐷 = (c=Dc, v=Dv)
-    D_ctl_c = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xx, 1), _ in axes(ε̇.xx, 2)]
-    D_ctl_v = [@MMatrix(zeros(4, 4)) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)]
-    𝐷_ctl = (c=D_ctl_c, v=D_ctl_v)
-    phases = (c=ones(Int64, size_c...), v=ones(Int64, size_v...))
-    phase_ratios = (c=[zeros(nphases) for _ in axes(ε̇.xx, 1), _ in axes(ε̇.xx, 2)],
-        v=[zeros(nphases) for _ in axes(ε̇.xy, 1), _ in axes(ε̇.xy, 2)])
-    X = GenerateGrid(x, y, Δ, nc)
-
-    return type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X
-end
-
-function allocate_matrices(nVx, nVy, nPt)
-    M = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt)),
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt)),
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt))
-    )
-    𝐊 = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
-    𝐐 = ExtendableSparseMatrix(nVx + nVy, nPt)
-    𝐐ᵀ = ExtendableSparseMatrix(nPt, nVx + nVy)
-    𝐏 = ExtendableSparseMatrix(nPt, nPt)
-    dx = zeros(nVx + nVy + nPt)
-    r = zeros(nVx + nVy + nPt)
-    return M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r
-end
-
-function Allocs(nc, config, x, y, Δ, nphases)
-    type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
-        allocate(nc, config, x, y, Δ, nphases)
-
-    M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
-    M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
-
-    return Allocs(type, number, pattern,
-        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, NoMarkers(), R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
-end
-
-function Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
-    type, number, pattern, nVx, nVy, nPt,
-    R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-    Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
-        allocate(nc, config, x, y, Δ, nphases)
-
-    M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
-    M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
-
-    L = (x=x.max - x.min, y=y.max - y.min)
-    mf = InitialiseMarkerField(nc, nmpc, L, Δ, x, y, noise)
-    m = Markers(mf.Xm, mf.Ym, mf.xm, mf.ym, mf.Δm, mf.num, mf.phase)
-
-    return Allocs(type, number, pattern,
-        M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, m, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
+    allocs.ω.xy_c .= av2D(allocs.ω.xy_v)
+    return nothing
 end
 
 function _assemble!(a::Allocs, materials, BC, nc, Δ)
@@ -234,11 +56,6 @@ end
 
 function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-    a.τ0.xx .= a.τ.xx
-    a.τ0.yy .= a.τ.yy
-    a.τ0.xy .= a.τ.xy
-    a.Pt0 .= a.Pt
-
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c,
     inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
     nVx = maximum(a.number.Vx)
@@ -282,22 +99,44 @@ main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = m
 
 function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     @printf("Step %04d\n", it)
+    a.τ0.xx .= a.τ.xx
+    a.τ0.yy .= a.τ.yy
+    a.τ0.xy .= a.τ.xy
+    a.Pt0 .= a.Pt
     return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
-# JustPIC advection
-function main_loop(a::Allocs, adv::JustPICAdvection, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect::Bool=true)
+
+    # Static markers: phase ratios are set once from JustPIC and never change
+    !advect && return main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
-    @views V = (a.V.x[2:end-1, 2:end-1], a.V.y[2:end-1, 2:end-1])
+    @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
-    # Advection
     advection!(adv.particles, RungeKutta2(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
-    inject_particles_phase!(adv.particles, adv.particle_args[1], (), ())
+    inject_particles!(adv.particles, adv.particle_args)
 
     # Update phase_ratios for the solver (includes ghost nodes)
-    update_JustPIC!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+end
+
+function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+    # Solve
+    main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+    @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
+
+    stress_ToParticles!(a, tm, materials, adv.particles, Δ)
+    advection!(adv.particles, RungeKutta2(), V, Δ.t)
+    move_particles!(adv.particles, adv.particle_args)
+    inject_particles!(adv.particles, adv.particle_args)
+
+    # Update fields with new positions
+    stress_ToGrid!(tm, a, adv.particles)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 end

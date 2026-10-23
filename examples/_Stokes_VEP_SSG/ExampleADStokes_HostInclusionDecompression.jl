@@ -93,7 +93,7 @@ end
     @views @. a.phases.v[inx_v, iny_v][yv2<0.75&&xv2<0.75&&yv2<(xv2*a_line+b_line)] .= 3
     @views @. a.phases.c[inx_c, iny_c][yc2<radius&&xc2<radius] .= 2
     @views @. a.phases.v[inx_v, iny_v][yv2<radius&&xv2<radius] .= 2
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     fig_init = Figure()
     ax_p1 = Axis(fig_init[1, 1], title="phases.c", aspect=DataAspect())

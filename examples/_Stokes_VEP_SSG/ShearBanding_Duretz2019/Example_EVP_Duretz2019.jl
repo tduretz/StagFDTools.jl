@@ -193,7 +193,7 @@ end
     ccord = (x=-L.x/2, y=-L.y/2)
     @views a.phases.c[inx_c, iny_c][((a.X.c.x .-ccord.x).^2 .+ ((a.X.c.y').-ccord.y).^2) .<= (r_incl)^2] .= 2
     @views a.phases.v[inx_v, iny_v][((a.X.v.x .-ccord.x).^2 .+ ((a.X.v.y').-ccord.y).^2) .<= (r_incl)^2] .= 2
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     #------------------------------------------------------------------#
 

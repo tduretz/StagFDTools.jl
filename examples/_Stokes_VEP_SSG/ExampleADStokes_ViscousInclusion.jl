@@ -70,7 +70,7 @@ using TimerOutputs
     rad = 0.1 + 1e-13
     @views a.phases.c[inx_c, iny_c][(a.X.c.x.^2 .+ (a.X.c.y').^2) .<= rad^2] .= 2
     @views a.phases.v[inx_v, iny_v][(a.X.v.x.^2 .+ (a.X.v.y').^2) .<= rad^2] .= 2
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     #--------------------------------------------#
 
