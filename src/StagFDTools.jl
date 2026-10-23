@@ -59,7 +59,7 @@ export TangentOperator!, LineSearch!
 include("Allocs.jl")
 export Allocs, Markers, TensorMarkers, TensorConstructor, initialise_markers
 include("Markers.jl")
-export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!
+export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
 include("StressMarkers.jl")
 export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
     update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_convected!,

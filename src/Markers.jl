@@ -7,6 +7,16 @@ function Set_PhaseRatios!(phase_ratios::NamedTuple, phases::NamedTuple)
     return nothing
 end
 
+# Set phases (dominant phase) from phase ratios
+function Set_Grid_Phases!(a)
+    for I in eachindex(a.phases.c)
+        a.phases.c[I] = argmax(a.phase_ratios.c[I])
+    end
+    for I in eachindex(a.phases.v)
+        a.phases.v[I] = argmax(a.phase_ratios.v[I])
+    end
+end
+
 # Allocating variant, used by the TwoPhases examples
 function InitialisePhaseRatios(phases::NamedTuple, nphases::Int)
     phase_ratios = (
@@ -24,20 +34,20 @@ function _fill_phase_ratios!(phase_ratios::AbstractMatrix{<:AbstractVector}, pha
     end
 end
 
-# Copy JP phase ratios to solver's phase ratios
+  # Copy JP phase ratios to solver's phase ratios
 function Set_PhaseRatios!(a, phase_ratios, particles, phases)
     update_phase_ratios!(phase_ratios, particles, phases)
     @views begin
         a.phase_ratios.c[2:(end-1), 2:(end-1)] .= phase_ratios.center
         a.phase_ratios.v[2:(end-1), 2:(end-1)] .= phase_ratios.vertex
 
-        a.phase_ratios.c[1, :] .= a.phase_ratios.c[2, :]
+        a.phase_ratios.c[1, :]   .= a.phase_ratios.c[2, :]
         a.phase_ratios.c[end, :] .= a.phase_ratios.c[end-1, :]
-        a.phase_ratios.c[:, 1] .= a.phase_ratios.c[:, 2]
+        a.phase_ratios.c[:, 1]   .= a.phase_ratios.c[:, 2]
         a.phase_ratios.c[:, end] .= a.phase_ratios.c[:, end-1]
-        a.phase_ratios.v[1, :] .= a.phase_ratios.v[2, :]
+        a.phase_ratios.v[1, :]   .= a.phase_ratios.v[2, :]
         a.phase_ratios.v[end, :] .= a.phase_ratios.v[end-1, :]
-        a.phase_ratios.v[:, 1] .= a.phase_ratios.v[:, 2]
+        a.phase_ratios.v[:, 1]   .= a.phase_ratios.v[:, 2]
         a.phase_ratios.v[:, end] .= a.phase_ratios.v[:, end-1]
     end
 end
@@ -69,22 +79,22 @@ end
 #     return nothing
 # end
 
-@inline interpolate(::Val{:harmonic}, r, x) = r / x
+@inline interpolate(::Val{:harmonic}, r, x)   = r / x
 @inline interpolate(::Val{:arithmetic}, r, x) = r * x
-@inline weight_sum(::Val{:harmonic}, x) = 1 / x
-@inline weight_sum(::Val{:arithmetic}, x) = x
+@inline weight_sum(::Val{:harmonic}, x)       = 1 / x
+@inline weight_sum(::Val{:arithmetic}, x)     = x
 
 function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases, mode::Val)
     nxc, nyc = size(G.c)
-    @inbounds for j in 1:nyc, i in 1:nxc
+    @inbounds for j in 1: nyc, i in 1: nxc
         if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
-            βc = 0.0
-            Gc = 0.0
-            ρc = 0.0
-            ξc = 0.0
-            pr = phase_ratios.c[i, j]
-            for p = 1:nphases
-                r = pr[p]
+                βc  = 0.0
+                Gc  = 0.0
+                ρc  = 0.0
+                ξc  = 0.0
+                pr  = phase_ratios.c[i, j]
+            for p   = 1:nphases
+                r   = pr[p]
                 βc += interpolate(mode, r, materials.β[p])
                 Gc += interpolate(mode, r, materials.G[p])
                 ρc += interpolate(Val(:arithmetic), r, materials.ρ[p])
@@ -102,33 +112,33 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
         end
     end
 
-    @inbounds for j in 1:nyc
-        G.c[1, j] = G.c[2, j]
+    @inbounds for j in 1: nyc
+        G.c[1, j]   = G.c[2, j]
         G.c[nxc, j] = G.c[nxc-1, j]
-        β.c[1, j] = β.c[2, j]
+        β.c[1, j]   = β.c[2, j]
         β.c[nxc, j] = β.c[nxc-1, j]
-        ρ.c[1, j] = ρ.c[2, j]
+        ρ.c[1, j]   = ρ.c[2, j]
         ρ.c[nxc, j] = ρ.c[nxc-1, j]
-        ξ.c[1, j] = ξ.c[2, j]
+        ξ.c[1, j]   = ξ.c[2, j]
         ξ.c[nxc, j] = ξ.c[nxc-1, j]
     end
-    @inbounds for i in 1:nxc
-        G.c[i, 1] = G.c[i, 2]
+    @inbounds for i in 1: nxc
+        G.c[i, 1]   = G.c[i, 2]
         G.c[i, nyc] = G.c[i, nyc-1]
-        β.c[i, 1] = β.c[i, 2]
+        β.c[i, 1]   = β.c[i, 2]
         β.c[i, nyc] = β.c[i, nyc-1]
-        ρ.c[i, 1] = ρ.c[i, 2]
+        ρ.c[i, 1]   = ρ.c[i, 2]
         ρ.c[i, nyc] = ρ.c[i, nyc-1]
-        ξ.c[i, 1] = ξ.c[i, 2]
+        ξ.c[i, 1]   = ξ.c[i, 2]
         ξ.c[i, nyc] = ξ.c[i, nyc-1]
     end
 
     nxv, nyv = size(G.v)
-    @inbounds for j in 1:nyv, i in 1:nxv
+    @inbounds for j in 1: nyv, i in 1: nxv
         if 1 < i < nc.x + 3 && 1 < j < nc.y + 3
-            Gv = 0.0
-            pr = phase_ratios.v[i, j]
-            for p = 1:nphases
+                Gv  = 0.0
+                pr  = phase_ratios.v[i, j]
+            for p   = 1:nphases
                 Gv += interpolate(mode, pr[p], materials.G[p])
             end
             G.v[i, j] = weight_sum(mode, Gv)
@@ -137,12 +147,12 @@ function compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphase
         end
     end
 
-    @inbounds for j in 1:nyv
-        G.v[1, j] = G.v[2, j]
+    @inbounds for j in 1: nyv
+        G.v[1, j]   = G.v[2, j]
         G.v[nxv, j] = G.v[nxv-1, j]
     end
-    @inbounds for i in 1:nxv
-        G.v[i, 1] = G.v[i, 2]
+    @inbounds for i in 1: nxv
+        G.v[i, 1]   = G.v[i, 2]
         G.v[i, nyv] = G.v[i, nyv-1]
     end
     return nothing
@@ -154,109 +164,109 @@ compute_grid_fields!(G, β, ρ, ξ, materials, phase_ratios, nc, nphases; mode::
 function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases, mode::Val)
     nxc, nyc = size(G.c)
 
-    # Centroid arrays
-    @inbounds for j in 1:nyc, i in 1:nxc
+      # Centroid arrays
+    @inbounds for j in 1: nyc, i in 1: nxc
         if 1 < i < nc.x + 2 && 1 < j < nc.y + 2
-            Ksc = 0.0
-            KΦc = 0.0
-            Kfc = 0.0
-            Gc = 0.0
-            ξc = 0.0
-            mc = 0.0
-            ρsic = 0.0
-            ρfic = 0.0
-            k_ηf0c = 0.0
-            n_CKc = 0.0
-            pr = phase_ratios.c[i, j]
-            for p = 1:nphases
-                r = pr[p]
-                Ksc += r * materials.Ks[p]
-                KΦc += r * materials.KΦ[p]
-                Kfc += r * materials.Kf[p]
-                Gc += interpolate(mode, r, materials.G[p])
-                ξc += interpolate(mode, r, materials.ξ0[p])
-                mc += r * materials.m[p]
-                ρsic += r * materials.ρs[p]
-                ρfic += r * materials.ρf[p]
+                Ksc     = 0.0
+                KΦc     = 0.0
+                Kfc     = 0.0
+                Gc      = 0.0
+                ξc      = 0.0
+                mc      = 0.0
+                ρsic    = 0.0
+                ρfic    = 0.0
+                k_ηf0c  = 0.0
+                n_CKc   = 0.0
+                pr      = phase_ratios.c[i, j]
+            for p       = 1:nphases
+                r       = pr[p]
+                Ksc    += r * materials.Ks[p]
+                KΦc    += r * materials.KΦ[p]
+                Kfc    += r * materials.Kf[p]
+                Gc     += interpolate(mode, r, materials.G[p])
+                ξc     += interpolate(mode, r, materials.ξ0[p])
+                mc     += r * materials.m[p]
+                ρsic   += r * materials.ρs[p]
+                ρfic   += r * materials.ρf[p]
                 k_ηf0c += r * materials.k_ηf0[p]
-                n_CKc += r * materials.n_CK[p]
+                n_CKc  += r * materials.n_CK[p]
             end
-            Ks.c[i, j] = Ksc
-            KΦ.c[i, j] = KΦc
-            Kf.c[i, j] = Kfc
-            G.c[i, j] = weight_sum(mode, Gc)
-            ξ.c[i, j] = weight_sum(mode, ξc)
-            m.c[i, j] = mc
-            ρsi.c[i, j] = ρsic
-            ρfi.c[i, j] = ρfic
+            Ks.c[i, j]    = Ksc
+            KΦ.c[i, j]    = KΦc
+            Kf.c[i, j]    = Kfc
+            G.c[i, j]     = weight_sum(mode, Gc)
+            ξ.c[i, j]     = weight_sum(mode, ξc)
+            m.c[i, j]     = mc
+            ρsi.c[i, j]   = ρsic
+            ρfi.c[i, j]   = ρfic
             k_ηf0.c[i, j] = k_ηf0c
-            n_CK.c[i, j] = n_CKc
+            n_CK.c[i, j]  = n_CKc
         else
-            Ks.c[i, j] = 0.0
-            KΦ.c[i, j] = 0.0
-            Kf.c[i, j] = 0.0
-            G.c[i, j] = 0.0
-            ξ.c[i, j] = 0.0
-            m.c[i, j] = 0.0
-            ρsi.c[i, j] = 0.0
-            ρfi.c[i, j] = 0.0
+            Ks.c[i, j]    = 0.0
+            KΦ.c[i, j]    = 0.0
+            Kf.c[i, j]    = 0.0
+            G.c[i, j]     = 0.0
+            ξ.c[i, j]     = 0.0
+            m.c[i, j]     = 0.0
+            ρsi.c[i, j]   = 0.0
+            ρfi.c[i, j]   = 0.0
             k_ηf0.c[i, j] = 0.0
-            n_CK.c[i, j] = 0.0
+            n_CK.c[i, j]  = 0.0
         end
     end
 
-    @inbounds for j in 1:nyc
-        G.c[1, j] = G.c[2, j]
-        G.c[nxc, j] = G.c[nxc-1, j]
-        Ks.c[1, j] = Ks.c[2, j]
-        Ks.c[nxc, j] = Ks.c[nxc-1, j]
-        KΦ.c[1, j] = KΦ.c[2, j]
-        KΦ.c[nxc, j] = KΦ.c[nxc-1, j]
-        Kf.c[1, j] = Kf.c[2, j]
-        Kf.c[nxc, j] = Kf.c[nxc-1, j]
-        ξ.c[1, j] = ξ.c[2, j]
-        ξ.c[nxc, j] = ξ.c[nxc-1, j]
-        m.c[1, j] = m.c[2, j]
-        m.c[nxc, j] = m.c[nxc-1, j]
-        ρsi.c[1, j] = ρsi.c[2, j]
-        ρsi.c[nxc, j] = ρsi.c[nxc-1, j]
-        ρfi.c[1, j] = ρfi.c[2, j]
-        ρfi.c[nxc, j] = ρfi.c[nxc-1, j]
-        k_ηf0.c[1, j] = k_ηf0.c[2, j]
+    @inbounds for j in 1: nyc
+        G.c[1, j]       = G.c[2, j]
+        G.c[nxc, j]     = G.c[nxc-1, j]
+        Ks.c[1, j]      = Ks.c[2, j]
+        Ks.c[nxc, j]    = Ks.c[nxc-1, j]
+        KΦ.c[1, j]      = KΦ.c[2, j]
+        KΦ.c[nxc, j]    = KΦ.c[nxc-1, j]
+        Kf.c[1, j]      = Kf.c[2, j]
+        Kf.c[nxc, j]    = Kf.c[nxc-1, j]
+        ξ.c[1, j]       = ξ.c[2, j]
+        ξ.c[nxc, j]     = ξ.c[nxc-1, j]
+        m.c[1, j]       = m.c[2, j]
+        m.c[nxc, j]     = m.c[nxc-1, j]
+        ρsi.c[1, j]     = ρsi.c[2, j]
+        ρsi.c[nxc, j]   = ρsi.c[nxc-1, j]
+        ρfi.c[1, j]     = ρfi.c[2, j]
+        ρfi.c[nxc, j]   = ρfi.c[nxc-1, j]
+        k_ηf0.c[1, j]   = k_ηf0.c[2, j]
         k_ηf0.c[nxc, j] = k_ηf0.c[nxc-1, j]
-        n_CK.c[1, j] = n_CK.c[2, j]
-        n_CK.c[nxc, j] = n_CK.c[nxc-1, j]
+        n_CK.c[1, j]    = n_CK.c[2, j]
+        n_CK.c[nxc, j]  = n_CK.c[nxc-1, j]
     end
-    @inbounds for i in 1:nxc
-        G.c[i, 1] = G.c[i, 2]
-        G.c[i, nyc] = G.c[i, nyc-1]
-        Ks.c[i, 1] = Ks.c[i, 2]
-        Ks.c[i, nyc] = Ks.c[i, nyc-1]
-        KΦ.c[i, 1] = KΦ.c[i, 2]
-        KΦ.c[i, nyc] = KΦ.c[i, nyc-1]
-        Kf.c[i, 1] = Kf.c[i, 2]
-        Kf.c[i, nyc] = Kf.c[i, nyc-1]
-        ξ.c[i, 1] = ξ.c[i, 2]
-        ξ.c[i, nyc] = ξ.c[i, nyc-1]
-        m.c[i, 1] = m.c[i, 2]
-        m.c[i, nyc] = m.c[i, nyc-1]
-        ρsi.c[i, 1] = ρsi.c[i, 2]
-        ρsi.c[i, nyc] = ρsi.c[i, nyc-1]
-        ρfi.c[i, 1] = ρfi.c[i, 2]
-        ρfi.c[i, nyc] = ρfi.c[i, nyc-1]
-        k_ηf0.c[i, 1] = k_ηf0.c[i, 2]
+    @inbounds for i in 1: nxc
+        G.c[i, 1]       = G.c[i, 2]
+        G.c[i, nyc]     = G.c[i, nyc-1]
+        Ks.c[i, 1]      = Ks.c[i, 2]
+        Ks.c[i, nyc]    = Ks.c[i, nyc-1]
+        KΦ.c[i, 1]      = KΦ.c[i, 2]
+        KΦ.c[i, nyc]    = KΦ.c[i, nyc-1]
+        Kf.c[i, 1]      = Kf.c[i, 2]
+        Kf.c[i, nyc]    = Kf.c[i, nyc-1]
+        ξ.c[i, 1]       = ξ.c[i, 2]
+        ξ.c[i, nyc]     = ξ.c[i, nyc-1]
+        m.c[i, 1]       = m.c[i, 2]
+        m.c[i, nyc]     = m.c[i, nyc-1]
+        ρsi.c[i, 1]     = ρsi.c[i, 2]
+        ρsi.c[i, nyc]   = ρsi.c[i, nyc-1]
+        ρfi.c[i, 1]     = ρfi.c[i, 2]
+        ρfi.c[i, nyc]   = ρfi.c[i, nyc-1]
+        k_ηf0.c[i, 1]   = k_ηf0.c[i, 2]
         k_ηf0.c[i, nyc] = k_ηf0.c[i, nyc-1]
-        n_CK.c[i, 1] = n_CK.c[i, 2]
-        n_CK.c[i, nyc] = n_CK.c[i, nyc-1]
+        n_CK.c[i, 1]    = n_CK.c[i, 2]
+        n_CK.c[i, nyc]  = n_CK.c[i, nyc-1]
     end
 
-    # Vertex arrays
+      # Vertex arrays
     nxv, nyv = size(G.v)
-    @inbounds for j in 1:nyv, i in 1:nxv
+    @inbounds for j in 1: nyv, i in 1: nxv
         if 1 < i < nc.x + 3 && 1 < j < nc.y + 3
-            Gv = 0.0
-            pr = phase_ratios.v[i, j]
-            for p = 1:nphases
+                Gv  = 0.0
+                pr  = phase_ratios.v[i, j]
+            for p   = 1:nphases
                 Gv += interpolate(mode, pr[p], materials.G[p])
             end
             G.v[i, j] = weight_sum(mode, Gv)
@@ -265,12 +275,12 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
         end
     end
 
-    @inbounds for j in 1:nyv
-        G.v[1, j] = G.v[2, j]
+    @inbounds for j in 1: nyv
+        G.v[1, j]   = G.v[2, j]
         G.v[nxv, j] = G.v[nxv-1, j]
     end
-    @inbounds for i in 1:nxv
-        G.v[i, 1] = G.v[i, 2]
+    @inbounds for i in 1: nxv
+        G.v[i, 1]   = G.v[i, 2]
         G.v[i, nyv] = G.v[i, nyv-1]
     end
     return nothing

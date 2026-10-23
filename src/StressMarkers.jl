@@ -1,24 +1,24 @@
 # Helper for tuple of tensors CellArrays for particle movement
 tensor_args(tm) = values(tm.p)
 
-# Apply zero-gradient in ghost cells/verteces to avoid NaNs
+  # Apply zero-gradient in ghost cells/verteces to avoid NaNs
 function correct_boundaries!(a)
-    a.τ0.xx[1, :] .= a.τ0.xx[2, :]
+    a.τ0.xx[1, :]   .= a.τ0.xx[2, :]
     a.τ0.xx[end, :] .= a.τ0.xx[end-1, :]
-    a.τ0.xx[:, 1] .= a.τ0.xx[:, 2]
+    a.τ0.xx[:, 1]   .= a.τ0.xx[:, 2]
     a.τ0.xx[:, end] .= a.τ0.xx[:, end-1]
-    a.τ0.yy[1, :] .= a.τ0.yy[2, :]
+    a.τ0.yy[1, :]   .= a.τ0.yy[2, :]
     a.τ0.yy[end, :] .= a.τ0.yy[end-1, :]
-    a.τ0.yy[:, 1] .= a.τ0.yy[:, 2]
+    a.τ0.yy[:, 1]   .= a.τ0.yy[:, 2]
     a.τ0.yy[:, end] .= a.τ0.yy[:, end-1]
-    a.τ0.xy[1, :] .= a.τ0.xy[2, :]
+    a.τ0.xy[1, :]   .= a.τ0.xy[2, :]
     a.τ0.xy[end, :] .= a.τ0.xy[end-1, :]
-    a.τ0.xy[:, 1] .= a.τ0.xy[:, 2]
+    a.τ0.xy[:, 1]   .= a.τ0.xy[:, 2]
     a.τ0.xy[:, end] .= a.τ0.xy[:, end-1]
-    a.Pt0[1, :] .= a.Pt0[2, :]
-    a.Pt0[end, :] .= a.Pt0[end-1, :]
-    a.Pt0[:, 1] .= a.Pt0[:, 2]
-    a.Pt0[:, end] .= a.Pt0[:, end-1]
+    a.Pt0[1, :]     .= a.Pt0[2, :]
+    a.Pt0[end, :]   .= a.Pt0[end-1, :]
+    a.Pt0[:, 1]     .= a.Pt0[:, 2]
+    a.Pt0[:, end]   .= a.Pt0[:, end-1]
     return nothing
 end
 
@@ -64,18 +64,18 @@ function upper_convected!(tm::TensorMarkers, particles, dt)
                 Δτxx = @inbounds @index tm.Δ.τxx[ip, I...]
                 Δτyy = @inbounds @index tm.Δ.τyy[ip, I...]
                 Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
-                ΔP = @inbounds @index tm.Δ.P[ip, I...]
-                tmp = 2 * τ_xy * ω_xy
+                ΔP   = @inbounds @index tm.Δ.P[ip, I...]
+                tmp   = 2 * τ_xy * ω_xy
                 # Full velocity gradient correction
                 ε̇_zz = -(ε̇_xx + ε̇_yy)
                 τ_zz = -(τ_xx + τ_yy)
                 ε̇_kk = 3*(ε̇_xx + ε̇_yy)
                 # trace correction
-                tr = 2(ε̇_xx*τ_xx+ε̇_yy*τ_yy+ε̇_zz*τ_zz+ε̇_xy*τ_xy)/3
+                tr = 2(ε̇_xx*τ_xx + ε̇_yy*τ_yy + ε̇_zz*τ_zz + ε̇_xy*τ_xy)/3
                 @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3)), Δτxx)
                 @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3)), Δτyy)
                 @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy)), Δτxy)
-                @inbounds @index tm.Δ.P[ip, I...] = muladd(-dt, tr, ΔP)
+                @inbounds @index tm.Δ.P[ip, I...]   = muladd(-dt, tr, ΔP)
             end
         end
     end
@@ -104,15 +104,15 @@ function update_stress_markers!(tm::TensorMarkers, particles)
                 τ0_xx = @inbounds @index tm.p.τxx[ip, I...]
                 τ0_yy = @inbounds @index tm.p.τyy[ip, I...]
                 τ0_xy = @inbounds @index tm.p.τxy[ip, I...]
-                P0 = @inbounds @index tm.p.P[ip, I...]
-                Δτxx = @inbounds @index tm.Δ.τxx[ip, I...]
-                Δτyy = @inbounds @index tm.Δ.τyy[ip, I...]
-                Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
-                ΔP = @inbounds @index tm.Δ.P[ip, I...]
+                P0    = @inbounds @index tm.p.P[ip, I...]
+                Δτxx  = @inbounds @index tm.Δ.τxx[ip, I...]
+                Δτyy  = @inbounds @index tm.Δ.τyy[ip, I...]
+                Δτxy  = @inbounds @index tm.Δ.τxy[ip, I...]
+                ΔP    = @inbounds @index tm.Δ.P[ip, I...]
                 @inbounds @index tm.p.τxx[ip, I...] = τ0_xx + Δτxx
                 @inbounds @index tm.p.τyy[ip, I...] = τ0_yy + Δτyy
                 @inbounds @index tm.p.τxy[ip, I...] = τ0_xy + Δτxy
-                @inbounds @index tm.p.P[ip, I...] = P0 + ΔP
+                @inbounds @index tm.p.P[ip, I...]   = P0 + ΔP
             end
         end
     end
@@ -140,18 +140,18 @@ function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles,
                 nτ0_xx = @inbounds @index tm.t.τ0xx[ip, I...]
                 nτ0_yy = @inbounds @index tm.t.τ0yy[ip, I...]
                 nτ0_xy = @inbounds @index tm.t.τ0xy[ip, I...]
-                # nP0 = @inbounds @index tm.t.P0[ip, I...]
+                  # nP0 = @inbounds @index tm.t.P0[ip, I...]
                 τ0_xx = @inbounds @index tm.p.τxx[ip, I...]
                 τ0_yy = @inbounds @index tm.p.τyy[ip, I...]
                 τ0_xy = @inbounds @index tm.p.τxy[ip, I...]
-                # P0 = @inbounds @index tm.p.P[ip, I...]
+                  # P0 = @inbounds @index tm.p.P[ip, I...]
 
                 η = @inbounds @index tm.t.η[ip, I...]
                 G = @inbounds @index tm.t.G[ip, I...]
                 Δt_mxw = η / G
-                # ξ = @inbounds @index tm.t.ξ[ip, I...]
-                # K = @inbounds @index tm.t.K[ip, I...]
-                # Δt_P = comp * ξ/K
+                  # ξ = @inbounds @index tm.t.ξ[ip, I...]
+                  # K = @inbounds @index tm.t.K[ip, I...]
+                  # Δt_P = comp * ξ/K
 
                 diff = -expm1(dΔt / Δt_mxw)
                 @inbounds @index tm.Δ_sub.τxx[ip, I...] = (nτ0_xx - τ0_xx)*diff
@@ -186,9 +186,9 @@ function add_subgrid_increments!(tm::TensorMarkers, particles)
             I = (i, j)
             for ip in cellaxes(index)
                 @index(index[ip, I...]) || continue
-                Δτxx = @inbounds @index tm.Δ.τxx[ip, I...]
-                Δτyy = @inbounds @index tm.Δ.τyy[ip, I...]
-                Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
+                Δτxx     = @inbounds @index tm.Δ.τxx[ip, I...]
+                Δτyy     = @inbounds @index tm.Δ.τyy[ip, I...]
+                Δτxy     = @inbounds @index tm.Δ.τxy[ip, I...]
                 Δτxx_sub = @inbounds @index tm.Δ_sub.τxx[ip, I...]
                 Δτyy_sub = @inbounds @index tm.Δ_sub.τyy[ip, I...]
                 Δτxy_sub = @inbounds @index tm.Δ_sub.τxy[ip, I...]

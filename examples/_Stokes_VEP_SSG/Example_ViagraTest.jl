@@ -47,12 +47,12 @@ end
     sc = (σ=1e10, t=1e10, L=1e5)
     nphases = 2
     materials = initialize_materials(nphases; compressible=false)
-    # 1: block, 2: matrix, 3: thin layers (same rheology as the matrix - passive colouring only)
-    materials.g .= [0.0, -9.81] ./ (sc.L/sc.t^2)
-    materials.ρ .= [ρ_plate, ρ_matrix] ./ (sc.σ*sc.t^2/sc.L^2)
+      # 1: block, 2: matrix, 3: thin layers (same rheology as the matrix - passive colouring only)
+    materials.g  .= [0.0, -9.81] ./ (sc.L/sc.t^2)
+    materials.ρ  .= [ρ_plate, ρ_matrix] ./ (sc.σ*sc.t^2/sc.L^2)
     materials.η0 .= [η_plate, η_matrix] ./ (sc.σ*sc.t)
-    materials.G .= [G_plate, G_matrix] ./ sc.σ
-    preprocess!(materials)
+    materials.G  .= [G_plate, G_matrix] ./ sc.σ
+    preprocess!(materials)ß
 
     # Setup
     L = (x=width/sc.L, y=width/sc.L)
