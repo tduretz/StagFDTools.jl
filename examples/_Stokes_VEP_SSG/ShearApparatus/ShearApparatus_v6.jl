@@ -18,18 +18,38 @@ function set_material_geometry!(phases, particles, gouge, salt, plate)
                 x = @index particles.coords[1][ip, i, j]
                 y = @index particles.coords[2][ip, i, j]
                 𝐱 = @SVector([x, y])
-                if any(g -> inside(𝐱, g), gouge)
-                    @index phases[ip, i, j] = 2.
-                elseif any(g -> inside(𝐱, g), salt)
+                if any(g -> inside(𝐱, g), salt)
                     @index phases[ip, i, j] = 3.
                 elseif any(g -> inside(𝐱, g), plate)
                     @index phases[ip, i, j] = 4.
+                elseif any(g -> inside(𝐱, g), gouge)
+                    @index phases[ip, i, j] = 2.
                 else
                     @index phases[ip, i, j] = 1.
                 end
             end
         end
     end
+end
+
+function visualise_markers(particles, phases, sc, x, y)
+    with_theme(theme_latexfonts()) do
+    ppx, ppy = particles.coords
+    idxv = particles.index.data[:]
+    px   = Array(ppx.data[:][idxv]) .* sc.L
+    py   = Array(ppy.data[:][idxv]) .* sc.L
+    ph   = Int.(Array(phases.data[:][idxv]))
+    phase_colors = [:blue, :red, :lightblue, :gray80] # rock, gouge, salt, plate
+    Lx, Ly = x.max - x.min, y.max - y.min
+    fig = Figure(size=(500, 500*Ly/Lx))
+    ax  = Axis(fig[1, 1], aspect=DataAspect(), title="Marker phases", xlabel="x [m]", ylabel="y [m]")
+    scatter!(ax, px, py, color=phase_colors[ph], markersize=3)
+    limits!(ax, x.min*sc.L, x.max*sc.L, y.min*sc.L, y.max*sc.L)
+    Legend(fig[1, 2], [MarkerElement(color=c, marker=:circle, markersize=12) for c in phase_colors], ["rock", "gouge", "salt", "plate"], "Phase")
+    resize_to_layout!(fig)
+    display(fig)
+    end
+    return nothing
 end
 
 function softening(Ep, Cmax, Cmin, E0, w)
@@ -54,8 +74,8 @@ end
 
     𝐱_probe_salt = (0.023/sc.L, height/2) # apparatus response (plate and salt)
     𝐱_probe_plate = (0.000/sc.L, 0.002/sc.L) # apparatus response (plate and salt)
-    # 𝐱_probe_MC1   = (0.003/sc.L, height/2) # sandstone
-    𝐱_probe_MC1 = (0.006/sc.L, height/1.5) # sandstone
+    𝐱_probe_MC1   = (0.003/sc.L, height/2) # sandstone
+    # 𝐱_probe_MC1 = (0.006/sc.L, height/1.5) # sandstone
     𝐱_probe_MC2 = (0.001/sc.L, height/2) # gouge
 
     # Boundary loading type
@@ -151,6 +171,7 @@ end
     # Set phase ratios on the grid
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
     Set_Grid_Phases!(a)
+    visualise_markers(particles,phases,sc,x,y)
 
     # check 
     for I in CartesianIndices(a.phase_ratios.c)
@@ -480,8 +501,8 @@ end
             scatter!(ax, probes.t[1:it]*sc.t/3600, probes.meanθ[1:it]*180/π)
             scatter!(ax, probes.t[1:it]*sc.t/3600, probes.maxθ[1:it]*180/π)
 
-            display(fig)
-
+            visualise_markers(particles, phases, sc, x, y)
+            # display(fig)
         end
         with_theme(figure, theme_latexfonts())
     end
