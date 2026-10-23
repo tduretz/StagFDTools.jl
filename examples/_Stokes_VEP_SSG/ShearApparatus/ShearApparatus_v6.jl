@@ -32,7 +32,7 @@ function set_material_geometry!(phases, particles, gouge, salt, plate)
     end
 end
 
-function visualise_markers(particles, phases, sc, x, y)
+function visualise_markers(particles, phases, sc, x, y, time)
     with_theme(theme_latexfonts()) do
     ppx, ppy = particles.coords
     idxv = particles.index.data[:]
@@ -42,7 +42,7 @@ function visualise_markers(particles, phases, sc, x, y)
     phase_colors = [:blue, :red, :lightblue, :gray80] # rock, gouge, salt, plate
     Lx, Ly = x.max - x.min, y.max - y.min
     fig = Figure(size=(500, 500*Ly/Lx))
-    ax  = Axis(fig[1, 1], aspect=DataAspect(), title="Marker phases", xlabel="x [m]", ylabel="y [m]")
+    ax  = Axis(fig[1, 1], aspect=DataAspect(), title=@sprintf("t = %.1f min", time*sc.t/60), xlabel="x [m]", ylabel="y [m]")
     scatter!(ax, px, py, color=phase_colors[ph], markersize=3)
     limits!(ax, x.min*sc.L, x.max*sc.L, y.min*sc.L, y.max*sc.L)
     Legend(fig[1, 2], [MarkerElement(color=c, marker=:circle, markersize=12) for c in phase_colors], ["rock", "gouge", "salt", "plate"], "Phase")
@@ -171,7 +171,7 @@ end
     # Set phase ratios on the grid
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
     Set_Grid_Phases!(a)
-    visualise_markers(particles,phases,sc,x,y)
+    visualise_markers(particles,phases,sc,x,y,0)
 
     # check 
     for I in CartesianIndices(a.phase_ratios.c)
@@ -206,6 +206,7 @@ end
     a.Pt0 .= a.Pt
     #--------------------------------------------#
 
+    time = 0
     for it=1:nt
 
         # Adaptive time step
@@ -213,6 +214,7 @@ end
         if Vmax > 0
             Δ = (x=Δ.x, y=Δ.y, t=min(Δt0, 0.5*min(Δ.x, Δ.y)/Vmax))
         end
+        time += Δ.t
 
         # Main loop: solver and advection -------------------------------------------------------------------
         @time main_loop(a, adv, tm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
@@ -288,7 +290,7 @@ end
         σzz             = a.τ.yy .- a.Pt
         ind_mid_x       = Int64(floor(nc.x/2))
         ind_mid_y       = Int64(floor(nc.y/2))
-        probes.t[it]    = it*Δ.t
+        probes.t[it]    = time
         probes.τII[it]  = mean(a.τ.II)
         probes.τIIW[it] = a.τ.II[2, ind_mid_y]
         probes.τIIE[it] = a.τ.II[end-1, ind_mid_y]
@@ -501,8 +503,8 @@ end
             scatter!(ax, probes.t[1:it]*sc.t/3600, probes.meanθ[1:it]*180/π)
             scatter!(ax, probes.t[1:it]*sc.t/3600, probes.maxθ[1:it]*180/π)
 
-            visualise_markers(particles, phases, sc, x, y)
-            # display(fig)
+            visualise_markers(particles, phases, sc, x, y, time)
+            display(fig)
         end
         with_theme(figure, theme_latexfonts())
     end
@@ -511,5 +513,5 @@ end
 
 let
     # main((x = 150, y = 250), 1000, 30) # matches friction
-    main((x=100, y=200), 100, 30)
+    main((x=100, y=200), 500, 30)
 end
