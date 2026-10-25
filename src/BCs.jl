@@ -13,14 +13,39 @@ function SetBCVx1(Vx, typex, bcx, Δ)
         elseif typex[ii,end] === :Neumann_tangent
             MVx[ii,end] = muladd(Δ.y, bcx[ii,end], Vx[ii,end-1])
         end
+        # Wide stencils (e.g. y-momentum at a free surface) reach 2 ghost layers
+        if size(typex, 2) >= 4
+            if typex[ii,1] === :out
+                if typex[ii,2] === :Dirichlet_tangent
+                    MVx[ii,2] = muladd(2, bcx[ii,2], -Vx[ii,3])
+                    MVx[ii,1] = muladd(2, bcx[ii,2], -Vx[ii,4])
+                elseif typex[ii,2] === :Neumann_tangent
+                    MVx[ii,2] = muladd(  Δ.y, bcx[ii,2], Vx[ii,3])
+                    MVx[ii,1] = muladd(3*Δ.y, bcx[ii,2], Vx[ii,4])
+                end
+            end
+            if typex[ii,end] === :out
+                if typex[ii,end-1] === :Dirichlet_tangent
+                    MVx[ii,end-1] = muladd(2, bcx[ii,end-1], -Vx[ii,end-2])
+                    MVx[ii,end  ] = muladd(2, bcx[ii,end-1], -Vx[ii,end-3])
+                elseif typex[ii,end-1] === :Neumann_tangent
+                    MVx[ii,end-1] = muladd(  Δ.y, bcx[ii,end-1], Vx[ii,end-2])
+                    MVx[ii,end  ] = muladd(3*Δ.y, bcx[ii,end-1], Vx[ii,end-3])
+                end
+            end
+        end
     end
     # E/W
     for jj in axes(typex, 2)
         if typex[1,jj] === :Neumann_normal 
             MVx[1,jj] = muladd(2, Δ.x*bcx[2,jj], Vx[3,jj])
+        elseif typex[1,jj] === :normal_stress # linear extrapolation
+            MVx[1,jj] = 2*Vx[2,jj] - Vx[3,jj]
         end
         if typex[end,jj] === :Neumann_normal 
             MVx[end,jj] = muladd(2,-Δ.x*bcx[end-1,jj], Vx[end-2,jj])
+        elseif typex[end,jj] === :normal_stress # linear extrapolation
+            MVx[end,jj] = 2*Vx[end-1,jj] - Vx[end-2,jj]
         end
     end
     return SMatrix(MVx)
@@ -41,14 +66,39 @@ function SetBCVy1(Vy, typey, bcy, Δ)
         elseif typey[end,jj] === :Neumann_tangent
             MVy[end,jj] = muladd(Δ.x, bcy[end,jj], Vy[end-1,jj])
         end
+        # Wide stencils (e.g. x-momentum at a free E/W boundary) reach 2 ghost layers
+        if size(typey, 1) >= 4
+            if typey[1,jj] === :out
+                if typey[2,jj] === :Dirichlet_tangent
+                    MVy[2,jj] = muladd(2, bcy[2,jj], -Vy[3,jj])
+                    MVy[1,jj] = muladd(2, bcy[2,jj], -Vy[4,jj])
+                elseif typey[2,jj] === :Neumann_tangent
+                    MVy[2,jj] = muladd(  Δ.x, bcy[2,jj], Vy[3,jj])
+                    MVy[1,jj] = muladd(3*Δ.x, bcy[2,jj], Vy[4,jj])
+                end
+            end
+            if typey[end,jj] === :out
+                if typey[end-1,jj] === :Dirichlet_tangent
+                    MVy[end-1,jj] = muladd(2, bcy[end-1,jj], -Vy[end-2,jj])
+                    MVy[end  ,jj] = muladd(2, bcy[end-1,jj], -Vy[end-3,jj])
+                elseif typey[end-1,jj] === :Neumann_tangent
+                    MVy[end-1,jj] = muladd(  Δ.x, bcy[end-1,jj], Vy[end-2,jj])
+                    MVy[end  ,jj] = muladd(3*Δ.x, bcy[end-1,jj], Vy[end-3,jj])
+                end
+            end
+        end
     end
     # N/S
     for ii in axes(typey, 1)
         if typey[ii,1] === :Neumann_normal
             MVy[ii,1] = muladd(2, Δ.y*bcy[ii,2], Vy[ii,3])
+        elseif typey[ii,1] === :normal_stress # linear extrapolation
+            MVy[ii,1] = 2*Vy[ii,2] - Vy[ii,3]
         end
         if typey[ii,end] === :Neumann_normal
             MVy[ii,end] = muladd(2,-Δ.y*bcy[ii,end-1], Vy[ii,end-2])
+        elseif typey[ii,end] === :normal_stress # linear extrapolation
+            MVy[ii,end] = 2*Vy[ii,end-1] - Vy[ii,end-2]
         end
     end
     return SMatrix(MVy)

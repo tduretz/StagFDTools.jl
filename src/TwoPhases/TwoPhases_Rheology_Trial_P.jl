@@ -642,14 +642,26 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
         end
     end
 
-    # Mess with boundaries -  cheap copy !!!
-    for j=2:size(div_Vs.c,2)-1
-        div_Vs.c[  1, j] = div_Vs.c[    2, j]
-        div_Vs.c[end, j] = div_Vs.c[end-1, j]
+    # Periodic ghost centroids
+    periodic_west, periodic_south = detect_periodicity(type)
+    if periodic_west || periodic_south
+        for A in (𝐷.c, 𝐷_ctl.c, τ.xx, τ.yy, τ.II, τ.f, ε̇.xx, ε̇.yy, ε̇.II, λ̇.c, Φ.c, η.c, ρ.s, ρ.f, div_Vs.c, div_qD.c, ΔP.t, ΔP.f, ΔΦ)
+            periodic_ghosts_c!(A, periodic_west, periodic_south)
+        end
     end
-    for i=1:size(div_Vs.c,1)-0
-        div_Vs.c[i,   1] = div_Vs.c[i,     2]
-        div_Vs.c[i, end] = div_Vs.c[i, end-1]
+
+    # Mess with boundaries -  cheap copy !!!
+    if !periodic_west
+        for j=2:size(div_Vs.c,2)-1
+            div_Vs.c[  1, j] = div_Vs.c[    2, j]
+            div_Vs.c[end, j] = div_Vs.c[end-1, j]
+        end
+    end
+    if !periodic_south
+        for i=1:size(div_Vs.c,1)-0
+            div_Vs.c[i,   1] = div_Vs.c[i,     2]
+            div_Vs.c[i, end] = div_Vs.c[i, end-1]
+        end
     end
 
     # Need a cheap copy at ghost boundaries in case of stress BC along that boundary

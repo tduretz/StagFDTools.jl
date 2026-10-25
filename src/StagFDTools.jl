@@ -96,7 +96,7 @@ end
 module TwoPhases
 using StagFDTools, StaticArrays, ExtendableSparse, StaticArrays, LinearAlgebra, ForwardDiff
 include("TwoPhases/TwoPhases_v3.jl")
-export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1, SetBCPf1
+export set_BC_template, Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetPeriodicGhosts!, SetBCVx1, SetBCVy1, SetBCPf1
 export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
 export LineSearch!, BackTrackingLineSearch!
 export AssembleContinuity2D!, ResidualContinuity2D!, Continuity
