@@ -24,7 +24,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
 export initialize_materials, initialize_materials_TwoPhases
 
 # module markers
@@ -47,18 +47,27 @@ end
 module Stokes
 using LinearAlgebra, StaticArrays, ExtendableSparse, StagFDTools, StagFDTools.Rheology, DifferentiationInterface
 using TimerOutputs, Printf
-using JustPIC#, JustPIC._2D
+using JustPIC
+using CellArraysIndexing: @index
+import CellArraysIndexing as CAI
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
 export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
+include("Allocs.jl")
+export Allocs, Markers, TensorMarkers, TensorConstructor, initialise_markers
 include("Markers.jl")
-export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!, update_JustPIC!
+export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
+include("StressMarkers.jl")
+export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
+    update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_convected!,
+    rotation_increments!, constitutive_increments!,
+    stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")
-export AbstractSolver, Allocs, Solve!, main_loop, IterParams
-export JustPICAdvection
+export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!
+export compute_vorticity!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
@@ -112,7 +121,7 @@ export Pressures
 include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F, Q, compute_Q, compute_F#, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
-export InitialiseMarkerFiaeld, InitialisePhaseRatios, SetPhaseRatios!, compute_grid_fields_two_phases!
+export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields_two_phases!
 end
 
 end # module StagFDTools

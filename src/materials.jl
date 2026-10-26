@@ -1,18 +1,18 @@
 abstract type AbstractPlasticity end
 
 Base.@kwdef struct IterParams
-    niter::Int64 = 10
-    γ::Float64 = 1e5
-    ϵ_l::Float64 = 1e-11
-    ϵ_nl::Float64 = 1e-8
-    inexact::Bool = false
+    niter::Int64        = 10
+    γ::Float64          = 1e5
+    ϵ_l::Float64        = 1e-11
+    ϵ_nl::Float64       = 1e-8
+    inexact::Bool       = false
     solver_type::Symbol = :PH
-    α::Vector{Float64} = collect(LinRange(0.05, 1.0, 6))
+    α::Vector{Float64}  = collect(LinRange(0.05, 1.0, 6))
 end
 Base.@kwdef struct VonMises{T} <: AbstractPlasticity
-    C::T = Float64[]
+    C::T    = Float64[]
     cosϕ::T = Float64[]
-    ηvp::T = Float64[]
+    ηvp::T  = Float64[]
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
@@ -30,7 +30,7 @@ end
 
 Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
     C::T    = Float64[]
-    Pt::T   = Float64[]       # Tensile strength
+    Pt::T   = Float64[]  # Tensile strength
     ϕ::T    = Float64[]
     ψ::T    = Float64[]
     ηvp::T  = Float64[]
@@ -38,11 +38,11 @@ Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
     cosψ::T = Float64[]
-    k ::T   = Float64[]
+    k::T    = Float64[]
     kq::T   = Float64[]
-    c ::T   = Float64[]
-    a ::T   = Float64[]
-    b ::T   = Float64[]
+    c::T    = Float64[]
+    a::T    = Float64[]
+    b::T    = Float64[]
     py::T   = Float64[]
     Ry::T   = Float64[]
     pd::T   = Float64[]
@@ -133,17 +133,17 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
 end
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T = [0.0, 0.0]
-    ρ::T = Float64[]
-    n::T = Float64[]
-    η0::T = Float64[]
-    ξ0::T = Float64[]
-    G::T = Float64[]
-    β::T = Float64[]
-    B::T = Float64[]
-    plasticity::P = NoPlasticity()
+    g::T               = [0.0, 0.0]
+    ρ::T               = Float64[]
+    n::T               = Float64[]
+    η0::T              = Float64[]
+    ξ0::T              = Float64[]
+    G::T               = Float64[]
+    β::T               = Float64[]
+    B::T               = Float64[]
+    plasticity::P      = NoPlasticity()
     compressible::Bool = false
-    phase_avg::Symbol = :arithmetic
+    phase_avg::Symbol  = :harmonic
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -169,186 +169,186 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     single_phase::Bool = false
     conservative::Bool = false
     compressible::Bool = false
-    phase_avg::Symbol = :arithmetic
+    phase_avg::Symbol  = :harmonic
 end
 
 struct NoPlasticity <: AbstractPlasticity end
 
 initialize(::Type{VonMises}, n::Integer) = VonMises(
-    C=fill(1e50, n),
-    cosϕ=ones(n),
-    ηvp=zeros(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n)
+    C    = fill(1e50, n),
+    cosϕ = ones(n),
+    ηvp  = zeros(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n)
 )
 
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n)
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n)
 )
 
 initialize(::Type{DruckerPragerCap}, n::Integer) = DruckerPragerCap(
-    C=fill(1e50, n),
-    Pt=zeros(n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n),
-    k =zeros(n),
-    kq=zeros(n),
-    c =zeros(n),
-    a =zeros(n),
-    b =zeros(n),
-    py=zeros(n),
-    Ry=zeros(n),
-    pd=zeros(n),
-    τd=zeros(n),
-    pq=zeros(n),
+    C    = fill(1e50, n),
+    Pt   = zeros(n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n),
+    k    = zeros(n),
+    kq   = zeros(n),
+    c    = zeros(n),
+    a    = zeros(n),
+    b    = zeros(n),
+    py   = zeros(n),
+    Ry   = zeros(n),
+    pd   = zeros(n),
+    τd   = zeros(n),
+    pq   = zeros(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n)
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n)
 )
 
 initialize(::Type{DruckerHyperbolic}, n::Integer) = DruckerHyperbolic(
-    Pt=zeros(n),
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n)
+    Pt   = zeros(n),
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n)
 )
 
 initialize(::Type{DruckerAniso}, n::Integer) = DruckerAniso(
-    δ=ones(n),
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n)
+    δ    = ones(n),
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n)
 )
 
 initialize(::Type{Golchin2021}, n::Integer) = Golchin2021(
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n),
-    M=zeros(n),
-    N=zeros(n),
-    Pc=zeros(n),
-    a=zeros(n),
-    b=zeros(n),
-    c=zeros(n),
-    Pt=zeros(n),
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n),
+    M    = zeros(n),
+    N    = zeros(n),
+    Pc   = zeros(n),
+    a    = zeros(n),
+    b    = zeros(n),
+    c    = zeros(n),
+    Pt   = zeros(n),
 )
 
 initialize(::Type{Kiss2023}, n::Integer) = Kiss2023(
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n),
-    Pt=zeros(n),
-    δPt=zeros(n),
-    P1=zeros(n),
-    τ1=zeros(n),
-    P2=zeros(n),
-    τ2=zeros(n),
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n),
+    Pt   = zeros(n),
+    δPt  = zeros(n),
+    P1   = zeros(n),
+    τ1   = zeros(n),
+    P2   = zeros(n),
+    τ2   = zeros(n),
 )
 
 initialize(::Type{Tensile}, n::Integer) = Tensile(
-    Pt=zeros(n),
-    C=fill(1e50, n),
-    ϕ=zeros(n),
-    ψ=zeros(n),
-    ηvp=zeros(n),
-    cosϕ=ones(n),
-    sinϕ=zeros(n),
-    sinψ=zeros(n),
-    cosψ=zeros(n),
+    Pt   = zeros(n),
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = zeros(n),
 )
 
 initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 
 function initialize_materials(nphases::Integer;
-    plasticity=NoPlasticity(),
-    compressible::Bool=false,
-    phase_avg::Symbol=:arithmetic)
+    plasticity         = NoPlasticity(),
+    compressible::Bool = false,
+    phase_avg::Symbol  = :harmonic)
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials(
-        ρ=ones(nphases),
-        n=ones(nphases),
-        η0=ones(nphases),
-        ξ0=1e50 * ones(nphases),
-        G=1e50 * ones(nphases),
-        β=1e-50 * ones(nphases),
-        B=ones(nphases),
-        plasticity=initialize(P, nphases),
-        compressible=compressible,
-        phase_avg=phase_avg
+        ρ            = ones(nphases),
+        n            = ones(nphases),
+        η0           = ones(nphases),
+        ξ0           = 1e50 * ones(nphases),
+        G            = 1e50 * ones(nphases),
+        β            = 1e-50 * ones(nphases),
+        B            = ones(nphases),
+        plasticity   = initialize(P, nphases),
+        compressible = compressible,
+        phase_avg    = phase_avg
     )
 end
 
 function initialize_materials_TwoPhases(nphases::Integer;
-    plasticity=NoPlasticity(),
+    plasticity         = NoPlasticity(),
     compressible::Bool = true,
     single_phase::Bool = false,
     oneway::Bool       = false,
     linearizeΦ::Bool   = false,
     conservative::Bool = false,
-    phase_avg::Symbol  = :arithmetic,
-    g::Vector{Float64} = [0.0, 0.0] )
+    phase_avg::Symbol  = :harmonic,
+    g::Vector{Float64} = [0.0, 0.0])
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials_TwoPhases(
-        g     = g,
-        ρs    = ones(nphases),
-        ρf    = ones(nphases),
-        n     = ones(nphases),
-        η0    = ones(nphases),
-        ξ0    = 1e2  * ones(nphases),
-        G     = 1e50 * ones(nphases),
-        Ks    = 1e50 * ones(nphases),
-        KΦ    = 1e50 * ones(nphases),
-        Kf    = 1e50 * ones(nphases),
-        Φ0    = 1e-2 * ones(nphases),
-        m     = zeros(nphases),
-        n_CK  = 3.0*ones(nphases),
-        k_ηf0 = 2.220394736842105*ones(nphases),
-        B     = ones(nphases),
+        g            = g,
+        ρs           = ones(nphases),
+        ρf           = ones(nphases),
+        n            = ones(nphases),
+        η0           = ones(nphases),
+        ξ0           = 1e2 * ones(nphases),
+        G            = 1e50 * ones(nphases),
+        Ks           = 1e50 * ones(nphases),
+        KΦ           = 1e50 * ones(nphases),
+        Kf           = 1e50 * ones(nphases),
+        Φ0           = 1e-2 * ones(nphases),
+        m            = zeros(nphases),
+        n_CK         = 3.0*ones(nphases),
+        k_ηf0        = 2.220394736842105*ones(nphases),
+        B            = ones(nphases),
         plasticity   = initialize(P, nphases),
         compressible = compressible,
         oneway       = oneway,
-        linearizeΦ   = linearizeΦ, 
+        linearizeΦ   = linearizeΦ,
         single_phase = single_phase,
         conservative = conservative,
         phase_avg    = phase_avg
@@ -405,8 +405,8 @@ function preprocess!(g::Golchin2021)
     @. g.sinϕ = sind(g.ϕ)
     @. g.sinψ = sind(g.ψ)
     @. g.cosψ = cosd(g.ψ)
-    @. g.M = 3 * sind(g.ϕ) / (3 - sind(g.ϕ))
-    @. g.N = 3 * sind(g.ψ) / (3 - sind(g.ψ))
+    @. g.M    = 3 * sind(g.ϕ) / (3 - sind(g.ϕ))
+    @. g.N    = 3 * sind(g.ψ) / (3 - sind(g.ψ))
 
 end
 
@@ -414,10 +414,10 @@ function preprocess!(k::Kiss2023)
     @. k.cosϕ = cosd(k.ϕ)
     @. k.sinϕ = sind(k.ϕ)
     @. k.sinψ = sind(k.ψ)
-    @. k.P1 = (k.Pt - k.δPt)
-    @. k.τ1 = -k.δPt
-    @. k.P2 = -(-k.Pt - k.C * cosd(k.ϕ)) / (1.0 - sind(k.ϕ))
-    @. k.τ2 = k.P2 - k.Pt
+    @. k.P1   = (k.Pt - k.δPt)
+    @. k.τ1   = -k.δPt
+    @. k.P2   = -(-k.Pt - k.C * cosd(k.ϕ)) / (1.0 - sind(k.ϕ))
+    @. k.τ2   = k.P2 - k.Pt
 end
 
 function preprocess!(t::Tensile)
@@ -432,7 +432,7 @@ function preprocess!(mat::Materials)
     preprocess!(mat.plasticity)
 end
 
-# This is same as above, could be Union ? 
+  # This is same as above, could be Union ? 
 function preprocess!(mat::Materials_TwoPhases)
     @. mat.B = (2 * mat.η0)^(-mat.n)
     preprocess!(mat.plasticity)
