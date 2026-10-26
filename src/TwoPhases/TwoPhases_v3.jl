@@ -195,6 +195,34 @@ end
         type.Pf[:,1]               .= :Neumann
         type.Pf[:,end]             .= :Neumann
         type.Pf[[1 end], 2:end-1]  .= :periodic
+    elseif config == :N_stress_free
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in       
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
+        type.Vx[inx_Vx,2]       .= :Neumann_tangent
+        type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in       
+        type.Vy[2,iny_Vy]       .= :Neumann_tangent
+        type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
+        # type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
+        # type.Vy[inx_Vy,end]     .= :Neumann_normal # ∂Vy/∂y = BC: no consistent tangent in the ghost cell -> Newton stalls
+        type.Vy[inx_Vy,end]     .= :normal_stress  # σyy = BC.Vy[:,end-1] (= 0, free surface) 
+        # -------- Pt -------- #
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann 
+        type.Pt[end,:]           .= :Neumann 
+        # type.Pt[:,1]             .= :noflux
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann 
+        type.Pf[end,:]           .= :Neumann 
+        type.Pf[:,1]             .= :Neumann
+        type.Pf[:,end]           .= :Neumann
     end
     return type
 end

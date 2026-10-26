@@ -24,7 +24,7 @@ end
 
     # Boundary loading type
     # config = :free_slip
-    config = :N_StressFree
+    config = :N_stress_free
 
     # mode 2
     nt     = 400

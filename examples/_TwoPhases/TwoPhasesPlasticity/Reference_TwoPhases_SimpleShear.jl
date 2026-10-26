@@ -17,8 +17,7 @@ import Statistics:mean
     Δt0    = 1e10/sc.t / n_nt
 
     # Linear solver
-    solver       = :GCR # or :LU
-    # solver       = :LU
+    solver       = :GCR 
     GCR_restart  = 25
     GCR_maxit    = 100
     ϵ_l          = 1e-11
@@ -544,14 +543,14 @@ end
 
 function Run(nt)
 
-    # Pure shear
-    n_nx   = 1
-    n_nt   = 1
-    nc     = (x=n_nx*50, y=n_nx*25)
-    nt     = Int64(nt*n_nt)
-    config =:pure_shear
-    D_BC   = @SMatrix([-1 0; 0 1] )
-    main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=40, Pe_ini=4.6e7, ϵ_nl0=1e-8, ηs=9e21, visualization=true, config=config ); #1e20
+    # # Pure shear
+    # n_nx   = 1
+    # n_nt   = 1
+    # nc     = (x=n_nx*50, y=n_nx*25)
+    # nt     = Int64(nt*n_nt)
+    # config =:pure_shear
+    # D_BC   = @SMatrix([-1 0; 0 1] )
+    # main_Duretz18(D_BC, nc, nt, n_nt; ηvp=5e18, homo=false, n_CK=0.0, r_fact=1.0, Φini=5e-2, ψ=5.0, k_μf0=1e-15, niter=40, Pe_ini=4.6e7, ϵ_nl0=1e-8, ηs=9e21, visualization=true, config=config ); #1e20
     
     # Simple shear 
     n_nx   = 1

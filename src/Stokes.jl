@@ -101,7 +101,7 @@ function set_boundaries_template!(type, config, nc)
         type.Vy[inx_Vy,end]     .= :normal_stress
         # -------- Pt -------- #
         type.Pt[2:end-1,2:end-1] .= :in
-    elseif config == :N_StressFree
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx,iny_Vx]  .= :in       
         type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
@@ -181,7 +181,7 @@ elseif config == :EW_stress
         # -------- Pt -------- #
         type.Pt[2:end-1, 2:end-1] .= :in
 
-    elseif config == :N_StressFree
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal

@@ -56,8 +56,8 @@ import Statistics:mean
     materials.n     .= [  1.0,    1.0 ]
     materials.m     .= [  0.0,    0.0 ]
     materials.n_CK  .= [  0.0,    0.0 ]
-    materials.η0    .= [ 1e25,   1e19 ]/sc.σ/sc.t 
-    materials.ξ0    .= [ 2e25,   2e22 ]/sc.σ/sc.t
+    materials.η0    .= [ 3e22,   1e19 ]/sc.σ/sc.t 
+    materials.ξ0    .= [ 3e23,   2e22 ]/sc.σ/sc.t
     materials.G     .= [ 3e10,   3e10 ]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
@@ -75,53 +75,18 @@ import Statistics:mean
     # materials.plasticity.a   .= [0.5,      0.5]
     # materials.plasticity.b   .= [0.0,      0.0]
     # materials.plasticity.c   .= [0.5,      0.5]
-
     preprocess!(materials)
 
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
-    @show Φ0
-    # error()
     Φ_ini   = Φ0
+    @show Φ0
 
     # Resolution
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
     # Define node types and set BC flags
-    type = Fields(
-        fill(:out, (nc.x+3, nc.y+4)),
-        fill(:out, (nc.x+4, nc.y+3)),
-        fill(:out, (nc.x+2, nc.y+2)),
-        fill(:out, (nc.x+2, nc.y+2)),
-    )
-    # -------- Vx -------- #
-    type.Vx[inx_Vx,iny_Vx]  .= :in       
-    type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
-    type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
-    type.Vx[inx_Vx,2]       .= :Neumann_tangent
-    type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
-    # -------- Vy -------- #
-    type.Vy[inx_Vy,iny_Vy]  .= :in       
-    type.Vy[2,iny_Vy]       .= :Neumann_tangent
-    type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
-    type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
-    # type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
-    # type.Vy[inx_Vy,end]     .= :Neumann_normal # ∂Vy/∂y = BC: no consistent tangent in the ghost cell -> Newton stalls
-    type.Vy[inx_Vy,end]     .= :normal_stress  # σyy = BC.Vy[:,end-1] (= 0, free surface) 
-    # -------- Pt -------- #
-    type.Pt[2:end-1,2:end-1] .= :in
-    type.Pt[1,:]             .= :Neumann 
-    type.Pt[end,:]           .= :Neumann 
-    # type.Pt[:,1]             .= :noflux
-    type.Pt[:,1]             .= :Neumann
-    type.Pt[:,end]           .= :Neumann
-    # -------- Pf -------- #
-    type.Pf[2:end-1,2:end-1] .= :in
-    type.Pf[1,:]             .= :Neumann 
-    type.Pf[end,:]           .= :Neumann 
-    type.Pf[:,1]             .= :Neumann
-    type.Pf[:,end]           .= :Neumann
-    
+    type =  set_BC_template(:N_stress_free, nc)
+
     # Equation Fields
     number = Fields(
         fill(0, (nc.x+3, nc.y+4)),
@@ -163,7 +128,7 @@ import Statistics:mean
 
     #--------------------------------------------#
     # Intialise field
-    L       = (x=40e3/sc.L, y=20e3/sc.L)
+    L       = (x=100e3/sc.L, y=40e3/sc.L)
     Δ       = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
     R       = (x=zeros(size_x...), y=zeros(size_y...), pt=zeros(size_c...), pf=zeros(size_c...), Φ=zeros(size_c...))
     V       = (x=zeros(size_x...), y=zeros(size_y...))
@@ -208,7 +173,7 @@ import Statistics:mean
 
     # Generate grid coordinates 
     x = (min=-L.x/2, max=L.x/2)
-    y = (min=-L.y/2, max=L.y/2)
+    y = (min=-L.y, max=0.0)
     X = GenerateGrid(x, y, Δ, nc)
 
     # Initial configuration
@@ -226,8 +191,8 @@ import Statistics:mean
         # end
 
         # Set material geometry 
-        @views phases.c[inx_c, iny_c][(X.c.x.^2 .+ (X.c.y').^2) .<= rad^2] .= 2
-        @views phases.v[inx_v, iny_v][(X.v.x.^2 .+ (X.v.y').^2) .<= rad^2] .= 2
+        @views phases.c[inx_c, iny_c][(X.c.x.^2 .+ (X.c.y' .+ L.y/2).^2) .<= rad^2] .= 2
+        @views phases.v[inx_v, iny_v][(X.v.x.^2 .+ (X.v.y' .+ L.y/2).^2) .<= rad^2] .= 2
 
     end
     phase_ratios = InitialisePhaseRatios(phases, nphases)
@@ -625,7 +590,7 @@ function Run()
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
     nt   = 100#4*n_nt
-    D_BC = @SMatrix([1 0; 0 -1] )
+    D_BC = @SMatrix([-1 0; 0 1] )
     main(D_BC, nc, nt, n_nt; ηvp=0e19, homo=false); #1e20
     
 end
