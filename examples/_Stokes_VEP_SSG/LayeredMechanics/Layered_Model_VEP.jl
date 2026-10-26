@@ -7,6 +7,52 @@ using ForwardDiff: ForwardDiff
 const save = false
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/plastic_test_3/"
 const backend = AutoForwardDiff()
+using JustPIC
+import CellArraysIndexing: @index
+const pic_backend = JustPIC.CPU
+
+function set_phases!(phases, particles, layering)
+    Threads.@threads for j in axes(phases, 2)
+        for i in axes(phases, 1)
+            for ip in cellaxes(phases)
+                @index(particles.index[ip, i, j]) == 0 && continue
+                x = @index particles.coords[1][ip, i, j]
+                y = @index particles.coords[2][ip, i, j]
+                @index phases[ip, i, j] = inside(@SVector([x, y]), layering) ? 2.0 : 1.0
+            end
+        end
+    end
+end
+
+function Analyticalviscous(θ, η, δ, D_BC)
+    #= define velocity gradient components and resulting deviatoric strain rate components
+    pure shear   ε̇ = [ε̇xx  0 ;  0  -ε̇xx]
+    simple shear ε̇ = [ 0  ε̇xy; ε̇xy   0 ] =#
+    Dxx = D_BC[1, 1]
+    Dyy = -Dxx
+    Dxy = D_BC[1, 2]
+    Dkk = Dxx + Dyy
+
+    ε̇ = @SVector([Dxx - Dkk / 3, Dyy - Dkk / 3, Dxy])
+
+    # Normal vector of anisotropic direction
+    n1 = -cos(θ)
+    n2 = sin(θ)
+
+    # compute isotropic and layered components for 𝐷
+    Δ0 = 2 * n1^2 * n2^2
+    Δ1 = n1 * n2^3 - n2 * n1^3
+    Δ = @SMatrix([Δ0 -Δ0 2*Δ1; -Δ0 Δ0 -2*Δ1; Δ1 -Δ1 1-2*Δ0])
+    A = @SMatrix([1 0 0; 0 1 0; 0 0 1])
+
+    # compute 𝐷
+    𝐷 = 2 * η * A - 2 * (η - η / δ) * Δ
+
+    τ = 𝐷 * ε̇
+
+    τ_II = sqrt(0.5 * (τ[1]^2 + τ[2]^2 + (-τ[1] - τ[2])^2) + τ[3]^2)
+    return τ_II
+end
 
 function Analyticalstress(θ, τ, inner_x, inner_y)
 
@@ -69,8 +115,9 @@ end
 
     preprocess!(materials)
 
-    nmpc = (x=4, y=4)
-    noise = false
+    nxcell = (4, 4)   # markers per cell
+    max_xcell = 40
+    min_xcell = 4
 
     # Time steps
     Δt0 = 0.10
@@ -84,7 +131,7 @@ end
     y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
-    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
+    a = Allocs(nc, config, x, y, Δ, nphases)
     Τev = (II=ones(nt), xx=ones(nt), yy=ones(nt), xy=ones(nt))
     α2 = 1 - α1
 
@@ -119,16 +166,11 @@ end
     end
 
     # MARKERS ------------------------------------------------------------
-    # Assign marker phases from layering geometry (1 or 2)
-    for I in CartesianIndices(a.m.phase)
-        xm = a.m.Xm[I]
-        ym = a.m.Ym[I]
-        isin = inside(@SVector([xm, ym]), layering)
-        a.m.phase[I] = isin ? 2 : 1
-    end
-
-    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
-    # FillPhaseRatios!(a) # no markers
+    # Assign marker phases from layering geometry (1 or 2) #           |
+    adv = Markers(pic_backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args=1)
+    phases, = adv.particle_args
+    set_phases!(phases, adv.particles, layering)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
 
     #--------------------------------------------#
 
@@ -201,7 +243,7 @@ end
                 σ1x=σ1.x,
                 σ1y=σ1.y,
                 phase_ratio=a.phase_ratios.c,
-                phases=a.m.phase
+                phases=argmax.(a.phase_ratios.c)
             )
         end
 

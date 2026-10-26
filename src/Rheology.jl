@@ -1,5 +1,6 @@
 using ForwardDiff
 
+invII(x) = sqrt(1/2*x[1]^2 + 1/2*x[2]^2 + 1/2*(-x[1]-x[2])^2 + x[3]^2) 
 
 function line(p, K, dt, η_ve, ψ, p1, t1)
     p2 = p1 + K * dt * sind(ψ)  # introduce sinϕ ?
@@ -350,10 +351,9 @@ function PhaseAverage(a_average, averaging)
     return a_avg
 end
 
-function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
+function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
-    phase_avg = materials.phase_avg
     eps0 = 1e-17
 
     # Effective strain rate & pressure
@@ -375,12 +375,12 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
         n = materials.n[phases]
         η0 = materials.η0[phases]
         B = materials.B[phases]
-        G = materials.G[phases]
+        G = Ggrid
         β = materials.β[phases]
         comp = materials.compressible
 
         # Initial guess
-        η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
+        η = (η0 .* ε̇II .^ (1 ./ n .- 1.0))[1]
         ηvep = inv(1 / η + 1 / (G * Δ.t))
         τII = 2 * ηvep * ε̇II
         # P = P0 - comp * Δ.t / β * P_trial
@@ -420,8 +420,8 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ)
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, materials, phase_ratios, Δ) where {N,T}
-    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, materials, phase_ratios, Δ)
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ) where {N,T}
+    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
         2 * η * ε̇[3],

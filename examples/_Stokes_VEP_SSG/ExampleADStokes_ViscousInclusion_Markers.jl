@@ -3,14 +3,33 @@ import Statistics: mean
 using DifferentiationInterface
 using TimerOutputs
 using GridGeometryUtils
+using JustPIC
+using CellArraysIndexing: @index
+const backend = JustPIC.CPU
+
+# Assign particle phases: background phase, then each phase => geometries (later pairs override)
+function set_phases!(phases, particles, bg, geometries::Pair...)
+    Threads.@threads for j in axes(phases, 2)
+        for i in axes(phases, 1)
+            for ip in cellaxes(phases)
+                # quick escape
+                @index(particles.index[ip, i, j]) == 0 && continue
+                𝐱 = SVector(@index(particles.coords[1][ip, i, j]), @index(particles.coords[2][ip, i, j]))
+                ph = bg
+                for (p, geoms) in geometries
+                    any(g -> inside(𝐱, g), geoms) && (ph = p)
+                end
+                @index phases[ip, i, j] = ph
+            end
+        end
+    end
+end
 
 @views function main(BC_template, D_template)
     #--------------------------------------------#
 
     # Resolution
     nc = (x=50, y=50) # number of cells
-    nmpc = (x=4, y=4)  # markers per cell
-    noise = false         # noise in marker distribution
 
     # Boundary loading type
     config = BC_template
@@ -47,7 +66,7 @@ using GridGeometryUtils
     y = (min=-L.y / 2, max=L.y / 2)
 
     # Allocate all fields and solver structures
-    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise)
+    a = Allocs(nc, config, x, y, Δ, nphases)
 
     # Grid bounds
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -71,23 +90,24 @@ using GridGeometryUtils
     end
 
     # --------------------------------------------#
+    # Initialize particles (not advected)
+    nxcell = 16 # initial number of particles per cell
+    max_xcell = 16 * 2 # maximum number of particles per cell
+    min_xcell = 4 # minimum number of particles per cell
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases)
+    phases, = adv.particle_args
+
     # Set material geometry
     incl = Hexagon((0.0, 0.0), 0.2; θ=π / 10)
-    for i in eachindex(a.m.phase)
-        𝐱 = SVector(a.m.Xm[i], a.m.Ym[i])
-        isin = inside(𝐱, incl)
-        if isin
-            a.m.phase[i] = 2
-        end
-    end
+    set_phases!(phases, adv.particles, 1.0, 2.0 => (incl,))
 
     # Set phase ratios on grid
-    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 
     for I in CartesianIndices(a.phase_ratios.c)
         s = sum(a.phase_ratios.c[I])
         if !(s ≈ 1.0)
-            @warn "Invalid phase_ratios.center at $I: sum = $s, values = $(phase_ratios.center[I])"
+            @warn "Invalid phase_ratios.c at $I: sum = $s, values = $(a.phase_ratios.c[I])"
         end
     end
 
@@ -101,7 +121,7 @@ using GridGeometryUtils
 
     for it = 1:nt
 
-        iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+        iter, err = main_loop(a, adv, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect=false)
 
         #--------------------------------------------#
         # Plot

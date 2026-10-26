@@ -2,6 +2,8 @@ using StagFDTools, StagFDTools.TwoPhases, ExtendableSparse, StaticArrays, CairoM
 import Statistics:mean
 @views function main(nc)
 
+    to   = TimerOutput()
+
     sc = (σ = 3e10, L = 1e3, t = 1e10)
 
     # Load data
@@ -15,9 +17,17 @@ import Statistics:mean
     nt     = 30
     Δt0    = 1e10/sc.t 
 
+    # Linear solver
+    solver      = :GCR
+    GCR_restart = 25
+    GCR_maxit   = 100
+    ϵ_l         = 1e-11
+    Pic2Newt    = 1.8   # more than 1.0 - always Newton
+    solver_ready = false
+
     # Newton solver
     niter = 20
-    ϵ_nl  = 1e-10
+    ϵ_nl  = 1e-9
     α     = LinRange(0.05, 1.0, 5)
 
     rad     = 1e2/sc.L 
@@ -33,40 +43,41 @@ import Statistics:mean
     τyy_ini = τ_ini*D_BC[2,2]/abs(ε̇bg)
 
     # Material parameters
-    materials = ( 
-        g     = [0. 0.] / (sc.L/sc.t^2),
+    nphases = 2
+    materials = initialize_materials_TwoPhases(nphases,
         oneway       = false,
         compressible = true,
-        plasticity   = :off,
-        linearizeΦ   = false,        
+        linearizeΦ   = false, 
         single_phase = true,
         conservative = false,
-        n     = [1.0    1.0  ],
-        m     = [0.0    0.0  ],
-        n_CK  = [1.0    1.0  ],
-        η0   = [1e20   1e20 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous shear
-        ξ0   = [2e22   2e22 ]/sc.σ/sc.t .* 1e6,  # achtung turn of viscous volumetric
-        G     = [1e10   0.25e10]./sc.σ, 
-        ρs    = [2800   2800 ]/(sc.σ*sc.t^2/sc.L^2),
-        ρf    = [1000   1000 ]/(sc.σ*sc.t^2/sc.L^2),
-        Kd    = [1e30   1e30 ]./sc.σ,  # not needed
-        Ks    = [2e10   2e10 ]./sc.σ,
-        KΦ    = [5e9    5e9  ]./sc.σ,
-        Kf    = [2e9    2e9 ]./sc.σ, 
-        k_ηf0 = [1e-15  1e-15]./(sc.L^2/sc.σ/sc.t),
-        ϕ     = [30.    30.  ].*1,
-        ψ     = [10.    10.  ].*1,
-        C     = [3e7    3e7  ]./sc.σ,
-        ηvp   = [0.0    0.0  ]./sc.σ/sc.t,
-        cosϕ  = [0.0    0.0  ],
-        sinϕ  = [0.0    0.0  ],
-        sinψ  = [0.0    0.0  ],
+        
+        # plasticity   = Tensile,
+        plasticity   = DruckerPrager,
+        # plasticity   = DruckerHyperbolic,
+        # plasticity   = DruckerPragerCap,
+        # plasticity   = Golchin2021,
     )
 
-    # For plasticity
-    @. materials.cosϕ  = cosd(materials.ϕ)
-    @. materials.sinϕ  = sind(materials.ϕ)
-    @. materials.sinψ  = sind(materials.ψ)
+    materials.n     .= [  1.0,    1.0 ]
+    materials.m     .= [  0.0,    0.0 ]
+    materials.n_CK  .= [  0.0,    0.0 ]
+    materials.η0    .= [ 1e22,   1e22 ]/sc.σ/sc.t 
+    materials.ξ0    .= [ 2e22,   2e22 ]/sc.σ/sc.t
+    materials.G     .= [1e10,   0.25e10]./sc.σ 
+    materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
+    materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
+    materials.Ks    .= [ 2e10,   2e10 ]./sc.σ
+    materials.KΦ    .= [  5e9,    5e9 ]./sc.σ
+    materials.Kf    .= [  2e9,    2e9 ]./sc.σ 
+    materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
+    materials.plasticity.ϕ   .= [ 30.,     30. ] * 1
+    materials.plasticity.ψ   .= [ 10.,     10. ] * 1
+    materials.plasticity.C   .= [ 3e7,     3e7 ]./sc.σ
+    materials.plasticity.ηvp .= [ 0.0,     0.0 ]./sc.σ/sc.t 
+    # materials.plasticity.Pt  .= [-1.e6,    -1e6 ]./sc.σ 
+
+    preprocess!(materials)
+
 
     Φ0      = 1e-3
     # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
@@ -127,12 +138,22 @@ import Statistics:mean
     nVy   = maximum(number.Vy)
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
-    M = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt), ExtendableSparseMatrix(nVx, nPt)), 
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt), ExtendableSparseMatrix(nVy, nPt)), 
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt), ExtendableSparseMatrix(nPt, nPf)),
-        Fields(ExtendableSparseMatrix(nPf, nVx), ExtendableSparseMatrix(nPf, nVy), ExtendableSparseMatrix(nPf, nPt), ExtendableSparseMatrix(nPf, nPf)),
+    M     = Fields(
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
+        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
+    M_PC  = Fields(
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
+        Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
+    )
+    # Global arrays
+    dx   = zeros(nVx + nVy + nPt + nPf)
+    r    = zeros(nVx + nVy + nPt + nPf)
+    solver_cache = 0 
 
     #--------------------------------------------#
     # Intialise field
@@ -162,6 +183,21 @@ import Statistics:mean
     Pi      = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
     P0      = (t = zeros(size_c...), f = zeros(size_c...))
     ΔP      = (t = zeros(size_c...), f = zeros(size_c...))
+    ρ       = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+    ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
+    div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+
+    ξ0      = (c  =  ones(size_c...), v  =  ones(size_v...) )
+    m       = (c=zeros(size_c...),)
+    k_ηf0   = (c=zeros(size_c...),)
+    n_CK    = (c=zeros(size_c...),)
+    G       = (c=zeros(size_c...), v=zeros(size_v...))
+    ρsi     = (c=zeros(size_c...),)
+    ρfi     = (c=zeros(size_c...),)
+    Ks      = (c=zeros(size_c...), v=zeros(size_v...))
+    KΦ      = (c=zeros(size_c...), v=zeros(size_v...))
+    Kf      = (c=zeros(size_c...), v=zeros(size_v...))
 
     # Generate grid coordinates 
     x = (min=-L.x/2, max=L.x/2)
@@ -177,6 +213,7 @@ import Statistics:mean
         @views phases.c[inx_c, iny_c][(X.c.x.^2 .+ (X.c.y').^2) .<= rad^2] .= 2
         @views phases.v[inx_v, iny_v][(X.v.x.^2 .+ (X.v.y').^2) .<= rad^2] .= 2
     end
+    phase_ratios = InitialisePhaseRatios(phases, nphases)
 
     # Boundary condition values
     BC = ( Vx = zeros(size_x...), Vy = zeros(size_y...), Pt = zeros(size_c...), Pf = zeros(size_c...))
@@ -220,7 +257,89 @@ import Statistics:mean
         τ0.yy .= τ.yy
         τ0.xy .= τ.xy
         Φ0.c  .= Φ.c 
+        ρ0.s  .= ρ.s
+        ρ0.f  .= ρ.f
 
+        # Compute bulk and shear moduli
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+
+        old  = τ0, P0, Φ0, ρ0
+        rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
+        iter, ϵ0, ϵ = 0, 0.0, 0.0
+
+        # for iter=1:niter
+
+        #     @printf("     Step %04d --- Iteration %04d\n", it, iter)
+
+        #     λ̇.c   .= 0.0
+        #     λ̇.v   .= 0.0
+
+        #     #--------------------------------------------#
+        #     # Residual check
+        #     TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+        #     ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+        #     ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+        #     ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+        #     ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ)
+
+        #     println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
+        #     println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
+        #     println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
+        #     println("min/max ΔP.f - ",  extrema(ΔP.f[inx_c,iny_c]))
+
+        #     @info "Residuals"
+        #     @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
+        #     @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
+        #     @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
+        #     @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
+
+        #     err.x[iter]  = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
+        #     err.y[iter]  = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
+        #     err.pt[iter] = @views norm(R.pt[inx_c,iny_c])/sqrt(nPt)
+        #     err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPt)
+        #     if max(err.x[iter], err.y[iter], err.pt[iter], err.pf[iter]) < ϵ_nl 
+        #         println("Converged")
+        #         break 
+        #     end
+
+        #     # Set global residual vector
+        #     r = zeros(nVx + nVy + nPt + nPf)
+        #     SetRHS!(r, R, number, type, nc)
+
+        #     #--------------------------------------------#
+        #     # Assemble global Jacobian
+        #     @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
+        #     M_PC_threads = reset_parallel_storage(number)
+        #     AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+        #     AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+        #     AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+        #     AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+        #     reduce_sparse_matrix!(M, M_PC_threads)
+
+        #     # Two-phases operator as block matrix
+        #     𝑀 = [
+        #         M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
+        #         M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
+        #         M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
+        #         M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
+        #     ]
+
+        #     @info "System symmetry"
+        #     𝑀diff = 𝑀 - 𝑀'
+        #     dropzeros!(𝑀diff)
+        #     @show norm(𝑀diff)
+
+        #     #--------------------------------------------#
+        #     # Direct solver 
+        #     @time dx = - 𝑀 \ r
+
+        #     #--------------------------------------------#
+        #     αmax = 1.0
+        #     α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+        #     UpdateSolution!(V, P, α_best*dx, number, type, nc)
+        # end
+
+          # Newton-Raphson iterations
         for iter=1:niter
 
             @printf("     Step %04d --- Iteration %04d\n", it, iter)
@@ -228,71 +347,93 @@ import Statistics:mean
             λ̇.c   .= 0.0
             λ̇.v   .= 0.0
 
-            #--------------------------------------------#
             # Residual check
-            @time TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
-            ResidualMomentum2D_x!(R, V, P, P0, ΔP, τ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_y!(R, V, P, P0, ΔP, τ0, Φ0, 𝐷, phases, materials, number, type, BC, nc, Δ)
-            ResidualContinuity2D!(R, V, P, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
-            ResidualFluidContinuity2D!(R, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, type, BC, nc, Δ) 
-
-            println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
-            println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
-            println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
-            println("min/max ΔP.f - ",  extrema(ΔP.f[inx_c,iny_c]))
-
+            @timeit to "Tangent operator" begin
+                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+            end
+            @timeit to "Residual" begin
+                ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+                ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+            end
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             @show norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
-            @show norm(R.pt[inx_c,iny_c])/sqrt(nPt)
-            @show norm(R.pf[inx_c,iny_c])/sqrt(nPf)
-
+            @show norm(R.pt[inx_c,iny_c]) /sqrt(nPt)
+            @show norm(R.pf[inx_c,iny_c]) /sqrt(nPf)
             err.x[iter]  = @views norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
             err.y[iter]  = @views norm(R.y[inx_Vy,iny_Vy])/sqrt(nVy)
             err.pt[iter] = @views norm(R.pt[inx_c,iny_c])/sqrt(nPt)
             err.pf[iter] = @views norm(R.pf[inx_c,iny_c])/sqrt(nPt)
-            if max(err.x[iter], err.y[iter], err.pt[iter], err.pf[iter]) < ϵ_nl 
+            println("min/max F    - ",  extrema(τ.f[inx_c,iny_c]))
+            println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
+            println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
+            println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
+            println("min/max ΔP.f - ",  extrema(ΔP.f[inx_c,iny_c]))
+            ϵ = max(err.x[iter], err.y[iter], err.pt[iter], err.pf[iter])
+            (iter == 1) && (ϵ0 = ϵ)
+            if ϵ < ϵ_nl || ϵ/ϵ0 < ϵ_nl
                 println("Converged")
                 break 
             end
 
             # Set global residual vector
-            r = zeros(nVx + nVy + nPt + nPf)
             SetRHS!(r, R, number, type, nc)
 
             #--------------------------------------------#
-            # Assembly
-            @info "Assembly, ndof  = $(nVx + nVy + nPt + nPf)"
-            AssembleMomentum2D_x!(M, V, P, P0, ΔP, τ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleMomentum2D_y!(M, V, P, P0, ΔP, τ0, Φ0, 𝐷_ctl, phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleContinuity2D!(M, V, P, (P0, Φ0, ρ0), phases, materials, number, pattern, type, BC, nc, Δ)
-            AssembleFluidContinuity2D!(M, V, P, ΔP, (P0, Φ0, ρ0), phases, materials, number, pattern, type, BC, nc, Δ)
+            @timeit to "Assembly" begin
+                # Assemble global Jacobian
+                @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
+                M_PC_threads = reset_parallel_storage(number)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
+                @timeit to "Reduction" begin
+                    reduce_sparse_matrix!(M, M_PC_threads)
+                end
+                # Assemble preconditionner
+                @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
+                M_PC_threads = reset_parallel_storage(number)
+                AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                @timeit to "Reduction" begin
+                    reduce_sparse_matrix!(M_PC, M_PC_threads)
+                end
+            end
 
-            # Two-phases operator as block matrix
-            𝑀 = [
-                M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
-                M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
-                M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
-                M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
-            ]
+            Newton = (ϵ/ϵ0 < Pic2Newt) ? true : false 
 
-            @info "System symmetry"
-            𝑀diff = 𝑀 - 𝑀'
-            dropzeros!(𝑀diff)
-            @show norm(𝑀diff)
+            @info "Solver - Newton = $(Newton)"
+            # Prepare work space (symbolic factorization)
+            if !solver_ready && solver == :GCR
+                solver_cache = KSP_GCR_TwoPhases_setup( M_PC; restart=GCR_restart, maxit=GCR_maxit)
+                solver_ready = true
+            end
+
+            # Sparse-direct-iterative solver
+            @timeit to "Linear solve" begin
+                Newton && two_phases_mechanical_solver!(dx, M, r, M_PC;
+                    solver=solver, solver_cache=solver_cache,
+                    ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
+                !Newton && two_phases_mechanical_solver!(dx, M_PC, r, M_PC;
+                    solver=solver, solver_cache=solver_cache,
+                    ηb=1e5, ϵ_l=ϵ_l, niter_l=10, restart=10, noisy=false )
+            end
 
             #--------------------------------------------#
-            # Direct solver 
-            @time dx = - 𝑀 \ r
+            @timeit to "Line search" begin
+                # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
+                # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
+                αmax   = Newton ? 1.0 : 3.0
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+                UpdateSolution!(V, P, α_best*dx, number, type, nc)
+            end
 
-            #--------------------------------------------#
-            @time imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-            UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
-            # @time α = BackTrackingLineSearch!(rvec, α, dx, R0, R, V, P, ε̇, τ, Vi, Pi, ΔP, P0, Φ, Φ0, τ0, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-            # UpdateSolution!(V, P, α*dx, number, type, nc)
         end
-
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, type, BC, materials, phases, Δ)
 
         #--------------------------------------------#
 

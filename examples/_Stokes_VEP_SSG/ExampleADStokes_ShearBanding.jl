@@ -75,7 +75,7 @@ using TimerOutputs
     # @views a.phases.v[:, [2,end-1]] .= 3  # Use linear material along Neumann boundaries
     # @views a.phases.c[[2,end-1], :] .= 3  # Use linear material along Neumann boundaries
     # @views a.phases.c[:, [2,end-1]] .= 3  # Use linear material along Neumann boundaries
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     #--------------------------------------------#
 

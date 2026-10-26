@@ -51,7 +51,7 @@ end
     materials.G   .= [1e10,  1e9]  ./ sc.σ
     materials.β   .= [1e-11, 1e-10] .* sc.σ
     materials.plasticity.C   .= [10e6,  10e6]  ./ sc.σ
-    materials.plasticity.σT  .= [5e6,   5.0e6] ./ sc.σ
+    materials.plasticity.Pt  .= [-5e6, -5.0e6] ./ sc.σ
     materials.plasticity.ϕ   .= [35.,   35.]
     materials.plasticity.ψ   .= [10.0,  10.0]
     materials.plasticity.ηvp .= [1e14,  1e14] .* 1e-4 ./ sc.σ ./ sc.t
@@ -96,7 +96,7 @@ end
     # Set material geometry
     @views a.phases.c[inx_c, iny_c][(a.X.c.x.^2 .+ (a.X.c.y').^2) .<= 0.1^2] .= 2
     @views a.phases.v[inx_v, iny_v][(a.X.v.x.^2 .+ (a.X.v.y').^2) .<= 0.1^2] .= 2
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     a.Pt  .= Pbg#*rand(size(a.Pt)...)
     a.Pt0 .= a.Pt
