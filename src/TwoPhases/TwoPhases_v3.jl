@@ -459,9 +459,9 @@ end
 
     divVs   = (Vx[2,2] - Vx[1,2]) * invΔx + (Vy[2,2] - Vy[2,1]) * invΔy 
     
-    # if materials.oneway
-    #     fp      = divVs
-    # else
+    # # if materials.oneway
+    # #     fp      = divVs
+    # # else
     fp = if materials.conservative === false || PC
         fp = if type.pt[2,2] == :p_eff
             Pt[2,2] - Pf[2,2]
@@ -487,7 +487,8 @@ end
             ((ρim[2,1] + ρim[2,2]) * 0.5) * Vy[2,1],
             ((ρim[2,2] + ρim[2,3]) * 0.5) * Vy[2,2],
         )
-        ∂ρim∂t  +  (qx[2] - qx[1]) * invΔx + (qy[2] - qy[1]) * invΔy
+        # Normalise by the old immobile density (constant w.r.t. unknowns): same root, but O(1) scaling as in the non-conservative form
+        fp = (∂ρim∂t  +  (qx[2] - qx[1]) * invΔx + (qy[2] - qy[1]) * invΔy) / ρim0[2,2]
     end
     return fp
 end
@@ -619,15 +620,17 @@ end
         ρfy    = SVector{2}(0.5 * (ρf[2,i] + ρf[2,i+1]) for i ∈ 1:2)
         ρtx    = SVector{2}(0.5 * (ρt[i,2] + ρt[i+1,2]) for i ∈ 1:2)
         ρty    = SVector{2}(0.5 * (ρt[2,i] + ρt[2,i+1]) for i ∈ 1:2)
-        qρx    = @. ρfx * qx + ρtx * Vx[:,2] # Brucite paper, Fowler (1985)
-        qρy    = @. ρfy * qy + ρty * Vy[2,:] # Brucite paper, Fowler (1985)    
+        # @show size(ρfx), size(qx), size(ρtx),  size(Vx[:,2])
+        qρx    = @. ρfx * qx + ρtx * Vx[2:3,3] # Brucite paper, Fowler (1985)
+        qρy    = @. ρfy * qy + ρty * Vy[3,2:3] # Brucite paper, Fowler (1985)    
         
         if materials.oneway
             ∂ρt∂t  = 0*(ρt[2,2] - ρt0[2,2]) / Δt
             qρx    = @. ρfx * qx # +  0*ρtx * Vx[:,2]    # Brucite paper, Fowler (1985)
             qρy    = @. ρfy * qy # +  0*ρty * Vy[2,:]
         end
-        fp = ∂ρt∂t + (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy 
+        # Normalise by the old fluid density (constant w.r.t. unknowns): same root, but O(1) scaling as in the non-conservative form
+        (∂ρt∂t + (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy) / ρf0[2,2]
     end
     return fp
 end
