@@ -118,10 +118,7 @@ end
         fill!(err.p, 0e0)
 
         # Swap old values
-        a.τ0.xx .= a.τ.xx
-        a.τ0.yy .= a.τ.yy
-        a.τ0.xy .= a.τ.xy
-        a.Pt0   .= a.Pt
+        update_old_stress!(a)
 
         # Update pressure in the hole
         @views a.Pt[inx_c, iny_c][(a.X.c.x.^2 .+ (a.X.c.y').^2) .<= radius^2] .= 1 + 5*time

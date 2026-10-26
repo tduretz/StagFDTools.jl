@@ -66,7 +66,7 @@ export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
     rotation_increments!, constitutive_increments!,
     stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")
-export AbstractSolver, Solve!, main_loop, IterParams
+export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!
 export compute_vorticity!
 end
 module StokesDeformed

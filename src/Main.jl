@@ -94,29 +94,38 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
     return iter, err
 end
 
-# No advection
-main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-
-function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-    @printf("Step %04d\n", it)
+function update_old_stress!(a::Allocs)
     a.τ0.xx .= a.τ.xx
     a.τ0.yy .= a.τ.yy
     a.τ0.xy .= a.τ.xy
     a.Pt0 .= a.Pt
+    return nothing
+end
+
+# No advection
+main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    update_old_stress!(a)
     return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
+# Advect (no stress correction)
 function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect::Bool=true)
 
-    # Static markers: phase ratios are set once from JustPIC and never change
+    # Static markers update
     !advect && return main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+
+    # Set old stresses
+    update_old_stress!(a)
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
-    advection!(adv.particles, RungeKutta2(), V, Δ.t)
+    # Advect
+    advection!(adv.particles, RungeKutta4(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
 
@@ -124,6 +133,7 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
 end
 
+# Advect and rotate stresses
 function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     # Solve
@@ -131,8 +141,9 @@ function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
+    # Advect
     stress_ToParticles!(a, tm, materials, adv.particles, Δ)
-    advection!(adv.particles, RungeKutta2(), V, Δ.t)
+    advection!(adv.particles, RungeKutta4(), V, Δ.t)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
 

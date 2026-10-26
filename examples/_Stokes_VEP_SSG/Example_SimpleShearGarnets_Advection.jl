@@ -1,11 +1,29 @@
 using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, LinearAlgebra, SparseArrays, Printf, CairoMakie, MathTeXEngine
 Makie.update_theme!(fonts=(regular=texfont(), bold=texfont(:bold), italic=texfont(:italic)))
 import Statistics: mean
-using JustPIC, JustPIC._2D
-const backend = JustPIC.CPUBackend
+using JustPIC
+using CellArraysIndexing: @index
+const backend = JustPIC.CPU
 using DifferentiationInterface
 using TimerOutputs, GridGeometryUtils
 using BenchmarkTools
+
+function set_phases!(phases, particles, bg, geometries::Pair...)
+    Threads.@threads for j in axes(phases, 2)
+        for i in axes(phases, 1)
+            for ip in cellaxes(phases)
+                # quick escape
+                @index(particles.index[ip, i, j]) == 0 && continue
+                𝐱 = SVector(@index(particles.coords[1][ip, i, j]), @index(particles.coords[2][ip, i, j]))
+                ph = bg
+                for (p, geoms) in geometries
+                    any(g -> inside(𝐱, g), geoms) && (ph = p)
+                end
+                @index phases[ip, i, j] = ph
+            end
+        end
+    end
+end
 
 @views function main(nc, BC_template, D_template)
     #--------------------------------------------#
@@ -88,7 +106,7 @@ using BenchmarkTools
     adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args)
     phases, = adv.particle_args
     # Set material geometry
-    set_phases!(phases, adv.particles, 1.0, 2.0 => layering, 3.0 => garnets, 3.0 => micas)
+    set_phases!(phases, adv.particles, 1.0, 2.0 => (layering,), 3.0 => garnets, 3.0 => micas)
     # update_phase_ratios!(adv.phase_ratios, adv.particles, adv.particle_args[1])
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
     #--------------------------------------------#

@@ -200,10 +200,7 @@ end
     to          = TimerOutput()
 
     # Swap old values 
-    a.τ0.xx .= a.τ.xx
-    a.τ0.yy .= a.τ.yy
-    a.τ0.xy .= a.τ.xy
-    a.Pt0 .= a.Pt
+    update_old_stress!(a)
     #--------------------------------------------#
 
     time = 0
