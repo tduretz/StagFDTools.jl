@@ -66,8 +66,8 @@ import Statistics:mean
     @show materials.ηΦ  ./ materials.G
     @show materials.η0 ./ materials.Kd
     @show materials.ηΦ  ./ materials.Kd
-    @show materials.η0 ./ materials.KΦ
-    @show materials.ηΦ  ./ materials.KΦ
+    @show materials.η0 ./ materials.KΦ0
+    @show materials.ηΦ  ./ materials.KΦ0
     @show materials.η0 ./ materials.Kf
     @show materials.ηΦ  ./ materials.Kf
     @show r^2/k_ηfi/materials.Ks[1]

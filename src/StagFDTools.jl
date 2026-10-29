@@ -25,7 +25,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
 export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
-export initialize_materials, initialize_materials_TwoPhases
+export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers
 #     include("markers.jl")
@@ -59,6 +59,7 @@ export TangentOperator!, LineSearch!
 include("Allocs.jl")
 export Allocs, Markers, TensorMarkers, TensorConstructor, initialise_markers
 include("Markers.jl")
+export InitialiseMarkerField, FillPhaseRatios!, update_JustPIC!
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
 include("StressMarkers.jl")
 export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
@@ -105,7 +106,7 @@ end
 module TwoPhases
 using StagFDTools, StaticArrays, ExtendableSparse, StaticArrays, LinearAlgebra, ForwardDiff
 include("TwoPhases/TwoPhases_v3.jl")
-export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1, SetBCPf1
+export set_BC_template, Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetPeriodicGhosts!, SetBCVx1, SetBCVy1, SetBCPf1
 export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
 export LineSearch!, BackTrackingLineSearch!
 export AssembleContinuity2D!, ResidualContinuity2D!, Continuity

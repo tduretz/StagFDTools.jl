@@ -86,7 +86,11 @@ end
 ##############################
 ##############################
 
-yield_Hyperbolic(τ, P, C, cosΨ, sinΨ, σT) = sqrt(τ^2 + (C * cosΨ - σT * sinΨ)^2) - (P * sinΨ + C * cosΨ)
+# sqrt(τ² + a²) - (P sinΨ + C cosΨ), written without cancellation (sqrt(τ²+a²) - a = τ²/(sqrt(τ²+a²) + a)): stays accurate for very large C
+function yield_Hyperbolic(τ, P, C, cosΨ, sinΨ, σT)
+    a = C * cosΨ - σT * sinΨ
+    return τ^2 / (sqrt(τ^2 + a^2) + a) - (P + σT) * sinΨ
+end
 
 function F(r::DruckerHyperbolic{Vector{Float64}}, τ, P, ϕ, λ̇, ph)
     C, cosϕ, sinϕ, σT, ηvp = r.C[ph], r.cosϕ[ph], r.sinϕ[ph], -r.Pt[ph], r.ηvp[ph]

@@ -86,7 +86,7 @@ function LocalRheology(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, phases
     G    = materials.G[phases]
     C    = materials.C[phases]
     ηΦ   = materials.ξ0[phases]
-    KΦ   = materials.KΦ[phases]
+    KΦ   = materials.KΦ0[phases]
     Ks   = materials.Ks[phases]
     Kf   = materials.Kf[phases]
 
@@ -232,7 +232,7 @@ function LocalRheology_div(ε̇, divVs, divqD, Pt0, Pf0, Φ0, τ0, materials, ph
     G    = materials.G[phases]
     C    = materials.C[phases]
     ηΦ   = materials.ξ0[phases]
-    KΦ   = materials.KΦ[phases]
+    KΦ   = materials.KΦ0[phases]
     Ks   = materials.Ks[phases]
     Kf   = materials.Kf[phases]
 
@@ -378,7 +378,7 @@ end
 #         @views 𝐷_ctl.c[i,j] .= jac
 #         ##################################
 #         ## ALTERNATIVE VIA DIVERGENCES: Pressure block
-#         # KΦ      = materials.KΦ[phases.c[i,j]]
+#         # KΦ      = materials.KΦ0[phases.c[i,j]]
 #         # Ks      = materials.Ks[phases.c[i,j]]
 #         # Kf      = materials.Kf[phases.c[i,j]]
 #         # ηΦ      = materials.ξ0[phases.c[i,j]]
@@ -487,7 +487,7 @@ end
 #         @views 𝐷_ctl.v[i,j] .= jac
 #         ##################################
 #         ## ALTERNATIVE VIA DIVERGENCES: Pressure block
-#         # KΦ      = materials.KΦ[phases.v[i,j]]
+#         # KΦ      = materials.KΦ0[phases.v[i,j]]
 #         # Ks      = materials.Ks[phases.v[i,j]]
 #         # Kf      = materials.Kf[phases.v[i,j]]
 #         # ηΦ      = materials.ξ0[phases.v[i,j]]

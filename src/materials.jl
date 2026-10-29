@@ -1,5 +1,9 @@
 abstract type AbstractPlasticity end
 
+# Temperature dependence of the viscosity: η0(T) = η0 exp(Ea/(nR) (1/T - 1/Tref)), T and Tref in K (unscaled)
+const R_gas = 8.314462618
+@inline arrhenius_factor(Ea, n, Tk, Tref) = iszero(Ea) ? one(Tk) : exp(Ea / (n * R_gas) * (inv(Tk) - inv(Tref)))
+
 Base.@kwdef struct IterParams
     niter::Int64        = 10
     γ::Float64          = 1e5
@@ -133,15 +137,17 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
 end
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T               = [0.0, 0.0]
-    ρ::T               = Float64[]
-    n::T               = Float64[]
-    η0::T              = Float64[]
-    ξ0::T              = Float64[]
-    G::T               = Float64[]
-    β::T               = Float64[]
-    B::T               = Float64[]
-    plasticity::P      = NoPlasticity()
+    g::T = [0.0, 0.0]
+    ρ::T = Float64[]
+    n::T = Float64[]
+    η0::T = Float64[]
+    Ea::T = Float64[]   # activation energy [J/mol], 0: no temperature dependence
+    Tref::T = Float64[] # reference temperature [K] at which η = η0
+    ξ0::T = Float64[]
+    G::T = Float64[]
+    β::T = Float64[]
+    B::T = Float64[]
+    plasticity::P = NoPlasticity()
     compressible::Bool = false
     phase_avg::Symbol  = :harmonic
 end
@@ -152,11 +158,13 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     ρf::T              = Float64[]
     n::T               = Float64[]
     η0::T              = Float64[]
+    Ea::T              = Float64[]   # activation energy [J/mol], 0: no temperature dependence
+    Tref::T            = Float64[]   # reference temperature [K] at which η = η0
     ξ0::T              = Float64[]
     G::T               = Float64[]
     β::T               = Float64[]
     Ks::T              = Float64[]
-    KΦ::T              = Float64[]
+    KΦ0::T             = Float64[]   # KΦ = KΦ0 Φ^m (same exponent as the bulk viscosity)
     Kf::T              = Float64[]
     Φ0::T              = Float64[]
     m::T               = Float64[]
@@ -309,6 +317,8 @@ function initialize_materials(nphases::Integer;
         ρ            = ones(nphases),
         n            = ones(nphases),
         η0           = ones(nphases),
+        Ea           = zeros(nphases),
+        Tref         = ones(nphases),
         ξ0           = 1e50 * ones(nphases),
         G            = 1e50 * ones(nphases),
         β            = 1e-50 * ones(nphases),
@@ -335,10 +345,12 @@ function initialize_materials_TwoPhases(nphases::Integer;
         ρf           = ones(nphases),
         n            = ones(nphases),
         η0           = ones(nphases),
+        Ea           = zeros(nphases),
+        Tref         = ones(nphases),
         ξ0           = 1e2 * ones(nphases),
         G            = 1e50 * ones(nphases),
         Ks           = 1e50 * ones(nphases),
-        KΦ           = 1e50 * ones(nphases),
+        KΦ0          = 1e50 * ones(nphases),
         Kf           = 1e50 * ones(nphases),
         Φ0           = 1e-2 * ones(nphases),
         m            = zeros(nphases),

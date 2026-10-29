@@ -135,13 +135,139 @@ end
     return (inx_Vx = 2:nc.x+2, iny_Vx = 3:nc.y+2, inx_Vy = 3:nc.x+2, iny_Vy = 2:nc.y+2, inx_c = 2:nc.x+1, iny_c = 2:nc.y+1, inx_v = 2:nc.x+2, iny_v = 2:nc.y+2, size_x = (nc.x+3, nc.y+4), size_y = (nc.x+4, nc.y+3), size_c = (nc.x+2, nc.y+2), size_v = (nc.x+3, nc.y+3))
 end
 
-@inline function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt,    Pf,     ΔP,      τ0,    G_loc, 𝐷, materials, type,      bcv,    Δ)
+@inline function set_BC_template(config, nc)
+
+    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
+
+    # Define node types and set BC flags
+    type = Fields(
+        fill(:out, (nc.x+3, nc.y+4)),
+        fill(:out, (nc.x+4, nc.y+3)),
+        fill(:out, (nc.x+2, nc.y+2)),
+        fill(:out, (nc.x+2, nc.y+2)),
+    )
+
+    if config == :pure_shear
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in       
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
+        type.Vx[inx_Vx,2]       .= :Neumann_tangent
+        type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in       
+        type.Vy[2,iny_Vy]       .= :Neumann_tangent
+        type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
+        type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
+        # -------- Pt -------- #
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann 
+        type.Pt[end,:]           .= :Neumann 
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann 
+        type.Pf[end,:]           .= :Neumann 
+        type.Pf[:,1]             .= :Neumann
+        type.Pf[:,end]           .= :Neumann
+    elseif config == :free_slip # all sides free slip (prescribed normal velocity), e.g. pure shear under gravity
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal
+        type.Vx[inx_Vx,2]       .= :Neumann_tangent
+        type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in
+        type.Vy[2,iny_Vy]       .= :Neumann_tangent
+        type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal
+        type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal
+        # -------- Pt -------- #
+        # Incompressible limit: P is then defined up to a constant, pin one cell (:constant) in the script
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann
+        type.Pt[end,:]           .= :Neumann
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        # No flux on all sides: hydrostatic gradient on S/N (:no_flux = :Neumann when g = 0)
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
+    elseif config == :simple_shear # E/W periodic
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx]    .= :in
+        type.Vx[1, iny_Vx]         .= :periodic
+        type.Vx[end-1:end, iny_Vx] .= :periodic
+        type.Vx[inx_Vx, 2]         .= :Dirichlet_tangent
+        type.Vx[inx_Vx, end-1]     .= :Dirichlet_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy]    .= :in
+        type.Vy[1:2, iny_Vy]       .= :periodic
+        type.Vy[end-1:end, iny_Vy] .= :periodic
+        type.Vy[inx_Vy, 2]         .= :Dirichlet_normal
+        type.Vy[inx_Vy, end-1]     .= :Dirichlet_normal
+        # -------- Pt -------- #
+        type.Pt[2:end-1, 2:end-1]  .= :in
+        type.Pt[:,1]               .= :Neumann
+        type.Pt[:,end]             .= :Neumann
+        type.Pt[[1 end], 2:end-1]  .= :periodic
+        # -------- Pf -------- #
+        type.Pf[2:end-1, 2:end-1]  .= :in
+        type.Pf[:,1]               .= :Neumann
+        type.Pf[:,end]             .= :Neumann
+        type.Pf[[1 end], 2:end-1]  .= :periodic
+    elseif config == :N_stress_free
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in       
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
+        type.Vx[inx_Vx,2]       .= :Neumann_tangent
+        type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in       
+        type.Vy[2,iny_Vy]       .= :Neumann_tangent
+        type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
+        # type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
+        # type.Vy[inx_Vy,end]     .= :Neumann_normal # ∂Vy/∂y = BC: no consistent tangent in the ghost cell -> Newton stalls
+        type.Vy[inx_Vy,end]     .= :normal_stress  # σyy = BC.Vy[:,end-1] (= 0, free surface) 
+        # -------- Pt -------- #
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann 
+        type.Pt[end,:]           .= :Neumann 
+        # type.Pt[:,1]             .= :noflux
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
+        # ∂Pf/∂y = 0 (:Neumann) is not no-flux under gravity (q = -k(∂Pf/∂y - ρf g)): impose the hydrostatic gradient.
+        # Same as :Neumann when g = 0. A drained top (:Dirichlet + BC.Pf) is problem-specific and set in the script.
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
+    end
+    return type
+end
+
+@inline function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔP,     τ0,    G_loc, ρf, 𝐷, materials, type,      bcv,    Δ)
     
     invΔx, invΔy, BC_sym = get_invΔx(Δ), get_invΔy(Δ), 1.0
 
     # BC
     Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
     Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
+    # Pressure ghosts (S/N) enter the vertex averages: same BCs as in TangentOperator!,
+    # otherwise ∂τxy/∂P at yielding boundary vertices is inconsistent (Newton turns linear)
+    ρfg = ρf .* materials.g[2]
+    Pt  = SetBCPt1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pf  = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
 
     # Interp Vy -> Vx, Vx - > Vy
     V̄y = av2D(Vy)
@@ -322,7 +448,7 @@ end
     ρg = materials.g[2] * 0.5 * (ρt[1] + ρt[2])
 
     # Apply normal stress BC 
-    if type.x[2,1] == :normal_stress
+    if type.y[2,1] == :normal_stress
         σyy = SVector{2}([2*bcv.y[2,2]-σyy[2] σyy[2]])
         BC_sym = 1 / 2 
     end
@@ -395,9 +521,9 @@ end
 
     divVs   = (Vx[2,2] - Vx[1,2]) * invΔx + (Vy[2,2] - Vy[2,1]) * invΔy 
     
-    # if materials.oneway
-    #     fp      = divVs
-    # else
+    # # if materials.oneway
+    # #     fp      = divVs
+    # # else
     fp = if materials.conservative === false || PC
         fp = if type.pt[2,2] == :p_eff
             Pt[2,2] - Pf[2,2]
@@ -423,7 +549,8 @@ end
             ((ρim[2,1] + ρim[2,2]) * 0.5) * Vy[2,1],
             ((ρim[2,2] + ρim[2,3]) * 0.5) * Vy[2,2],
         )
-        ∂ρim∂t  +  (qx[2] - qx[1]) * invΔx + (qy[2] - qy[1]) * invΔy
+        # Normalise by the old immobile density (constant w.r.t. unknowns): same root, but O(1) scaling as in the non-conservative form
+        fp = (∂ρim∂t  +  (qx[2] - qx[1]) * invΔx + (qy[2] - qy[1]) * invΔy) / ρim0[2,2]
     end
     return fp
 end
@@ -555,15 +682,17 @@ end
         ρfy    = SVector{2}(0.5 * (ρf[2,i] + ρf[2,i+1]) for i ∈ 1:2)
         ρtx    = SVector{2}(0.5 * (ρt[i,2] + ρt[i+1,2]) for i ∈ 1:2)
         ρty    = SVector{2}(0.5 * (ρt[2,i] + ρt[2,i+1]) for i ∈ 1:2)
-        qρx    = @. ρfx * qx + ρtx * Vx[:,2] # Brucite paper, Fowler (1985)
-        qρy    = @. ρfy * qy + ρty * Vy[2,:] # Brucite paper, Fowler (1985)    
+        # @show size(ρfx), size(qx), size(ρtx),  size(Vx[:,2])
+        qρx    = @. ρfx * qx + ρtx * Vx[2:3,3] # Brucite paper, Fowler (1985)
+        qρy    = @. ρfy * qy + ρty * Vy[3,2:3] # Brucite paper, Fowler (1985)    
         
         if materials.oneway
             ∂ρt∂t  = 0*(ρt[2,2] - ρt0[2,2]) / Δt
             qρx    = @. ρfx * qx # +  0*ρtx * Vx[:,2]    # Brucite paper, Fowler (1985)
             qρy    = @. ρfy * qy # +  0*ρty * Vy[2,:]
         end
-        fp = ∂ρt∂t + (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy 
+        # Normalise by the old fluid density (constant w.r.t. unknowns): same root, but O(1) scaling as in the non-conservative form
+        (∂ρt∂t + (qρx[2] - qρx[1]) * invΔx + (qρy[2] - qρy[1]) * invΔy) / ρf0[2,2]
     end
     return fp
 end
@@ -624,13 +753,18 @@ function ResidualMomentum2D_x!(R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, n
             Gv_loc     = SMatrix{1,2}(     G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
             Dc         = SMatrix{2,1}(      𝐷.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
             Dv         = SMatrix{1,2}(      𝐷.v[ii,jj] for ii in i-0:i-0, jj in j-1:j-0)
-            bcv_loc    = (x=bcx_loc, y=bcy_loc)
-            type_loc   = (x=typex_loc, y=typey_loc)
+            bcpt_loc   = SMatrix{2,3}(    BC.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            bcpf_loc   = SMatrix{2,3}(    BC.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typept_loc = SMatrix{2,3}(  type.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typepf_loc = SMatrix{2,3}(  type.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            ρf_loc     = SMatrix{2,1}(    ρfi.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
+            bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
+            type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
             G_loc = (c=Gc_loc, v=Gv_loc)
 
-            R.x[i,j]   = SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ)
+            R.x[i,j]   = SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ)
         end
     end
     return nothing
@@ -668,16 +802,21 @@ function AssembleMomentum2D_x!(K_loc, V, P, ΔP, ΔΦ, old, 𝐷, rheo, material
             Gv_loc     = SMatrix{1,2}(      G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
             Dc         = SMatrix{2,1}(      𝐷.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
             Dv         = SMatrix{1,2}(      𝐷.v[ii,jj] for ii in i-0:i-0, jj in j-1:j-0)
-            bcv_loc    = (x=bcx_loc, y=bcy_loc)
-            type_loc   = (x=typex_loc, y=typey_loc)
+            bcpt_loc   = SMatrix{2,3}(    BC.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            bcpf_loc   = SMatrix{2,3}(    BC.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typept_loc = SMatrix{2,3}(  type.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typepf_loc = SMatrix{2,3}(  type.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            ρf_loc     = SMatrix{2,1}(    ρfi.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
+            bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
+            type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
             G_loc      = (c=Gc_loc, v=Gv_loc)
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-            ∂R∂Vx = ad_gradient(Vx_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
-            ∂R∂Vy = ad_gradient(Vy_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
-            ∂R∂Pt = ad_gradient(Pt_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Pt_loc)
-            ∂R∂Pf = ad_gradient(Pf_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Pf_loc)
+            ∂R∂Vx = ad_gradient(Vx_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(Vy_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(Pt_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Pt_loc)
+            ∂R∂Pf = ad_gradient(Pf_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Pf_loc)
             
             # Vx --- Vx
             Local = SMatrix{3, 3}(num.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[1][1]
@@ -1173,13 +1312,12 @@ function Numbering!(N, type, nc)
     noisy = false
 
     ############ Numbering Vx ############
-    periodic_west  = sum(any(i->i==:periodic, type.Vx[2,:], dims=2)) > 0
-    periodic_south = sum(any(i->i==:periodic, type.Vx[:,2], dims=1)) > 0
+    periodic_west, periodic_south = detect_periodicity(type)
 
     shift  = (periodic_west) ? 1 : 0 
     # Loop through inner nodes of the mesh
     for j=3:nc.y+4-2, i=2:nc.x+3-1
-        if type.Vx[i,j] == :Dirichlet_normal || (type.Vx[i,j] != :periodic && i==nc.x+3-1) || type.Vx[i,j] == :constant 
+        if type.Vx[i,j] == :Dirichlet_normal || (type.Vx[i,j] == :periodic && i==nc.x+3-1) || type.Vx[i,j] == :constant 
             # Avoid nodes with constant velocity or redundant periodic nodes
         else
             ndof+=1
@@ -1189,7 +1327,9 @@ function Numbering!(N, type, nc)
 
     # Copy equation indices for periodic cases
     if periodic_west
-        N.Vx[1,:] .= N.Vx[end-2,:]
+        N.Vx[1,:]     .= N.Vx[end-2,:]
+        N.Vx[end-1,:] .= N.Vx[2,:]
+        N.Vx[end,:]   .= N.Vx[3,:]
     end
 
     # Copy equation indices for periodic cases
@@ -1207,8 +1347,6 @@ function Numbering!(N, type, nc)
 
     ############ Numbering Vy ############
     ndof  = 0
-    periodic_west  = sum(any(i->i==:periodic, type.Vy[2,:], dims=2)) > 0
-    periodic_south = sum(any(i->i==:periodic, type.Vy[:,2], dims=1)) > 0
     shift = periodic_south ? 1 : 0
     # Loop through inner nodes of the mesh
     for j=2:nc.y+3-1, i=3:nc.x+4-2
@@ -1310,13 +1448,13 @@ function SetRHS!(r, R, number, type, nc)
 
     nVx, nVy, nPt   = maximum(number.Vx), maximum(number.Vy), maximum(number.Pt)
 
-    for j=2:nc.y+3-1, i=3:nc.x+4-2
+    @inbounds for j=3:nc.y+4-2, i=2:nc.x+3-1
         if type.Vx[i,j] == :in
             ind = number.Vx[i,j]
             r[ind] = R.x[i,j]
         end
     end
-    @inbounds for j=3:nc.y+4-2, i=2:nc.x+3-1
+    @inbounds for j=2:nc.y+3-1, i=3:nc.x+4-2
         if type.Vy[i,j] == :in
             ind = number.Vy[i,j] + nVx
             r[ind] = R.y[i,j]
@@ -1340,13 +1478,13 @@ function UpdateSolution!(V, P, dx, number, type, nc)
 
     nVx, nVy, nPt   = maximum(number.Vx), maximum(number.Vy), maximum(number.Pt)
 
-    @inbounds for j=2:nc.y+3-1, i=3:nc.x+4-2
+    @inbounds for j=3:nc.y+4-2, i=2:nc.x+3-1
         if type.Vx[i,j] == :in
             ind = number.Vx[i,j]
             V.x[i,j] += dx[ind] 
         end
     end
-    @inbounds for j=3:nc.y+4-2, i=2:nc.x+3-1
+    @inbounds for j=2:nc.y+3-1, i=3:nc.x+4-2
         if type.Vy[i,j] == :in
             ind = number.Vy[i,j] + nVx
             V.y[i,j] += dx[ind]
@@ -1364,6 +1502,73 @@ function UpdateSolution!(V, P, dx, number, type, nc)
             P.f[i,j] += dx[ind]
         end
     end
+
+    SetPeriodicGhosts!(V, P, type, nc)
+end
+
+# Detect E/W and N/S periodicity (same convention as Stokes.jl)
+function detect_periodicity(type)
+    periodic_west  = any(==(:periodic), @view type.Vx[1, 3:end-2])
+    periodic_south = any(==(:periodic), @view type.Vx[3:end-2, 2])
+    return periodic_west, periodic_south
+end
+
+# Copy periodic ghost values of velocity and pressure fields
+function SetPeriodicGhosts!(V, P, type, nc)
+
+    periodic_west, periodic_south = detect_periodicity(type)
+
+    # Set E/W periodicity
+    if periodic_west
+        for j in axes(V.x, 2)
+            V.x[nc.x+3-1, j] = V.x[2, j]
+            V.x[nc.x+3-0, j] = V.x[3, j]
+            V.x[1, j]        = V.x[nc.x+3-2, j]
+        end
+        for j in axes(V.y, 2)
+            V.y[nc.x+3-0, j] = V.y[3, j]
+            V.y[nc.x+3+1, j] = V.y[4, j]
+            V.y[1, j]        = V.y[nc.x+3-2, j]
+            V.y[2, j]        = V.y[nc.x+3-1, j]
+        end
+        periodic_ghosts_c!(P.t, true, false)
+        periodic_ghosts_c!(P.f, true, false)
+    end
+
+    # Set S/N periodicity
+    if periodic_south
+        for i in axes(V.x, 1)
+            V.x[i, nc.y+3-0] = V.x[i, 3]
+            V.x[i, nc.y+3+1] = V.x[i, 4]
+            V.x[i, 1]        = V.x[i, nc.y+3-2]
+            V.x[i, 2]        = V.x[i, nc.y+3-1]
+        end
+        for i in axes(V.y, 1)
+            V.y[i, nc.y+3-1] = V.y[i, 2]
+            V.y[i, nc.y+3-0] = V.y[i, 3]
+            V.y[i, 1]        = V.y[i, nc.y+3-2]
+        end
+        periodic_ghosts_c!(P.t, false, true)
+        periodic_ghosts_c!(P.f, false, true)
+    end
+    return nothing
+end
+
+# Copy periodic ghost values of a centroid field (size nc.x+2, nc.y+2)
+function periodic_ghosts_c!(A, periodic_west, periodic_south)
+    if periodic_west
+        for j in axes(A, 2)
+            A[1,   j] = copy(A[end-1, j])
+            A[end, j] = copy(A[2,     j])
+        end
+    end
+    if periodic_south
+        for i in axes(A, 1)
+            A[i,   1] = copy(A[i, end-1])
+            A[i, end] = copy(A[i,     2])
+        end
+    end
+    return nothing
 end
 
 @views function SparsityPattern!(K, num, pattern, nc) 
@@ -1537,7 +1742,7 @@ function swap_solution!(V1, P1, V0, P0)
     P1.f .= P0.f
 end
 
-function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
+function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, T, nc, Δ;
     α0=1.0, ρ_LS=0.5, αmin=1e-2,  maxiter=5,)
 
     τ0, P0, Φ0, ρ0 = old
@@ -1565,7 +1770,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, �
         UpdateSolution!(V, P, α .* dx, number, type, nc)
 
         # Recompute constitutive state
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ )
 
         # Recompute residual
         ResidualMomentum2D_x!(      R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )

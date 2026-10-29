@@ -51,11 +51,22 @@ see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2018/Example_EP_Dure
 ### Host-inclusion decompression with tensile plasticity
 ![image](./results/HostInclusion_tensile.gif)
 
-### Power-law Stokes (full staggered grid - symmetric operator)
-![image](https://github.com/user-attachments/assets/9c1e02d5-6b7f-4764-a99d-12a87e28ea21)
+### Crustal shear banding ([Duretz et al., 2020](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1029/2019GL086027))
 
-### Anisotropic Stokes (full staggered grid - symmetric operator)
-![image](https://github.com/user-attachments/assets/3df8215a-0eca-4e3e-b01a-85a501a4bacb)
+see code [here](examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/Example_VEVP_Duretz2020.jl)
+
+Compression
+![image](./results/Duretz2020_compression.gif)
+
+Extension
+![image](./results/Duretz2020_extension.gif)
+
+
+<!-- ### Power-law Stokes (full staggered grid - symmetric operator)
+![image](https://github.com/user-attachments/assets/9c1e02d5-6b7f-4764-a99d-12a87e28ea21) -->
+
+<!-- ### Anisotropic Stokes (full staggered grid - symmetric operator)
+![image](https://github.com/user-attachments/assets/3df8215a-0eca-4e3e-b01a-85a501a4bacb) -->
 
 ****
 

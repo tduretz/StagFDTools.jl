@@ -62,7 +62,7 @@ import Statistics:mean
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 1e11,   1e11 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ] * 1
@@ -78,7 +78,7 @@ import Statistics:mean
     preprocess!(materials)
 
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0
@@ -275,7 +275,7 @@ import Statistics:mean
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
@@ -393,7 +393,7 @@ import Statistics:mean
 
     #     # # # Post process 
     #     # # @time for i in eachindex(Φ.c)
-    #     # #     KΦ     = materials.KΦ[phases.c[i]]
+    #     # #     KΦ     = materials.KΦ0[phases.c[i]]
     #     # #     ηΦ     = materials.ξ0[phases.c[i]] 
     #     # #     sinψ   = materials.sinψ[phases.c[i]] 
     #     # #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t

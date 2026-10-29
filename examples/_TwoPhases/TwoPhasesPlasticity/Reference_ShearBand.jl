@@ -62,7 +62,7 @@ import Statistics:mean
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 2e10,   2e10 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ] * 1
@@ -76,47 +76,14 @@ import Statistics:mean
     # materials.plasticity.c   .= [ 0.8,     0.8 ]
 
     preprocess!(materials)
-
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
-    @show Φ0
-    # error()
     Φ_ini   = Φ0
 
     # Resolution
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
     # Define node types and set BC flags
-    type = Fields(
-        fill(:out, (nc.x+3, nc.y+4)),
-        fill(:out, (nc.x+4, nc.y+3)),
-        fill(:out, (nc.x+2, nc.y+2)),
-        fill(:out, (nc.x+2, nc.y+2)),
-    )
-    # -------- Vx -------- #
-    type.Vx[inx_Vx,iny_Vx]  .= :in       
-    type.Vx[2,iny_Vx]       .= :Dirichlet_normal 
-    type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal 
-    type.Vx[inx_Vx,2]       .= :Neumann_tangent
-    type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
-    # -------- Vy -------- #
-    type.Vy[inx_Vy,iny_Vy]  .= :in       
-    type.Vy[2,iny_Vy]       .= :Neumann_tangent
-    type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
-    type.Vy[inx_Vy,2]       .= :Dirichlet_normal 
-    type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal 
-    # -------- Pt -------- #
-    type.Pt[2:end-1,2:end-1] .= :in
-    type.Pt[1,:]             .= :Neumann 
-    type.Pt[end,:]           .= :Neumann 
-    type.Pt[:,1]             .= :Neumann
-    type.Pt[:,end]           .= :Neumann
-    # -------- Pf -------- #
-    type.Pf[2:end-1,2:end-1] .= :in
-    type.Pf[1,:]             .= :Neumann 
-    type.Pf[end,:]           .= :Neumann 
-    type.Pf[:,1]             .= :Neumann
-    type.Pf[:,end]           .= :Neumann
+    type = set_BC_template(:N_stress_free, nc)
     
     # Equation Fields
     number = Fields(
@@ -275,7 +242,7 @@ import Statistics:mean
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
@@ -393,7 +360,7 @@ import Statistics:mean
 
     #     # # # Post process 
     #     # # @time for i in eachindex(Φ.c)
-    #     # #     KΦ     = materials.KΦ[phases.c[i]]
+    #     # #     KΦ     = materials.KΦ0[phases.c[i]]
     #     # #     ηΦ     = materials.ξ0[phases.c[i]] 
     #     # #     sinψ   = materials.sinψ[phases.c[i]] 
     #     # #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t

@@ -98,7 +98,7 @@ using DifferentiationInterface
     materials.ρs    .= [2900,     2900,    2900]./(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [2600,     2600,    2600]./(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [K,       K*1e6, 1*K/1e6] .* kill_elasticity ./sc.σ
-    materials.KΦ    .= [K,       K*1e6, 1*K/1e6] .* kill_elasticity ./sc.σ
+    materials.KΦ0    .= [K,       K*1e6, 1*K/1e6] .* kill_elasticity ./sc.σ
     materials.Kf    .= [K,       K*1e6, 1*K/1e6] .* kill_elasticity ./sc.σ 
     materials.k_ηf0 .= [1.0,    1.0,   1.0] ./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.C   .= [1e50,  1e50, 1e50]
@@ -391,7 +391,7 @@ using DifferentiationInterface
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK

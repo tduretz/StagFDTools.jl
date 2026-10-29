@@ -20,12 +20,12 @@ function bt_line_search(fun, Δx, J, x, r, args; α=1.0, ρ=0.5, c=1.0e-4, α_mi
     return α
 end
 
-# bulk_viscosity(ϕ, η0, m) = η0*abs(ϕ)^m
 @inline @inline bulk_viscosity(ϕ::T, η0, m) where T = iszero(m) ? T(η0) : η0*abs(ϕ)^m
 
-@inline @inline bulk_elasticity(ϕ::T, G, KΦ) where T = G / abs(ϕ) #  KΦ
-
 # @inline @inline bulk_elasticity(ϕ::T, G, KΦ) where T = KΦ
+
+# Same porosity dependence as the bulk viscosity: KΦ = KΦ0 Φ^m
+@inline @inline bulk_elasticity(ϕ::T, KΦ0, m) where T = iszero(m) ? T(KΦ0) : KΦ0*abs(ϕ)^m
 
 # @inline new_porosity(Φ0,  dΦdt,  Δt) = Φ0  + dΦdt * Δt
 @inline function new_porosity(Φ0,  dΦdt,  Δt) 
@@ -52,7 +52,7 @@ end
 # Trial VE
 @inline function PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, Δt)  
     ηΦ      = bulk_viscosity(Φ, ξ0, m)
-    KΦ1     = bulk_elasticity(Φ, G, KΦ)
+    KΦ1     = bulk_elasticity(Φ, KΦ, m)
     dPtdt   = @muladd (Pt - Pt0) / Δt
     dPfdt   = @muladd (Pf - Pf0) / Δt
     dΦdt    = @muladd ((dPfdt - dPtdt)/KΦ1 + (Pf - Pt)/ηΦ)
@@ -62,7 +62,7 @@ end
 # Corrected VEP
 @inline function PorosityRate(Φ, Pt, Pf, Pt0, Pf0, KΦ, ξ0, m, G, τII, pl, ph, λ̇, Δt)  
     ηΦ      = bulk_viscosity(Φ, ξ0, m)
-    KΦ1     = bulk_elasticity(Φ, G, KΦ)
+    KΦ1     = bulk_elasticity(Φ, KΦ, m)
     dPtdt   = @muladd (Pt - Pt0) / Δt
     dPfdt   = @muladd (Pf - Pf0) / Δt
     P_eff   = Pt - Pf
@@ -151,7 +151,7 @@ function ΔP_residual_P3(x, Φ, Pt_trial, Pf_trial, Φ_trial, divVs, divqD, Pt0,
     ∂Q∂p    = ForwardDiff.derivative( P_eff -> Q(pl, τII, P_eff, 0.0, λ̇, ph), P_eff)
     Φ̇p      = -λ̇*∂Q∂p
     ηΦ1     = bulk_viscosity(Φ, ξ0, m)
-    KΦ1     = bulk_elasticity(Φ, G, KΦ)
+    KΦ1     = bulk_elasticity(Φ, KΦ, m)
     dΦdt    = @muladd ((dPfdt - dPtdt)/KΦ1 + (ΔPf - ΔPt)/ηΦ1 + Φ̇p)
 
     # This pressure rate can only be defined after dΦdt is known 
@@ -190,12 +190,14 @@ function ΔP_P3(Φ, Pt_trial, Pf_trial, Φ_trial, divVs, divqD, Pt0, Pf0, Φ0, K
     return x[1], x[2]
 end
 
-function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, pl, ph, single_phase )
+# creep = (ηc, n): power-law creep ε̇II_vis = (τII/(2ηc))^n, ηc = η0 x Arrhenius factor
+function residual_two_phase_P(x, creep, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf_trial, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, pl, ph, single_phase )
      
     τII, Pt, Pf, λ̇, Φ = x[1], x[2], x[3], x[4], x[5]
     D = typeof(τII)
     ϵ  = D(-1e-13) 
     # α1 = single_phase ? zero(D) : one(D) 
+    ηc, n = creep
 
     Pe = single_phase ? Pt : Pt .- Pf
     # Pe = @. Pt - Pf * single_phase
@@ -215,7 +217,12 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
     # ΔPf   = Kf .* KΦ .* Δt .* ηΦ .* λ̇ .* ∂Q∂p ./ (-Kf .* KΦ .* Δt .* Φ + Kf .* KΦ .* Δt - Kf .* Φ .* ηΦ + Kf .* ηΦ + Ks .* KΦ .* Δt .* Φ + Ks .* Φ .* ηΦ + KΦ .* Φ .* ηΦ)
     
     # # Pressure corrections: numerics (nested AD)
-    ΔPt_1, ΔPf = ΔP_P3(Φ, Pt_trial, Pf_trial, Φ, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, τII, pl, ph, λ̇, Δt)
+    # Single phase: Pf is not part of the rheology and passes through unchanged
+    ΔPt_1, ΔPf = if single_phase
+        zero(D), zero(D)
+    else
+        ΔP_P3(Φ, Pt_trial, Pf_trial, Φ, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, τII, pl, ph, λ̇, Δt)
+    end
 
     # Check yield
     fy =  F(pl, τII, Pe, zero(D), λ̇, ph)
@@ -231,7 +238,7 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
     fΦ   =  @muladd Φ - Φnew 
 
     return @SVector [ 
-        ε̇II_eff   -  τII/(2*ηve) - λ̇*∂Q∂τ/2,
+        ε̇II_eff   -  τII/(2*G*Δt) - τII/(2*ηc) * abs(τII/(2*ηc))^(n-1) - λ̇*∂Q∂τ/2,
         # τII - (τII_trial - ηve*λ̇*∂Q∂τ),
         Pt - (Pt_trial + ΔPt),
         Pf - (Pf_trial + ΔPf),
@@ -240,7 +247,7 @@ function residual_two_phase_P(x, ηve, Δt, ε̇II_eff, τII_trial, Pt_trial, Pf
     ]
 end
 
-function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, materials, ph, Δ) where {N, D}
+function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, materials, ph, Tk, Δ) where {N, D}
 
     # Effective strain rate & pressure
     ε̇II_eff  = invII(ε̇)
@@ -253,27 +260,28 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
     pl   = materials.plasticity
     𝑎    = materials.single_phase ?  D(0.0) :  D(1.0)
 
     # Initial guess
-    η         = η0 * ε̇II_eff^(1 / n - 1 )
+    ηc        = η0 * arrhenius_factor(materials.Ea[ph], n, Tk, materials.Tref[ph])
+    η         = ηc * ε̇II_eff^(1 / n - 1 )
     ηve       = inv(1/η + 1/(G*Δ.t))
     τII       = 2*ηve*ε̇II_eff
     ηvep      = ηve
 
     # Initial solution array
-    x = @SVector [τII, Pt, 𝑎*Pf, zero(D), Φ0]
+    x = @SVector [τII, Pt, Pf, zero(D), Φ0]
     nr   = D(1.0)
     nr0  = D(1.0)
     tol  = D(1e-10)
 
     #############################
     # Return mapping
-    args = (ηve, Δ.t, ε̇II_eff, τII,       Pt,       𝑎*Pf,       divVs, divqD,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, pl, ph, materials.single_phase)
+    args = ((ηc, n), Δ.t, ε̇II_eff, τII,       Pt,       Pf,       divVs, divqD,       Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, pl, ph, materials.single_phase)
     for iter in 1:20
         r, J = fd_value_and_jacobian(residual_two_phase_P, x, args...)
         Δx   = -J \ r
@@ -313,8 +321,8 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     return ηvep, λ̇, Pt, Pf, τII, Φ, f, dlnρsdt, dlnρfdt
 end
 
-@inline function StressVector_P!(ε̇::SVector{N, T}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ) where {N,T}
-    η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ)
+@inline function StressVector_P!(ε̇::SVector{N, T}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Tk, Δ) where {N,T}
+    η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Tk, Δ)
     τ  = @SVector([2 * η * ε̇[1],
                    2 * η * ε̇[2],
                    2 * η * ε̇[3],
@@ -332,7 +340,7 @@ function divergence(x, Pt0, Pf0, Φ0, materials, ph, Δ)
     Pt, Pf = x[1], x[2]
     m    = materials.m[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
 
@@ -407,7 +415,7 @@ function residual_two_phase_P3(x, ηve, Δt, ε̇II_eff, divVs, divqD, Pt0, Pf0,
     ]
 end
 
-function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, ph, Δ) where {N, D}
+function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, ph, Tk, Δ) where {N, D}
 
     # Effective strain rate & pressure
     ε̇II_eff  = invII(ε̇)
@@ -421,14 +429,14 @@ function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materi
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
     pl   = materials.plasticity
     𝑎    = materials.single_phase ?  D(0.0) :  D(1.0)
   
     # Initial guess
-    η         = η0 * ε̇II_eff^(1 / n - 1 )
+    η         = η0 * ε̇II_eff^(1 / n - 1 ) * arrhenius_factor(materials.Ea[ph], n, Tk, materials.Tref[ph])
     ηve       = inv(1/η + 1/(G*Δ.t))
     τII       = 2*ηve*ε̇II_eff
     ηvep      = ηve
@@ -475,8 +483,8 @@ function LocalRheology_P3(ε̇::SVector{N, D}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materi
     return ηvep, λ̇, Pt, Pf, τII, Φ, f, dlnρsdt, dlnρfdt
 end
 
-@inline function StressVector_P3!(ε̇::SVector{N, T}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, phases, Δ) where {N,T}
-    η, λ̇, Pt, Pf, τII, Φ = LocalRheology_P3(ε̇, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, phases, Δ)
+@inline function StressVector_P3!(ε̇::SVector{N, T}, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, phases, Tk, Δ) where {N,T}
+    η, λ̇, Pt, Pf, τII, Φ = LocalRheology_P3(ε̇, Pt_t, Pf_t, Pt0, Pf0, Φ0, materials, phases, Tk, Δ)
     τ  = @SVector([2 * η * ε̇[1],
                    2 * η * ε̇[2],
                    2 * η * ε̇[3],
@@ -489,7 +497,7 @@ end
 #################################################################################
 #################################################################################
 
-function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ)
 
     _ones = @SVector ones(5)
     G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK = rheo
@@ -537,7 +545,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
             Pf  = SetBCPf1(Pf_loc,  typepf, bcpf, Δ, ρfg)
             Pt  = SetBCPf1(Pt_loc,  typept, bcpt, Δ, ρfg)
             Pf0 = SetBCPf1(Pf0_loc, typepf, bcpf, Δ, ρfg)
-            Pt0 = SetBCPf1(Pt0_loc, typepf, bcpf, Δ, ρfg)
+            Pt0 = SetBCPf1(Pt0_loc, typept, bcpt, Δ, ρfg)
 
             # Porosity
             Φ_loc = if materials.linearizeΦ || materials.single_phase
@@ -588,8 +596,8 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
             # Tangent operator used for Newton Linearisation
             # if style == :P_trial
                 ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P.t[i, j], P.f[i,j])
-                τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
-                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], Δ)
+                τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], T.c[i,j], Δ)
+                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD, P0.t[i,j], P0.f[i,j], Φ0.c[i,j], materials, phases.c[i,j], T.c[i,j], Δ)
                 @views 𝐷_ctl.c[i,j] .= jac
             # elseif style == :div_trial
 
@@ -631,7 +639,7 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
             if  λ̇.c[i,j] > 0
                 ΔP.t[i,j] =  (τ_vec[4] - P.t[i,j])
                 ΔP.f[i,j] =  (τ_vec[5] - P.f[i,j])
-                ΔΦ[i,j]   = Φ_local - Φ_loc[3,3]
+                ΔΦ[i,j]   = Φ_local - Φ_loc[2,2]
             else
                 # No plastic flow here, so no pressure correction: ΔP must not
                 # keep the value left by a previous evaluation at a different state.
@@ -642,14 +650,26 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
         end
     end
 
-    # Mess with boundaries -  cheap copy !!!
-    for j=2:size(div_Vs.c,2)-1
-        div_Vs.c[  1, j] = div_Vs.c[    2, j]
-        div_Vs.c[end, j] = div_Vs.c[end-1, j]
+    # Periodic ghost centroids
+    periodic_west, periodic_south = detect_periodicity(type)
+    if periodic_west || periodic_south
+        for A in (𝐷.c, 𝐷_ctl.c, τ.xx, τ.yy, τ.II, τ.f, ε̇.xx, ε̇.yy, ε̇.II, λ̇.c, Φ.c, η.c, ρ.s, ρ.f, div_Vs.c, div_qD.c, ΔP.t, ΔP.f, ΔΦ)
+            periodic_ghosts_c!(A, periodic_west, periodic_south)
+        end
     end
-    for i=1:size(div_Vs.c,1)-0
-        div_Vs.c[i,   1] = div_Vs.c[i,     2]
-        div_Vs.c[i, end] = div_Vs.c[i, end-1]
+
+    # Mess with boundaries -  cheap copy !!!
+    if !periodic_west
+        for j=2:size(div_Vs.c,2)-1
+            div_Vs.c[  1, j] = div_Vs.c[    2, j]
+            div_Vs.c[end, j] = div_Vs.c[end-1, j]
+        end
+    end
+    if !periodic_south
+        for i=1:size(div_Vs.c,1)-0
+            div_Vs.c[i,   1] = div_Vs.c[i,     2]
+            div_Vs.c[i, end] = div_Vs.c[i, end-1]
+        end
     end
 
     # Need a cheap copy at ghost boundaries in case of stress BC along that boundary
@@ -743,8 +763,8 @@ function TangentOperator!(𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, Δ�
             # Tangent operator used for Newton Linearisation
             # if style == :P_trial
                 ε̇vec = SVector{5}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄t, P̄f)
-                τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
-                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], Δ)
+                τ_vec, jac = fd_value_and_jacobian(StressVector_P!, ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], T.v[i,j], Δ)
+                η_local, λ̇_local, Pt1, Pf1, τII_local, Φ_local, f_local, dlnρsdt, dlnρfdt  = LocalRheology_P(ε̇vec, ε̇kk, divqD̄, P̄t0, P̄f0, ϕ̄0, materials, phases.v[i,j], T.v[i,j], Δ)
                 @views 𝐷_ctl.v[i,j] .= jac
             # elseif style == :div_trial
 

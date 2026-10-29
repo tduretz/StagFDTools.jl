@@ -4,3 +4,7 @@
 .DS_Store
 *.jld2
 *.jl2d
+/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/compression/*.png
+/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/extension/*.png
+/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/compression/*.gif
+/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/extension/*.gif

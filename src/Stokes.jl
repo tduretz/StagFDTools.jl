@@ -100,8 +100,8 @@ function set_boundaries_template!(type, config, nc)
         type.Vy[inx_Vy, 1] .= :normal_stress
         type.Vy[inx_Vy, end] .= :normal_stress
         # -------- Pt -------- #
-        type.Pt[2:(end-1), 2:(end-1)] .= :in
-    elseif config == :N_StressFree
+        type.Pt[2:end-1,2:end-1] .= :in
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
@@ -181,7 +181,7 @@ function set_boundaries_template!(type, config, nc)
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
 
-    elseif config == :N_StressFree
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
@@ -938,7 +938,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -950,7 +950,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -963,7 +963,8 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
     return imin
 end
 
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+# T: optional temperature field (c, v) [K] for temperature-dependent creep
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing)
 
     _ones = @SVector ones(4)
     s = 1
@@ -1029,8 +1030,9 @@ end
                 ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, Pt[i, j])
 
                 # Tangent operator used for Newton Linearisation
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ)
+                Tk = T === nothing ? nothing : T.c[i, j]
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
+                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
                 _, η_local, λ̇_local, τII_local = stress_state
 
                 @views 𝐷_ctl.c[i, j] .= jac
@@ -1121,8 +1123,9 @@ end
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ)
+            Tk = T === nothing ? nothing : T.v[i, j]
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac
