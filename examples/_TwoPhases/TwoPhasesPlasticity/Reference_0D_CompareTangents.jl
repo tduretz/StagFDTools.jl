@@ -61,7 +61,7 @@ function LocalRheology_P4(ε̇::SVector{N, D}, Pt_t, Pf_t, divVs, divqD, Pt0, Pf
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
 
@@ -382,7 +382,7 @@ function LocalRheology_P(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mater
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
 
@@ -580,7 +580,7 @@ function LocalRheology_P2(ε̇::SVector{N, D}, Pt0, Pf0, Φ0, materials, ph, Δ)
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
 
@@ -595,7 +595,7 @@ function LocalRheology_P2(ε̇::SVector{N, D}, Pt0, Pf0, Φ0, materials, ph, Δ)
     ηvep      = ηve
 
     # div = @SVector[divVs, divqD]
-    # x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
+    # x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ0[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
     # Pt, Pf, Φ = x[1], x[2], x[3]
 
     Φ = if materials.single_phase
@@ -736,7 +736,7 @@ function LocalRheology_P3(ε̇::SVector{N, D}, Pt0, Pf0, Φ0, materials, ph, Δ)
     η0   = materials.η0[ph]
     G    = materials.G[ph]
     ξ0   = materials.ξ0[ph]
-    KΦ   = materials.KΦ[ph]
+    KΦ   = materials.KΦ0[ph]
     Ks   = materials.Ks[ph]
     Kf   = materials.Kf[ph]
 
@@ -833,7 +833,7 @@ end
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 1e11,   1e11 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
@@ -889,7 +889,7 @@ end
         # # Trial pressures - not needed with LocalRheology_P2 !!!
         # let
             div = @SVector[ε̇kk, divqD]
-            x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
+            x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ0[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
             Pt, Pf, Φ = x[1], x[2], x[3]
 
             # Correction
@@ -902,7 +902,7 @@ end
         # NEW STYLE
         @info "New style - pt 1"
         P =  @SVector[Pt, Pf]
-        J_pp = ForwardDiff.jacobian(P -> divergence(P, Δt, Pt0, Pf0, Φ0, materials.KΦ[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], materials.m[1]), P)
+        J_pp = ForwardDiff.jacobian(P -> divergence(P, Δt, Pt0, Pf0, Φ0, materials.KΦ0[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], materials.m[1]), P)
         Mpp = Matrix{Float64}(I, 5, 5)
         Mpp[4:5,4:5] .= J_pp
 

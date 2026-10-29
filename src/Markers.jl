@@ -198,7 +198,7 @@ function compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ, m, ρsi, ρfi, k_η
             for p = 1:nphases
                 r = pr[p]
                 Ksc += r * materials.Ks[p]
-                KΦc += r * materials.KΦ[p]
+                KΦc += r * materials.KΦ0[p]
                 Kfc += r * materials.Kf[p]
                 Gc += r * materials.G[p]
                 ξc += r * materials.ξ0[p]

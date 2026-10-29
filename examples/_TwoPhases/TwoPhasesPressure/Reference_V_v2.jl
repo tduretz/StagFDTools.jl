@@ -303,7 +303,7 @@ end
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
         
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK

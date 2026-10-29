@@ -1,6 +1,7 @@
 using CairoMakie
 using StagFDTools, StagFDTools.Stokes, StagFDTools.Rheology, ExtendableSparse, StaticArrays, LinearAlgebra, SparseArrays, Printf
 import Statistics:mean
+using StagFDTools: IterParams
 using DifferentiationInterface
 using TimerOutputs
 
@@ -16,7 +17,7 @@ using TimerOutputs
 
     # Material parameters
     nphases = 2
-    materials = initialize_materials(nphases; compressible=true)
+    materials = initialize_materials(nphases; compressible=false)
     materials.g   .= [0.0,  0.0]
     materials.ρ   .= [1.0,  1.0]
     materials.n   .= [1.0,  1.0]
@@ -75,32 +76,21 @@ using TimerOutputs
 
     #--------------------------------------------#
 
+    iter = 0
     for it=1:nt
-
-        iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-
-        #--------------------------------------------#
-
-        #-----------
-        fig = Figure(size=(600, 600))
-        #-----------
-        ax  = Axis(fig[1,1], aspect=DataAspect(), title="Vx", xlabel="x", ylabel="y")
-        heatmap!(ax, a.X.v.x, a.X.c.y, (a.V.x[inx_Vx,iny_Vx]))
-        ax  = Axis(fig[1,2], aspect=DataAspect(), title="Vy", xlabel="x", ylabel="y")
-        heatmap!(ax, a.X.c.x, a.X.v.y, a.V.y[inx_Vy,iny_Vy])
-        ax  = Axis(fig[2,1], aspect=DataAspect(), title="Pt", xlabel="x", ylabel="y")
-        heatmap!(ax, a.X.c.x, a.X.c.y,  a.Pt[inx_c,iny_c])
-        ax  = Axis(fig[2,2], aspect=DataAspect(), title="Convergence", xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error")
-        scatter!(ax, 1:iter, log10.(err.x[1:iter]), label="Vx")
-        scatter!(ax, 1:iter, log10.(err.y[1:iter]), label="Vy")
-        scatter!(ax, 1:iter, log10.(err.p[1:iter]), label="Pt")
-        #-----------
-        display(fig)
-        #-----------
+        iter, err = main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     end
 
-    display(to)
+    # Boundary strain rates of the solution (W/E: ∂Vx/∂x, S/N: ∂Vy/∂y), to compare with D_BC
+    Vx, Vy = a.V.x[inx_Vx,iny_Vx], a.V.y[inx_Vy,iny_Vy]
+    ε̇_bnd = (
+        W = mean(Vx[2,:]   .- Vx[1,:])     / Δ.x,
+        E = mean(Vx[end,:] .- Vx[end-1,:]) / Δ.x,
+        S = mean(Vy[:,2]   .- Vy[:,1])     / Δ.y,
+        N = mean(Vy[:,end] .- Vy[:,end-1]) / Δ.y,
+    )
 
+    return (; X=a.X, Vx, Vy, Pt=a.Pt[inx_c,iny_c], err, iter, ε̇_bnd)
 end
 
 let
@@ -124,9 +114,25 @@ let
         @SMatrix( [0 1; 0  0] ),
     ]
 
-    # Run them all
+    # Run them all and collect the results on a single figure (one row per BC template)
+    fig = Figure(size=(1300, 330*length(BCs)), fontsize=14)
     for iBC in eachindex(BCs)
         @info "Running $(string(BCs[iBC])) and D = $(D_BCs[iBC])"
-        main(BCs[iBC], D_BCs[iBC])
+        r = main(BCs[iBC], D_BCs[iBC])
+        D = D_BCs[iBC]
+        e = r.ε̇_bnd
+        Label(fig[iBC, 0], "$(BCs[iBC])\nD = $(D[1,:]) $(D[2,:])\n\n∂Vx/∂x W, E: $(round(e.W, digits=3)), $(round(e.E, digits=3))\n∂Vy/∂y S, N: $(round(e.S, digits=3)), $(round(e.N, digits=3))", tellheight=false)
+        ax = Axis(fig[iBC, 1], aspect=DataAspect(), title="Vx")
+        hm = heatmap!(ax, r.X.v.x, r.X.c.y, r.Vx); Colorbar(fig[iBC, 2], hm)
+        ax = Axis(fig[iBC, 3], aspect=DataAspect(), title="Vy")
+        hm = heatmap!(ax, r.X.c.x, r.X.v.y, r.Vy); Colorbar(fig[iBC, 4], hm)
+        ax = Axis(fig[iBC, 5], aspect=DataAspect(), title="Pt")
+        hm = heatmap!(ax, r.X.c.x, r.X.c.y, r.Pt); Colorbar(fig[iBC, 6], hm)
+        ax = Axis(fig[iBC, 7], title="Convergence", xlabel="Iterations", ylabel="log₁₀ error")
+        scatter!(ax, 1:r.iter, log10.(r.err.x[1:r.iter]), label="Vx")
+        scatter!(ax, 1:r.iter, log10.(r.err.y[1:r.iter]), label="Vy")
+        scatter!(ax, 1:r.iter, log10.(r.err.p[1:r.iter]), label="Pt")
+        iBC == 1 && axislegend(ax)
     end
+    display(fig)
 end

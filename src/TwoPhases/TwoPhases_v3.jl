@@ -172,6 +172,33 @@ end
         type.Pf[end,:]           .= :Neumann 
         type.Pf[:,1]             .= :Neumann
         type.Pf[:,end]           .= :Neumann
+    elseif config == :free_slip # all sides free slip (prescribed normal velocity), e.g. pure shear under gravity
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal
+        type.Vx[inx_Vx,2]       .= :Neumann_tangent
+        type.Vx[inx_Vx,end-1]   .= :Neumann_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in
+        type.Vy[2,iny_Vy]       .= :Neumann_tangent
+        type.Vy[end-1,iny_Vy]   .= :Neumann_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal
+        type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal
+        # -------- Pt -------- #
+        # Incompressible limit: P is then defined up to a constant, pin one cell (:constant) in the script
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann
+        type.Pt[end,:]           .= :Neumann
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        # No flux on all sides: hydrostatic gradient on S/N (:no_flux = :Neumann when g = 0)
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
     elseif config == :simple_shear # E/W periodic
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx]    .= :in
@@ -219,21 +246,28 @@ end
         type.Pt[:,end]           .= :Neumann
         # -------- Pf -------- #
         type.Pf[2:end-1,2:end-1] .= :in
-        type.Pf[1,:]             .= :Neumann 
-        type.Pf[end,:]           .= :Neumann 
-        type.Pf[:,1]             .= :Neumann
-        type.Pf[:,end]           .= :Neumann
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
+        # ∂Pf/∂y = 0 (:Neumann) is not no-flux under gravity (q = -k(∂Pf/∂y - ρf g)): impose the hydrostatic gradient.
+        # Same as :Neumann when g = 0. A drained top (:Dirichlet + BC.Pf) is problem-specific and set in the script.
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
     end
     return type
 end
 
-@inline function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt,    Pf,     ΔP,      τ0,    G_loc, 𝐷, materials, type,      bcv,    Δ)
+@inline function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔP,     τ0,    G_loc, ρf, 𝐷, materials, type,      bcv,    Δ)
     
     invΔx, invΔy, BC_sym = get_invΔx(Δ), get_invΔy(Δ), 1.0
 
     # BC
     Vx = SetBCVx1(Vx_loc, type.x, bcv.x, Δ)
     Vy = SetBCVy1(Vy_loc, type.y, bcv.y, Δ)
+    # Pressure ghosts (S/N) enter the vertex averages: same BCs as in TangentOperator!,
+    # otherwise ∂τxy/∂P at yielding boundary vertices is inconsistent (Newton turns linear)
+    ρfg = ρf .* materials.g[2]
+    Pt  = SetBCPt1(Pt_loc, type.pt, bcv.pt, Δ, ρfg)
+    Pf  = SetBCPf1(Pf_loc, type.pf, bcv.pf, Δ, ρfg)
 
     # Interp Vy -> Vx, Vx - > Vy
     V̄y = av2D(Vy)
@@ -414,7 +448,7 @@ end
     ρg = materials.g[2] * 0.5 * (ρt[1] + ρt[2])
 
     # Apply normal stress BC 
-    if type.x[2,1] == :normal_stress
+    if type.y[2,1] == :normal_stress
         σyy = SVector{2}([2*bcv.y[2,2]-σyy[2] σyy[2]])
         BC_sym = 1 / 2 
     end
@@ -719,13 +753,18 @@ function ResidualMomentum2D_x!(R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, n
             Gv_loc     = SMatrix{1,2}(     G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
             Dc         = SMatrix{2,1}(      𝐷.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
             Dv         = SMatrix{1,2}(      𝐷.v[ii,jj] for ii in i-0:i-0, jj in j-1:j-0)
-            bcv_loc    = (x=bcx_loc, y=bcy_loc)
-            type_loc   = (x=typex_loc, y=typey_loc)
+            bcpt_loc   = SMatrix{2,3}(    BC.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            bcpf_loc   = SMatrix{2,3}(    BC.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typept_loc = SMatrix{2,3}(  type.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typepf_loc = SMatrix{2,3}(  type.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            ρf_loc     = SMatrix{2,1}(    ρfi.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
+            bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
+            type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
             G_loc = (c=Gc_loc, v=Gv_loc)
 
-            R.x[i,j]   = SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ)
+            R.x[i,j]   = SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ)
         end
     end
     return nothing
@@ -763,16 +802,21 @@ function AssembleMomentum2D_x!(K_loc, V, P, ΔP, ΔΦ, old, 𝐷, rheo, material
             Gv_loc     = SMatrix{1,2}(      G.v[ii, jj] for ii in i-0:i-0, jj in j-1:j-0)
             Dc         = SMatrix{2,1}(      𝐷.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
             Dv         = SMatrix{1,2}(      𝐷.v[ii,jj] for ii in i-0:i-0, jj in j-1:j-0)
-            bcv_loc    = (x=bcx_loc, y=bcy_loc)
-            type_loc   = (x=typex_loc, y=typey_loc)
+            bcpt_loc   = SMatrix{2,3}(    BC.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            bcpf_loc   = SMatrix{2,3}(    BC.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typept_loc = SMatrix{2,3}(  type.Pt[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            typepf_loc = SMatrix{2,3}(  type.Pf[ii,jj] for ii in i-1:i,   jj in j-2:j  )
+            ρf_loc     = SMatrix{2,1}(    ρfi.c[ii,jj] for ii in i-1:i,   jj in j-1:j-1)
+            bcv_loc    = (x=bcx_loc,   y=bcy_loc,   pt=bcpt_loc,   pf=bcpf_loc)
+            type_loc   = (x=typex_loc, y=typey_loc, pt=typept_loc, pf=typepf_loc)
             G_loc      = (c=Gc_loc, v=Gv_loc)
             D          = (c=Dc, v=Dv)
             τ0_loc     = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-            ∂R∂Vx = ad_gradient(Vx_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
-            ∂R∂Vy = ad_gradient(Vy_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
-            ∂R∂Pt = ad_gradient(Pt_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Pt_loc)
-            ∂R∂Pf = ad_gradient(Pf_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Pf_loc)
+            ∂R∂Vx = ad_gradient(Vx_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(Vy_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(Pt_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Pt_loc)
+            ∂R∂Pf = ad_gradient(Pf_loc -> SMomentum_x_Generic(Vx_loc, Vy_loc, Pt_loc, Pf_loc, ΔPt_loc, τ0_loc, G_loc, ρf_loc, D, materials, type_loc, bcv_loc, Δ), Pf_loc)
             
             # Vx --- Vx
             Local = SMatrix{3, 3}(num.Vx[ii, jj] for ii in i-1:i+1, jj in j-1:j+1).* pattern[1][1]
@@ -1698,7 +1742,7 @@ function swap_solution!(V1, P1, V0, P0)
     P1.f .= P0.f
 end
 
-function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ;
+function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, T, nc, Δ;
     α0=1.0, ρ_LS=0.5, αmin=1e-2,  maxiter=5,)
 
     τ0, P0, Φ0, ρ0 = old
@@ -1726,7 +1770,7 @@ function BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, �
         UpdateSolution!(V, P, α .* dx, number, type, nc)
 
         # Recompute constitutive state
-        TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ )
+        TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ )
 
         # Recompute residual
         ResidualMomentum2D_x!(      R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ )

@@ -65,7 +65,7 @@ import Statistics:mean
     materials.G              .= [1e0,   1e0] * 2000  * make_elastic
     materials.Ks             .= [1e0,   1e0] * 1.1e4 * make_elastic
     materials.Kf             .= [1e0,   1e0] * 1e4   * make_elastic
-    materials.KΦ             .= [1e0,   1e0] * 9e3   * make_elastic
+    materials.KΦ0             .= [1e0,   1e0] * 9e3   * make_elastic
     materials.plasticity.C   .= [1e50,  1e50]
     materials.plasticity.ϕ   .= [30. ,  30. ]
     materials.plasticity.ηvp .= [8e-3,  8e-3]
@@ -73,7 +73,7 @@ import Statistics:mean
     preprocess!(materials)
 
     Φ0 =    Φi  
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0
@@ -285,7 +285,7 @@ import Statistics:mean
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
@@ -504,8 +504,8 @@ import Statistics:mean
 
     # if viscoelastic 
         save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_conservtative.jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
-        # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_Kphi$(materials.KΦ[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
-        # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_Kphi$(materials.KΦ[1])_etaphi$(materials.ξ0[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
+        # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_Kphi$(materials.KΦ0[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
+        # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_Kphi$(materials.KΦ0[1])_etaphi$(materials.ξ0[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
         # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_G$(materials.G[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
         # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_Kf$(materials.Kf[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )
         # save("./examples/_TwoPhases/TwoPhasesPressure/Viscoelastic_syst_omega_l$(Ωl)_etaphi$(materials.ξ0[1]).jld2", "Ωl", Ωl, "Ωη", Ωη, "probes", probes, "X", X, "P", P, "phases", phases, "τ", τ )

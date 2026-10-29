@@ -1,14 +1,29 @@
 using StagFDTools, StagFDTools.TwoPhases, StaticArrays, CairoMakie, LinearAlgebra, SparseArrays, Printf, JLD2, TimerOutputs
 import Statistics:mean
 
-@views function main(D_BC, nc, nt, n_nt; 
-    homo=false, niter=20, Φini=5e-2, ηvp=0.0)
+# Copy a saved state (nested NamedTuples of arrays) into the preallocated fields
+function restore_state!(dst, src)
+    for k in keys(src)
+        if src[k] isa NamedTuple
+            restore_state!(dst[k], src[k])
+        else
+            n = min(length(dst[k]), length(src[k])) # probes: nt may differ between runs
+            copyto!(dst[k], 1, src[k], 1, n)
+        end
+    end
+end
+
+# restart: step to resume from (0: start from scratch); a checkpoint is written every nsave steps
+@views function main(D_BC, nc, nt, n_nt;
+    homo=false, niter=20, Φini=5e-2, ηvp=0.0, spinup=true, restart=0, 
+    checkpoint_dir="./examples/_TwoPhases/TwoPhasesPlasticity/results")
 
     sc = (σ=1e7, t=1e10, L=1e3)
     ky = 1e3*365*24*3600
 
     visualization = true
     free_clims    = true
+    nsave         = 10
 
     # Linear solver
     solver      = :GCR
@@ -22,7 +37,7 @@ import Statistics:mean
     α       = LinRange(0.05, 1.0, 5)
 
     # Time steps
-    Δt0     = 1e10/sc.t / n_nt 
+    Δt0     = 5e10/sc.t / n_nt 
 
     rad     = 1e3/sc.L 
     Pt_ini  = 1e6/sc.σ
@@ -46,31 +61,34 @@ import Statistics:mean
         single_phase = false,
         conservative = false,
         # plasticity   = Tensile,
-        # plasticity   = DruckerPrager,
+        plasticity   = DruckerPrager,
         # plasticity   = DruckerPragerCap,
         # plasticity     = Golchin2021,
-        plasticity     = DruckerHyperbolic,
+        # plasticity     = DruckerHyperbolic,
         g            = [0., -9.8] / (sc.L/sc.t^2),
     )
 
     materials.n     .= [  1.0,    1.0 ]
-    materials.m     .= [  0.0,    0.0 ]
+    materials.m     .= [ -1.0,   -1.0 ]
     materials.n_CK  .= [  0.0,    0.0 ]
-    materials.η0    .= [ 3e22,   1e19 ]/sc.σ/sc.t 
+    materials.η0    .= [ 1e20,   1e19 ]/sc.σ/sc.t # viscosity at Tref
+    # η = η0 exp(Ea/(nR) (1/T - 1/Tref)): Ea [J/mol], T and Tref [K] enter unscaled (the factor is dimensionless)
+    materials.Ea    .= [ 300e3,   0.0 ]          # activation energy [J/mol], inclusion: no T dependence
+    materials.Tref  .= [ 773.15, 773.15 ]        # reference temperature [K] (500 °C, base of the model)
     materials.ξ0    .= [ 3e23,   2e22 ]/sc.σ/sc.t
     materials.G     .= [ 3e10,   3e10 ]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 1e11,   1e11 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
-    materials.k_ηf0 .= [1e-20,  1e-20 ]./(sc.L^2/sc.σ/sc.t)
+    materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.Φ0    .= [Φini,  Φini]
     materials.plasticity.ϕ   .= [ 35.,     35. ]
-    materials.plasticity.ψ   .= [ 10.,     10. ] 
-    materials.plasticity.C   .= [ 1e7,     1e7 ]./sc.σ
+    materials.plasticity.ψ   .= [ 5.,     5. ] 
+    materials.plasticity.C   .= [ 1e7,      1e7 ]./sc.σ
     materials.plasticity.ηvp .= [ ηvp,     ηvp ]./sc.σ/sc.t 
-    materials.plasticity.Pt  .= [ -1e6,     -1e6 ]./sc.σ 
+    # materials.plasticity.Pt  .= [ -1e6,     -1e6 ]./sc.σ 
     # materials.plasticity.Pc  .= [6e7,      6e7]   ./ sc.σ
     # materials.plasticity.a   .= [0.5,      0.5]
     # materials.plasticity.b   .= [0.0,      0.0]
@@ -86,6 +104,10 @@ import Statistics:mean
 
     # Define node types and set BC flags
     type =  set_BC_template(:N_stress_free, nc)
+    # Fluid: ∂Pf/∂y = 0 (:Neumann) is not no-flux under gravity (q = -k(∂Pf/∂y - ρf g)).
+    # Drained top (Pf = seafloor pressure) and impermeable bottom.
+    type.Pf[:,  1] .= :no_flux
+    type.Pf[:,end] .= :Dirichlet
 
     # Equation Fields
     number = Fields(
@@ -148,6 +170,7 @@ import Statistics:mean
     𝐷_ctl   = (c = D_ctl_c, v = D_ctl_v)
 
     λ̇       = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    T       = (c  = 293.15*ones(size_c...), v  = 293.15*ones(size_v...) )   # temperature [K]
 
     phases  = (c= ones(Int64, size_c...), v= ones(Int64, size_v...), x =ones(Int64, size_x...), y=ones(Int64, size_y...) )  # phase on velocity points
     P       = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
@@ -176,6 +199,12 @@ import Statistics:mean
     y = (min=-L.y, max=0.0)
     X = GenerateGrid(x, y, Δ, nc)
 
+    # Linear geotherm [K]: 20 °C at the surface, 500 °C at 40 km (ghost nodes included)
+    T_surf, T_base = 293.15, 773.15
+    geotherm(y) = T_surf + (T_base - T_surf) * (-y / L.y)
+    T.c .= [geotherm(yc) for _ in X.c_e.x, yc in X.c_e.y]
+    T.v .= [geotherm(yv) for _ in X.v_e.x, yv in X.v_e.y]
+
     # Initial configuration
     V.x[inx_Vx,iny_Vx] .= D_BC[1,1]*X.v.x .+ D_BC[1,2]*X.c.y' 
     V.y[inx_Vy,iny_Vy] .= D_BC[2,1]*X.c.x .+ D_BC[2,2]*X.v.y'
@@ -202,6 +231,7 @@ import Statistics:mean
         ρ.f[i] = materials.ρf[phases.c[i]]
         ρ.t[i] = Φ_ini * materials.ρf[phases.c[i]] + (1-Φ_ini) * materials.ρs[phases.c[i]]
     end
+    Φ_target = copy(Φ.c) # porosity restored after the spin-up step
 
     for i in inx_v, j in iny_v   # loop on centroids
         Φ.v[i, j] = materials.Φ0[phases.v[i, j]]
@@ -234,6 +264,7 @@ import Statistics:mean
     BC.Vy[     2, iny_Vy] .= (type.Vy[     2, iny_Vy] .== :Neumann_tangent) .* D_BC[2,1] .+ (type.Vy[    2, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2,1]*X.v.x[1]   .+ D_BC[2,2]*X.v.y)
     BC.Vy[ end-1, iny_Vy] .= (type.Vy[ end-1, iny_Vy] .== :Neumann_tangent) .* D_BC[2,1] .+ (type.Vy[end-1, iny_Vy] .== :Dirichlet_tangent) .* (D_BC[2,1]*X.v.x[end] .+ D_BC[2,2]*X.v.y)
     # BC.Pf[     :,     1 ] .= Pf_bot
+    BC.Pf[:, end] .= P_seafloor
 
     #--------------------------------------------#
 
@@ -256,7 +287,15 @@ import Statistics:mean
     pattern_ready = false
     M_fixed = M_PC_fixed = nothing
 
-    for it=1:nt
+    # Checkpointing: all fields carried from one step to the next (the rest is recomputed every iteration)
+    state = (; V, P, τ, Φ, ρ, εp, ε̇, λ̇, η, ΔP, ΔΦ, div_Vs, div_qD, probes)
+    checkpoint_file(it) = joinpath(checkpoint_dir, @sprintf("checkpoint_gravity_%04d.jld2", it))
+    if restart > 0
+        restore_state!(state, load(checkpoint_file(restart), "state"))
+        @info "Restarting after step $(restart) from $(checkpoint_file(restart))"
+    end
+
+    for it=restart+1:nt
 
         @printf("\nStep %04d\n", it)
         fill!( err.x, 0e0)
@@ -275,7 +314,7 @@ import Statistics:mean
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
@@ -291,7 +330,7 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ)
             end
             @timeit to "Residual" begin
                 ResidualMomentum2D_x!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
@@ -384,7 +423,7 @@ import Statistics:mean
                 # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
                 # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
                 αmax   = Newton ? 1.0 : 3.0
-                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, T, nc, Δ, α0=αmax )
                 UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 
@@ -400,13 +439,20 @@ import Statistics:mean
         P.t  .= P.t .+ ΔP.t
         P.f  .= P.f .+ ΔP.f
         εp  .+= ε̇.II*Δ.t
+
+        # Spin-up: step 1 brings P and τ to (poro-)elastic equilibrium under gravity,
+        # which dilates the pores. Keep the equilibrium state but restore the target porosity.
+        if spinup && it == 1
+            Φ.c .= Φ_target
+            εp  .= 0.0
+        end
         
     #     # τxyc = av2D(τ.xy)
     #     # ε̇xyc = av2D(ε̇.xy)
 
     #     # # # Post process 
     #     # # @time for i in eachindex(Φ.c)
-    #     # #     KΦ     = materials.KΦ[phases.c[i]]
+    #     # #     KΦ     = materials.KΦ0[phases.c[i]]
     #     # #     ηΦ     = materials.ξ0[phases.c[i]] 
     #     # #     sinψ   = materials.sinψ[phases.c[i]] 
     #     # #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t
@@ -427,9 +473,9 @@ import Statistics:mean
         Vxfc = 0.5*(Vxf[1:end-1,2:end-1] .+ Vxf[2:end,2:end-1])
         Vyfc = 0.5*(Vyf[2:end-1,1:end-1] .+ Vyf[2:end-1,2:end])
         Vf   = (x=Vxfc, y=Vyfc )
-        Vf_mag   = sqrt.( Vxfc.^2 .+ Vyfc.^2)
+        Vf_mag  = sqrt.( Vxfc.^2 .+ Vyfc.^2)
 
-        dΦdt = (Φ.c .- Φ0.c) / Δ.t
+        dΦdt    = (Φ.c .- Φ0.c) / Δ.t
 
         #--------------------------------------------#
         probes.Pe[it]   = mean(P.t[inx_c,iny_c] .- P.f[inx_c,iny_c])*sc.σ
@@ -439,6 +485,10 @@ import Statistics:mean
         probes.Φ[it]    = mean(Φ.c[inx_c,iny_c])
         probes.λ̇[it]    = mean(λ̇.c[inx_c,iny_c])/sc.t
         probes.t[it]    = it*Δ.t*sc.t
+
+        if mod(it, nsave)==0
+            jldsave(checkpoint_file(it); it, state)
+        end
 
         #-------------------------------------------# 
 
@@ -453,7 +503,7 @@ import Statistics:mean
       
         # Visualise
         function figure()
-            fig  = Figure(fontsize = 20, size = (900, 600) )    
+            fig  = Figure(fontsize = 20, size = (900, 800) )    
             step = 10
             ftsz = 15
             eps  = 1e-10
@@ -470,14 +520,6 @@ import Statistics:mean
             # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
             hidexdecorations!(ax)
             Colorbar(fig[1, 2], hm, label = L"$\dot{\lambda}$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
-
-            ####################################
-            # ax    = Axis(fig[1,1], aspect=DataAspect(), title=L"$\tau_\text{II}$ [MPa]", xlabel=L"x", ylabel=L"y")
-            # field = (τ.II)[inx_c,iny_c].*sc.σ./1e6
-            # hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=(0,7))
-            # contour!(ax, X.c.x, X.c.y,  phases.c[inx_c,iny_c], color=:black)
-            # hidexdecorations!(ax)
-            # Colorbar(fig[1, 2], hm, label = L"$\tau_\text{II}$", height=100, width = 10, labelsize = ftsz, ticklabelsize = ftsz, vertical=true, valign=true, flipaxis = true )
 
             ####################################
             ax    = Axis(fig[1,3], aspect=DataAspect(), title=L"$\bar{P}$ [MPa]", xlabel=L"x", ylabel=L"y")
@@ -540,6 +582,17 @@ import Statistics:mean
             contour!(ax, P_ax.*sc.σ/1e6, τ_ax.*sc.σ/1e6, yield, levels=[0.0], color=:black )
             scatter!(ax, Pe[:].*sc.σ/1e6, τII[:].*sc.σ/1e6, color=:black )
 
+            ############################
+
+            ax    = Axis(fig[4,1], title=L"$\tau_\text{II}$ [MPa]", xlabel=L"$\tau$", ylabel=L"$$y")
+            field = (τ.II)[inx_c,iny_c].*sc.σ./1e6
+            lines!(ax, mean(field, dims=1)[:], X.c.y)
+            # clims = free_clims ? crange= (minimum(field)-eps, maximum(field)+eps) : (4.96e-2, 5.04e-2)             
+            # hm    = heatmap!(ax, X.c.x, X.c.y, field, colormap=:vik, colorrange=clims)
+       
+            ax    = Axis(fig[4,3], title=L"$\tau_\text{II}$ [MPa]", xlabel=L"$$t", ylabel=L"mean($\tau$)")
+            lines!(ax, probes.t[1:it]/ky, probes.τ[1:it]/1e6)
+
             display(fig)
         end
         visualization && with_theme(figure, theme_latexfonts())
@@ -586,12 +639,13 @@ function Run()
     ###################################
 
     # # with eta_vp
-    n_nx = 1
+    n_nx = 2
     n_nt = 1
     nc   = (x=n_nx*50, y=n_nx*25)
-    nt   = 100#4*n_nt
+    nt      = 1500#4*n_nt
+    restart = 0               # resume after this step (0: start from scratch)
     D_BC = @SMatrix([-1 0; 0 1] )
-    main(D_BC, nc, nt, n_nt; ηvp=0e19, homo=false); #1e20
+    main(D_BC, nc, nt, n_nt; ηvp=1e19, homo=false, restart); #1e20
     
 end
 

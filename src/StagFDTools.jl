@@ -25,7 +25,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
 export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
-export initialize_materials, initialize_materials_TwoPhases
+export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers
 #     include("markers.jl")
@@ -55,7 +55,7 @@ export ResidualContinuity2D!, ResidualMomentum2D_x!, ResidualMomentum2D_y!
 export AssembleContinuity2D!, AssembleMomentum2D_x!, AssembleMomentum2D_y!
 export TangentOperator!, LineSearch!
 include("Markers.jl")
-export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!, update_JustPIC!
+export InitialiseMarkerField, SetPhaseRatios!, compute_grid_fields!, FillPhaseRatios!, update_JustPIC!, InitialisePhaseRatios
 include("Main.jl")
 export AbstractSolver, Allocs, Solve!, main_loop, IterParams
 export JustPICAdvection
