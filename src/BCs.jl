@@ -7,11 +7,15 @@ function SetBCVx1(Vx, typex, bcx, Δ)
             MVx[ii,1] = muladd(2, bcx[ii,1], -Vx[ii,2])
         elseif typex[ii,1] === :Neumann_tangent
             MVx[ii,1] = muladd(-Δ.y, bcx[ii,1], Vx[ii,2])
+        elseif typex[ii,1] === :tangential_stress # linear extrapolation (τxy = bc is imposed in the momentum equation)
+            MVx[ii,1] = size(Vx, 2) >= 3 ? 2*Vx[ii,2] - Vx[ii,3] : Vx[ii,2]
         end
         if typex[ii,end] === :Dirichlet_tangent
             MVx[ii,end] = muladd(2, bcx[ii,end], -Vx[ii,end-1])
         elseif typex[ii,end] === :Neumann_tangent
             MVx[ii,end] = muladd(Δ.y, bcx[ii,end], Vx[ii,end-1])
+        elseif typex[ii,end] === :tangential_stress # linear extrapolation (τxy = bc is imposed in the momentum equation)
+            MVx[ii,end] = size(Vx, 2) >= 3 ? 2*Vx[ii,end-1] - Vx[ii,end-2] : Vx[ii,end-1]
         end
         # Wide stencils (e.g. y-momentum at a free surface) reach 2 ghost layers
         if size(typex, 2) >= 4
@@ -22,6 +26,9 @@ function SetBCVx1(Vx, typex, bcx, Δ)
                 elseif typex[ii,2] === :Neumann_tangent
                     MVx[ii,2] = muladd(  -Δ.y, bcx[ii,2], Vx[ii,3])
                     MVx[ii,1] = muladd(-3*Δ.y, bcx[ii,2], Vx[ii,4])
+                elseif typex[ii,2] === :tangential_stress
+                    MVx[ii,2] = 2*Vx[ii,3] - Vx[ii,4]
+                    MVx[ii,1] = 3*Vx[ii,3] - 2*Vx[ii,4]
                 end
             end
             if typex[ii,end] === :out
@@ -31,6 +38,9 @@ function SetBCVx1(Vx, typex, bcx, Δ)
                 elseif typex[ii,end-1] === :Neumann_tangent
                     MVx[ii,end-1] = muladd(  Δ.y, bcx[ii,end-1], Vx[ii,end-2])
                     MVx[ii,end  ] = muladd(3*Δ.y, bcx[ii,end-1], Vx[ii,end-3])
+                elseif typex[ii,end-1] === :tangential_stress
+                    MVx[ii,end-1] = 2*Vx[ii,end-2] - Vx[ii,end-3]
+                    MVx[ii,end  ] = 3*Vx[ii,end-2] - 2*Vx[ii,end-3]
                 end
             end
         end
@@ -59,12 +69,16 @@ function SetBCVy1(Vy, typey, bcy, Δ)
             MVy[1,jj] = muladd(2, bcy[1,jj], -Vy[2,jj])
         elseif typey[1,jj] === :Neumann_tangent
             MVy[1,jj] = muladd(-Δ.x, bcy[1,jj], Vy[2,jj])
+        elseif typey[1,jj] === :tangential_stress # linear extrapolation (τxy = bc is imposed in the momentum equation)
+            MVy[1,jj] = size(Vy, 1) >= 3 ? 2*Vy[2,jj] - Vy[3,jj] : Vy[2,jj]
         end
 
         if typey[end,jj] === :Dirichlet_tangent
             MVy[end,jj] = muladd(2, bcy[end,jj], -Vy[end-1,jj])
         elseif typey[end,jj] === :Neumann_tangent
             MVy[end,jj] = muladd(Δ.x, bcy[end,jj], Vy[end-1,jj])
+        elseif typey[end,jj] === :tangential_stress # linear extrapolation (τxy = bc is imposed in the momentum equation)
+            MVy[end,jj] = size(Vy, 1) >= 3 ? 2*Vy[end-1,jj] - Vy[end-2,jj] : Vy[end-1,jj]
         end
         # Wide stencils (e.g. x-momentum at a free E/W boundary) reach 2 ghost layers
         if size(typey, 1) >= 4
@@ -75,6 +89,9 @@ function SetBCVy1(Vy, typey, bcy, Δ)
                 elseif typey[2,jj] === :Neumann_tangent
                     MVy[2,jj] = muladd(  -Δ.x, bcy[2,jj], Vy[3,jj])
                     MVy[1,jj] = muladd(-3*Δ.x, bcy[2,jj], Vy[4,jj])
+                elseif typey[2,jj] === :tangential_stress
+                    MVy[2,jj] = 2*Vy[3,jj] - Vy[4,jj]
+                    MVy[1,jj] = 3*Vy[3,jj] - 2*Vy[4,jj]
                 end
             end
             if typey[end,jj] === :out
@@ -84,6 +101,9 @@ function SetBCVy1(Vy, typey, bcy, Δ)
                 elseif typey[end-1,jj] === :Neumann_tangent
                     MVy[end-1,jj] = muladd(  Δ.x, bcy[end-1,jj], Vy[end-2,jj])
                     MVy[end  ,jj] = muladd(3*Δ.x, bcy[end-1,jj], Vy[end-3,jj])
+                elseif typey[end-1,jj] === :tangential_stress
+                    MVy[end-1,jj] = 2*Vy[end-2,jj] - Vy[end-3,jj]
+                    MVy[end  ,jj] = 3*Vy[end-2,jj] - 2*Vy[end-3,jj]
                 end
             end
         end

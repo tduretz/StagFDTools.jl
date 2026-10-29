@@ -71,21 +71,38 @@ function set_boundaries_template!(type, config, nc)
         type.Pt[2:(end-1), 2:(end-1)] .= :in
         type.Pt[2:(end-1), [1 end]] .= :periodic
 
-    elseif config == :NS_Neumann
+    elseif config == :EW_periodic_shear_stress # East/West periodic, S: Vx = BC, N: τxy = BC
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx] .= :in
+        type.Vx[1, iny_Vx] .= :periodic
+        type.Vx[(end-1):end, iny_Vx] .= :periodic
+        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
+        type.Vx[inx_Vx, end-1] .= :tangential_stress
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy] .= :in
+        type.Vy[1:2, iny_Vy] .= :periodic
+        type.Vy[(end-1):end, iny_Vy] .= :periodic
+        type.Vy[inx_Vy, 2] .= :Dirichlet_normal
+        type.Vy[inx_Vy, end-1] .= :Dirichlet_normal
+        # -------- Pt -------- #
+        type.Pt[2:(end-1), 2:(end-1)] .= :in
+        type.Pt[[1 end], 2:(end-1)] .= :periodic
+    elseif config == :NS_periodic_shear_stress # North/South periodic, W: Vy = BC, E: τxy = BC
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
         type.Vx[end-1, iny_Vx] .= :Dirichlet_normal
-        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
-        type.Vx[inx_Vx, end-1] .= :Dirichlet_tangent
+        type.Vx[inx_Vx, 1:2] .= :periodic
+        type.Vx[inx_Vx, (end-1):end] .= :periodic
         # -------- Vy -------- #
         type.Vy[inx_Vy, iny_Vy] .= :in
         type.Vy[2, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[end-1, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[inx_Vy, 1] .= :Neumann_normal
-        type.Vy[inx_Vy, end] .= :Neumann_normal
+        type.Vy[end-1, iny_Vy] .= :tangential_stress
+        type.Vy[inx_Vy, 1] .= :periodic
+        type.Vy[inx_Vy, (end-1):end] .= :periodic
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
+        type.Pt[2:(end-1), [1 end]] .= :periodic
     elseif config == :NS_stress
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
@@ -117,22 +134,6 @@ function set_boundaries_template!(type, config, nc)
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
 
-    elseif config == :EW_Neumann
-        # -------- Vx -------- #
-        type.Vx[inx_Vx, iny_Vx] .= :in
-        type.Vx[1, iny_Vx] .= :Neumann_normal
-        type.Vx[end-0, iny_Vx] .= :Neumann_normal
-        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
-        type.Vx[inx_Vx, end-1] .= :Dirichlet_tangent
-        # -------- Vy -------- #
-        type.Vy[inx_Vy, iny_Vy] .= :in
-        type.Vy[2, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[end-1, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[inx_Vy, 2] .= :Dirichlet_normal
-        type.Vy[inx_Vy, end-1] .= :Dirichlet_normal
-        # -------- Pt -------- #
-        type.Pt[2:(end-1), 2:(end-1)] .= :in
-        # type.Pt[[1,end],2:end-1] .= :Neumann_normal
     elseif config == :EW_stress
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
@@ -273,6 +274,14 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
         BC_sym = 1 / 2
     end
 
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.x[2,1] == :tangential_stress
+        τxy = SVector{2}(bcv.x[2,1], τxy[2])
+    end
+    if type.x[2,end] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.x[2,end])
+    end
+
     # Residual
     fx = (σxx[2] - σxx[1]) * invΔx
     fx += (τxy[2] - τxy[1]) * invΔy
@@ -352,13 +361,21 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
     ρg = materials.g[2] * 0.5 * (ρ[1] + ρ[2])
 
     # Apply normal stress BC 
-    if type.x[2, 1] == :normal_stress
+    if type.y[2, 1] == :normal_stress
         σyy = SVector{2}([2*bcv.y[2, 2]-σyy[2] σyy[2]])
         BC_sym = 1 / 2
     end
     if type.y[2, end] == :normal_stress
         σyy = SVector{2}([σyy[1] 2*bcv.y[2, end-1]-σyy[1]])
         BC_sym = 1 / 2
+    end
+
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.y[1,2] == :tangential_stress
+        τxy = SVector{2}(bcv.y[1,2], τxy[2])
+    end
+    if type.y[end,2] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.y[end,2])
     end
 
     # Residual
