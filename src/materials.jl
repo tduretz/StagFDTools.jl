@@ -350,7 +350,7 @@ function initialize_materials_TwoPhases(nphases::Integer;
         ξ0           = 1e2 * ones(nphases),
         G            = 1e50 * ones(nphases),
         Ks           = 1e50 * ones(nphases),
-        KΦ           = 1e50 * ones(nphases),
+        KΦ0          = 1e50 * ones(nphases),
         Kf           = 1e50 * ones(nphases),
         Φ0           = 1e-2 * ones(nphases),
         m            = zeros(nphases),

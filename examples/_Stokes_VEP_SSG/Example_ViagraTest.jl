@@ -52,7 +52,7 @@ end
     materials.ρ  .= [ρ_plate, ρ_matrix] ./ (sc.σ*sc.t^2/sc.L^2)
     materials.η0 .= [η_plate, η_matrix] ./ (sc.σ*sc.t)
     materials.G  .= [G_plate, G_matrix] ./ sc.σ
-    preprocess!(materials)ß
+    preprocess!(materials)
 
     # Setup
     L = (x=width/sc.L, y=width/sc.L)

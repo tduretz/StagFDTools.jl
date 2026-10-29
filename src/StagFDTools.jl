@@ -24,7 +24,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
 export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers

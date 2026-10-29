@@ -1031,8 +1031,8 @@ end
 
                 # Tangent operator used for Newton Linearisation
                 Tk = T === nothing ? nothing : T.c[i, j]
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
+                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
                 _, η_local, λ̇_local, τII_local = stress_state
 
                 @views 𝐷_ctl.c[i, j] .= jac
@@ -1124,8 +1124,8 @@ end
 
             # Tangent operator used for Newton Linearisation
             Tk = T === nothing ? nothing : T.v[i, j]
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ, Tk)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, materials, phase_ratios.v[i, j], Δ, Tk)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac

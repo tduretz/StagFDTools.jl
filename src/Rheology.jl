@@ -352,7 +352,7 @@ function PhaseAverage(a_average, averaging)
 end
 
 # Tk: temperature [K] for temperature-dependent creep (nothing: η0 used as is)
-function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing; phase_avg=:arithmetic)
+function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
     eps0 = 1e-17
@@ -426,8 +426,8 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing; p
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, materials, phase_ratios, Δ, Tk=nothing) where {N,T}
-    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, materials, phase_ratios, Δ, Tk)
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing) where {N,T}
+    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
         2 * η * ε̇[3],
