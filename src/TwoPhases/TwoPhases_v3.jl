@@ -222,6 +222,52 @@ end
         type.Pf[:,1]               .= :Neumann
         type.Pf[:,end]             .= :Neumann
         type.Pf[[1 end], 2:end-1]  .= :periodic
+    elseif config == :EW_periodic_shear_stress # E/W periodic, S: Vx = BC, N: τxy = BC
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx]    .= :in
+        type.Vx[1, iny_Vx]         .= :periodic
+        type.Vx[end-1:end, iny_Vx] .= :periodic
+        type.Vx[inx_Vx, 2]         .= :Dirichlet_tangent
+        type.Vx[inx_Vx, end-1]     .= :tangential_stress
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy]    .= :in
+        type.Vy[1:2, iny_Vy]       .= :periodic
+        type.Vy[end-1:end, iny_Vy] .= :periodic
+        type.Vy[inx_Vy, 2]         .= :Dirichlet_normal
+        type.Vy[inx_Vy, end-1]     .= :Dirichlet_normal
+        # -------- Pt -------- #
+        type.Pt[2:end-1, 2:end-1]  .= :in
+        type.Pt[:,1]               .= :Neumann
+        type.Pt[:,end]             .= :Neumann
+        type.Pt[[1 end], 2:end-1]  .= :periodic
+        # -------- Pf -------- #
+        type.Pf[2:end-1, 2:end-1]  .= :in
+        type.Pf[:,1]               .= :Neumann
+        type.Pf[:,end]             .= :Neumann
+        type.Pf[[1 end], 2:end-1]  .= :periodic
+    elseif config == :NS_periodic_shear_stress # N/S periodic, W: Vy = BC, E: τxy = BC
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx]    .= :in
+        type.Vx[2, iny_Vx]         .= :Dirichlet_normal
+        type.Vx[end-1, iny_Vx]     .= :Dirichlet_normal
+        type.Vx[inx_Vx, 1:2]       .= :periodic
+        type.Vx[inx_Vx, end-1:end] .= :periodic
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy]    .= :in
+        type.Vy[2, iny_Vy]         .= :Dirichlet_tangent
+        type.Vy[end-1, iny_Vy]     .= :tangential_stress
+        type.Vy[inx_Vy, 1]         .= :periodic
+        type.Vy[inx_Vy, end-1:end] .= :periodic
+        # -------- Pt -------- #
+        type.Pt[2:end-1, 2:end-1]  .= :in
+        type.Pt[1,:]               .= :Neumann
+        type.Pt[end,:]             .= :Neumann
+        type.Pt[2:end-1, [1 end]]  .= :periodic
+        # -------- Pf -------- #
+        type.Pf[2:end-1, 2:end-1]  .= :in
+        type.Pf[1,:]               .= :Neumann
+        type.Pf[end,:]             .= :Neumann
+        type.Pf[2:end-1, [1 end]]  .= :periodic
     elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx,iny_Vx]  .= :in       
@@ -250,6 +296,56 @@ end
         type.Pf[end,:]           .= :Neumann
         # ∂Pf/∂y = 0 (:Neumann) is not no-flux under gravity (q = -k(∂Pf/∂y - ρf g)): impose the hydrostatic gradient.
         # Same as :Neumann when g = 0. A drained top (:Dirichlet + BC.Pf) is problem-specific and set in the script.
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
+    elseif config == :NS_stress # S/N: prescribed normal stress (BC.Vy[:,2], BC.Vy[:,end-1]), W/E: prescribed velocity
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in
+        type.Vx[2,iny_Vx]       .= :Dirichlet_normal
+        type.Vx[end-1,iny_Vx]   .= :Dirichlet_normal
+        type.Vx[inx_Vx,2]       .= :Dirichlet_tangent
+        type.Vx[inx_Vx,end-1]   .= :Dirichlet_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in
+        type.Vy[2,iny_Vy]       .= :Dirichlet_tangent
+        type.Vy[end-1,iny_Vy]   .= :Dirichlet_tangent
+        type.Vy[inx_Vy,1]       .= :normal_stress
+        type.Vy[inx_Vy,end]     .= :normal_stress
+        # -------- Pt -------- #
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann
+        type.Pt[end,:]           .= :Neumann
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
+        type.Pf[:,1]             .= :no_flux
+        type.Pf[:,end]           .= :no_flux
+    elseif config == :EW_stress # W/E: prescribed normal stress (BC.Vx[2,:], BC.Vx[end-1,:]), S/N: prescribed velocity
+        # -------- Vx -------- #
+        type.Vx[inx_Vx,iny_Vx]  .= :in
+        type.Vx[1,iny_Vx]       .= :normal_stress
+        type.Vx[end,iny_Vx]     .= :normal_stress
+        type.Vx[inx_Vx,2]       .= :Dirichlet_tangent
+        type.Vx[inx_Vx,end-1]   .= :Dirichlet_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy,iny_Vy]  .= :in
+        type.Vy[2,iny_Vy]       .= :Dirichlet_tangent
+        type.Vy[end-1,iny_Vy]   .= :Dirichlet_tangent
+        type.Vy[inx_Vy,2]       .= :Dirichlet_normal
+        type.Vy[inx_Vy,end-1]   .= :Dirichlet_normal
+        # -------- Pt -------- #
+        type.Pt[2:end-1,2:end-1] .= :in
+        type.Pt[1,:]             .= :Neumann
+        type.Pt[end,:]           .= :Neumann
+        type.Pt[:,1]             .= :Neumann
+        type.Pt[:,end]           .= :Neumann
+        # -------- Pf -------- #
+        type.Pf[2:end-1,2:end-1] .= :in
+        type.Pf[1,:]             .= :Neumann
+        type.Pf[end,:]           .= :Neumann
         type.Pf[:,1]             .= :no_flux
         type.Pf[:,end]           .= :no_flux
     end
@@ -341,6 +437,14 @@ end
     if type.x[end,2] == :normal_stress
         σxx = SVector{2}([σxx[1] 2*bcv.x[end-1,2]-σxx[1] ])
         BC_sym = 1 / 2 
+    end
+
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.x[2,1] == :tangential_stress
+        τxy = SVector{2}(bcv.x[2,1], τxy[2])
+    end
+    if type.x[2,end] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.x[2,end])
     end
 
     # Residual
@@ -455,6 +559,14 @@ end
     if type.y[2,end] == :normal_stress
         σyy = SVector{2}([σyy[1] 2*bcv.y[2,end-1]-σyy[1] ])
         BC_sym = 1 / 2 
+    end
+
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.y[1,2] == :tangential_stress
+        τxy = SVector{2}(bcv.y[1,2], τxy[2])
+    end
+    if type.y[end,2] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.y[end,2])
     end
 
     # Residual
