@@ -86,7 +86,7 @@ import CairoMakie as cm
         end
     end
     # Convert to phase ratios
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     #--------------------------------------------#
 

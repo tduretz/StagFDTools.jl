@@ -352,10 +352,9 @@ function PhaseAverage(a_average, averaging)
 end
 
 # Tk: temperature [K] for temperature-dependent creep (nothing: η0 used as is)
-function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing)
+function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
-    phase_avg = materials.phase_avg
     eps0 = 1e-17
 
     # Effective strain rate & pressure
@@ -377,7 +376,7 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing)
         n = materials.n[phases]
         η0 = materials.η0[phases]
         B = materials.B[phases]
-        G = materials.G[phases]
+        G = Ggrid
         β = materials.β[phases]
         comp = materials.compressible
         if Tk !== nothing
@@ -387,7 +386,7 @@ function LocalRheology(ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk=nothing)
         end
 
         # Initial guess
-        η = (η0.*ε̇II .^ (1 ./ n.-1.0))[1]
+        η = (η0 .* ε̇II .^ (1 ./ n .- 1.0))[1]
         ηvep = inv(1 / η + 1 / (G * Δ.t))
         τII = 2 * ηvep * ε̇II
         # P = P0 - comp * Δ.t / β * P_trial

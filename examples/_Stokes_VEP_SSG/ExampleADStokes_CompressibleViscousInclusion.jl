@@ -77,7 +77,7 @@ using ExactFieldSolutions
     rad = params.rc + 1e-13
     @views a.phases.c[(a.X.c_e.x.^2 .+ (a.X.c_e.y').^2) .<= rad^2] .= 2
     @views a.phases.v[(a.X.v_e.x.^2 .+ (a.X.v_e.y').^2) .<= rad^2] .= 2
-    FillPhaseRatios!(a)
+    Set_PhaseRatios!(a)
 
     # Analytics
     V_ana = (
