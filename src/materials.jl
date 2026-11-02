@@ -9,9 +9,14 @@ Base.@kwdef struct IterParams
     γ::Float64          = 1e5
     ϵ_l::Float64        = 1e-11
     ϵ_nl::Float64       = 1e-8
+    niter_KSP::Int64    = 1000                  # max. number of KSP iterations per linear solve (solver_type = :GCR)
     inexact::Bool       = false
     solver_type::Symbol = :PH
-    α::Vector{Float64}  = collect(LinRange(0.05, 1.0, 6))
+    line_search::Symbol = :backtracking         # :backtracking (first α that reduces the residual) or :grid (best of α)
+    α::Vector{Float64}  = collect(LinRange(0.05, 1.0, 6)) # only used by line_search = :grid
+    Pic2Newt::Float64   = Inf                   # Picard until ϵ/ϵ0 < Pic2Newt, then Newton (> 1: Newton only)
+    α_Picard::Float64   = 3.0                   # first trial step of the backtracking for Picard iterations
+    PC_refresh::Symbol  = :step                 # solver_type = :GCR: Picard preconditioner assembled and factorised once per time step (:step) or at each Newton iteration (:iteration); always at Picard iterations
 end
 Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     C::T    = Float64[]

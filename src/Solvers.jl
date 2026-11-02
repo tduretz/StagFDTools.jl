@@ -17,7 +17,7 @@ function linear_tol(r, r0, iter; α=9)
 end
 
 function mechanical_solver!(dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC;
-    solver=:PH, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true
+    solver=:PH, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, maxit=1000, noisy=true
 )
     if solver == :PH
         # Decoupled Powell & Hestenes using LU as PC
@@ -26,10 +26,11 @@ function mechanical_solver!(dx, M, r, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, 𝐊_PC, 𝐐_P
         @time u, p = DecoupledSolver(𝐊, 𝐐, 𝐐ᵀ, 𝐏, fu, fp; fact=:lu, ηb=1e5, niter_l=10, ϵ_l=ϵ_l, noisy=true)
         @views dx[1:size(𝐊, 1)] .= u
         @views dx[size(𝐊, 1)+1:end] .= p
+        return 0
     elseif solver == :GCR
         # Coupled GCR with Cholesky as PC
         𝐌 = [M.Vx.Vx M.Vx.Vy M.Vx.Pt; M.Vy.Vx M.Vy.Vy M.Vy.Pt; M.Pt.Vx M.Pt.Vy M.Pt.Pt]
-        KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb=1e5, ϵ_l=ϵ_l, restart=20)
+        return KSP_GCR_Stokes!(dx, 𝐌, .-r, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, ηb=1e5, ϵ_l=ϵ_l, restart=20, maxit=maxit, noisy=noisy)
     end
 end
 
@@ -81,7 +82,7 @@ function KSP_GCR_Stokes!(
 
         while its < maxit
 
-            for k = 1:restart
+            for k = 1:min(restart, maxit - its)
 
                 its += 1
 
@@ -128,7 +129,187 @@ function KSP_GCR_Stokes!(
             end
         end
 
-        noisy && println("KSP failed after $its iterations")
+        println("KSP failed after $its iterations") # always reported: not visible in the iteration log
+
+        return its
+    end
+end
+
+"""
+    StokesGCRCache()
+
+Storage reused across the linear solves of the single-phase coupled GCR solver: monolithic operator, Schur-complement
+preconditioner with its Cholesky factor (symbolic analysis reused) and GCR work arrays. Built on the first solve
+(`setup_gcr!`), then refilled in place since the blocks of `M` and `M_PC` have a fixed sparsity pattern.
+"""
+Base.@kwdef mutable struct StokesGCRCache
+    initialized::Bool                    = false
+    𝐌::SparseMatrixCSC{Float64,Int64}    = spzeros(0, 0)   # [Kuu Kup; Kpu Kpp] of the operator (M or M_PC)
+    map𝐌::Vector{Vector{Int64}}          = Vector{Int64}[] # position of the nonzeros of each block in 𝐌
+    Kuu::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)   # preconditioner blocks (from M_PC)
+    Kup::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)
+    Kpu::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)
+    mapKuu::Vector{Vector{Int64}}        = Vector{Int64}[]
+    mapKup::Vector{Vector{Int64}}        = Vector{Int64}[]
+    mapKpu::Vector{Vector{Int64}}        = Vector{Int64}[]
+    Pinv::Vector{Float64}                = Float64[]
+    Kuusc::SparseMatrixCSC{Float64,Int64} = spzeros(0, 0)
+    Kf::Union{Nothing,SparseArrays.CHOLMOD.Factor{Float64,Int64}} = nothing
+    f::Vector{Float64}                   = Float64[]
+    s::Vector{Float64}                   = Float64[]
+    v::Vector{Float64}                   = Float64[]
+    VV::Matrix{Float64}                  = zeros(0, 0)
+    SS::Matrix{Float64}                  = zeros(0, 0)
+    tmpu::Vector{Float64}                = Float64[]
+    tmpp::Vector{Float64}                = Float64[]
+    fusc::Vector{Float64}                = Float64[]
+end
+
+stokes_blocks(M) = (M.Vx.Vx, M.Vx.Vy, M.Vx.Pt, M.Vy.Vx, M.Vy.Vy, M.Vy.Pt, M.Pt.Vx, M.Pt.Vy, M.Pt.Pt)
+
+same_pattern(A, B) = size(A) == size(B) && SparseArrays.getcolptr(A) == SparseArrays.getcolptr(B) && rowvals(A) == rowvals(B)
+
+# Concatenate rows of sparse blocks (tuple of tuples) and return where the nonzeros of each block land in the result
+function concat_blocks(rows)
+    off  = 0
+    trow = map(rows) do row
+        map(row) do b
+            # Tag each stored entry with its global index (stored zeros are kept)
+            t = SparseMatrixCSC(size(b)..., copy(SparseArrays.getcolptr(b)), copy(rowvals(b)), collect(off+1.0:off+nnz(b)))
+            off += nnz(b)
+            t
+        end
+    end
+    A   = reduce(vcat, [reduce(hcat, collect(r)) for r in trow])
+    nnz(A) == off || error("concat_blocks: entries were dropped")
+    pos = zeros(Int64, off)
+    for q in eachindex(nonzeros(A))
+        pos[Int(nonzeros(A)[q])] = q
+    end
+    maps, k = Vector{Int64}[], 0
+    for row in rows, b in row
+        push!(maps, pos[k+1:k+nnz(b)])
+        k += nnz(b)
+    end
+    return A, maps
+end
+
+function fill_blocks!(A, maps, blocks)
+    for (m, b) in zip(maps, blocks)
+        @views nonzeros(A)[m] .= nonzeros(b)
+    end
+    return A
+end
+
+function setup_gcr!(c::StokesGCRCache, M, M_PC; restart=20)
+    B, BPC = stokes_blocks(M), stokes_blocks(M_PC)
+    all(same_pattern.(B, BPC)) || error("setup_gcr!: M and M_PC must have the same sparsity pattern")
+    c.𝐌, c.map𝐌     = concat_blocks(((B[1], B[2], B[3]), (B[4], B[5], B[6]), (B[7], B[8], B[9])))
+    c.Kuu, c.mapKuu = concat_blocks(((BPC[1], BPC[2]), (BPC[4], BPC[5])))
+    c.Kup, c.mapKup = concat_blocks(((BPC[3],), (BPC[6],)))
+    c.Kpu, c.mapKpu = concat_blocks(((BPC[7], BPC[8]),))
+    N, ndofu = size(c.𝐌, 1), size(c.Kuu, 1)
+    ndofp    = N - ndofu
+    c.Pinv   = zeros(ndofp)
+    c.Kuusc, c.Kf = spzeros(0, 0), nothing
+    c.f, c.s, c.v = zeros(N), zeros(N), zeros(N)
+    c.VV, c.SS    = zeros(N, restart), zeros(N, restart)
+    c.tmpu, c.tmpp, c.fusc = zeros(ndofu), zeros(ndofp), zeros(ndofu)
+    c.initialized = true
+    return c
+end
+
+# Refill the preconditioner blocks from M_PC, form the Schur complement and factorise it (numeric only if the pattern is unchanged)
+function update_preconditioner!(c::StokesGCRCache, M_PC; ηb=1e5)
+    BPC = stokes_blocks(M_PC)
+    fill_blocks!(c.Kuu, c.mapKuu, (BPC[1], BPC[2], BPC[4], BPC[5]))
+    fill_blocks!(c.Kup, c.mapKup, (BPC[3], BPC[6]))
+    fill_blocks!(c.Kpu, c.mapKpu, (BPC[7], BPC[8]))
+    d = diag(BPC[9])
+    @. c.Pinv = ifelse(d == 0, ηb, 1.0 / d) # incompressible: penalty
+    Kuusc = c.Kuu - c.Kup * spdiagm(c.Pinv) * c.Kpu
+    if c.Kf !== nothing && same_pattern(Kuusc, c.Kuusc)
+        cholesky!(c.Kf, Hermitian(Kuusc), check=false)
+    else
+        c.Kf = cholesky(Hermitian(Kuusc), check=false)
+    end
+    c.Kuusc = Kuusc
+    return c
+end
+
+# Copy the operator (M: Newton, M_PC: Picard) into the monolithic matrix
+update_operator!(c::StokesGCRCache, M) = fill_blocks!(c.𝐌, c.map𝐌, stokes_blocks(M))
+
+# Same algorithm as above, with the operator, preconditioner and work arrays from the cache (solves 𝐌 x = -r)
+function KSP_GCR_Stokes!(x, c::StokesGCRCache, r; ϵ_l=1e-9, maxit=1000, noisy=true)
+    @views begin
+        M, Kup, Kpu, Pinv, Kf = c.𝐌, c.Kup, c.Kpu, c.Pinv, c.Kf
+        f, s, v, VV, SS, tmpu, tmpp, fusc = c.f, c.s, c.v, c.VV, c.SS, c.tmpu, c.tmpp, c.fusc
+        restart = size(VV, 2)
+        ndofu = size(Kup, 1)
+        ndofp = size(Kup, 2)
+
+        mul!(f, M, x)
+        @. f = -r - f
+
+        fu = f[1:ndofu]
+        fp = f[ndofu+1:end]
+
+        su = s[1:ndofu]
+        sp = s[ndofu+1:end]
+
+        its = 0
+
+        while its < maxit
+
+            for k = 1:min(restart, maxit - its)
+
+                its += 1
+
+                fill!(s, 0.0)
+                @. tmpp = Pinv * fp
+
+                mul!(tmpu, Kup, tmpp)
+                @. fusc = fu - tmpu
+
+                ldiv!(su, Kf, fusc)
+
+                mul!(tmpp, Kpu, su)
+
+                @. sp += Pinv * (fp - tmpp)
+
+                mul!(v, M, s)
+
+                for j = 1:k-1
+                    hj = dot(v, VV[:, j])
+                    BLAS.axpy!(-hj, VV[:, j], v)
+                    BLAS.axpy!(-hj, SS[:, j], s)
+                end
+
+                nrm = norm(v)
+
+                @. v /= nrm
+                @. s /= nrm
+
+                α = dot(f, v)
+
+                BLAS.axpy!(α, s, x)
+                BLAS.axpy!(-α, v, f)
+
+                if norm(fu) / sqrt(ndofu) < ϵ_l &&
+                   norm(fp) / sqrt(ndofp) < ϵ_l
+
+                    noisy && println("KSP converged in $its iterations")
+                    return its
+                end
+
+                copyto!(VV[:, k], v)
+                copyto!(SS[:, k], s)
+
+            end
+        end
+
+        println("KSP failed after $its iterations") # always reported: not visible in the iteration log
 
         return its
     end

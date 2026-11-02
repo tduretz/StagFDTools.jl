@@ -4,12 +4,18 @@ struct Fields{Tx,Ty,Tp}
     Pt::Tp
 end
 
-function Base.getindex(x::Fields, i::Int64)
+@inline function Base.getindex(x::Fields, i::Int64)
     @assert 0 < i < 4
     i == 1 && return x.Vx
     i == 2 && return x.Vy
     i == 3 && return x.Pt
 end
+
+using SparseArrays
+
+# The fixed pattern stores structural zeros (e.g. the Pt block when incompressible);
+# the solvers expect them dropped.
+SparseArrays.dropzeros(M::Fields) = _map_blocks(dropzeros, M)
 
 function Ranges(nc)
     return (inx_Vx=2:(nc.x+2), iny_Vx=3:(nc.y+2), inx_Vy=3:(nc.x+2), iny_Vy=2:(nc.y+2), inx_c=2:(nc.x+1), iny_c=2:(nc.y+1), inx_v=2:(nc.x+2), iny_v=2:(nc.y+2), size_x=(nc.x + 3, nc.y + 4), size_y=(nc.x + 4, nc.y + 3), size_c=(nc.x + 2, nc.y + 2), size_v=(nc.x + 3, nc.y + 3))
@@ -436,61 +442,57 @@ end
 function AssembleMomentum2D_x!(K, V, P, P0, ΔP, τ0, 𝐷, G, materials, num, pattern, type, BC, nc, Δ)
 
     shift = (x=1, y=2)
-    for j in (1+shift.y):(nc.y+shift.y)
-        for i in (1+shift.x):(nc.x+shift.x+1)
+    assembly_loop(K, (1+shift.y):(nc.y+shift.y)) do j, tid
+        @inbounds for i in (1+shift.x):(nc.x+shift.x+1)
 
-            if type.Vx[i, j] == :in
+            type.Vx[i, j] == :in || continue
+            row = num.Vx[i, j]
+            row > 0 || continue
 
-                bcx_loc = SMatrix{3,3}(BC.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                bcy_loc = SMatrix{4,4}(BC.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                typex_loc = SMatrix{3,3}(type.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                typey_loc = SMatrix{4,4}(type.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                typep_loc = SMatrix{2,1}(type.Pt[ii, jj] for ii in (i-1):(i-0), jj in (j-1):(j-1))
+            bcx_loc = SMatrix{3,3}(BC.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            bcy_loc = SMatrix{4,4}(BC.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            typex_loc = SMatrix{3,3}(type.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            typey_loc = SMatrix{4,4}(type.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            typep_loc = SMatrix{2,1}(type.Pt[ii, jj] for ii in (i-1):(i-0), jj in (j-1):(j-1))
 
-                Vx_loc = SMatrix{3,3}(V.x[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                Vy_loc = SMatrix{4,4}(V.y[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                P_loc = SMatrix{2,3}(P[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                ΔP_loc = SMatrix{2,1}(ΔP.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Gc_loc = SMatrix{2,1}(G.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Gv_loc = SMatrix{1,2}(G.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
+            Vx_loc = SMatrix{3,3}(V.x[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            Vy_loc = SMatrix{4,4}(V.y[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            P_loc = SMatrix{2,3}(P[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            ΔP_loc = SMatrix{2,1}(ΔP.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Gc_loc = SMatrix{2,1}(G.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Gv_loc = SMatrix{1,2}(G.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
 
-                τxx0 = SMatrix{2,3}(τ0.xx[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                τyy0 = SMatrix{2,3}(τ0.yy[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                τxy0 = SMatrix{3,2}(τ0.xy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):j)
+            τxx0 = SMatrix{2,3}(τ0.xx[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            τyy0 = SMatrix{2,3}(τ0.yy[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            τxy0 = SMatrix{3,2}(τ0.xy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):j)
 
-                Dc = SMatrix{2,1}(𝐷.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Dv = SMatrix{1,2}(𝐷.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
-                bcv_loc = (x=bcx_loc, y=bcy_loc)
-                type_loc = (x=typex_loc, y=typey_loc, p=typep_loc)
-                # ph_loc     = (c=phc_loc, v=phv_loc)
-                D = (c=Dc, v=Dv)
-                τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
-                G_loc = (c=Gc_loc, v=Gv_loc)
+            Dc = SMatrix{2,1}(𝐷.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Dv = SMatrix{1,2}(𝐷.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
+            bcv_loc = (x=bcx_loc, y=bcy_loc)
+            type_loc = (x=typex_loc, y=typey_loc, p=typep_loc)
+            D = (c=Dc, v=Dv)
+            τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
+            G_loc = (c=Gc_loc, v=Gv_loc)
 
-                ∂R∂Vx = gradient(x -> SMomentum_x_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
-                ∂R∂Vy = gradient(x -> SMomentum_x_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
-                ∂R∂Pt = gradient(x -> SMomentum_x_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
-                # Vx --- Vx
-                Local = SMatrix{3,3}(num.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[1][1]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][1][num.Vx[i, j], Local[ii, jj]] = ∂R∂Vx[ii, jj]
-                    end
-                end
-                # Vx --- Vy
-                Local = SMatrix{4,4}(num.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1)) .* pattern[1][2]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][2][num.Vx[i, j], Local[ii, jj]] = ∂R∂Vy[ii, jj]
-                    end
-                end
-                # Vx --- Pt
-                Local = SMatrix{2,3}(num.Pt[ii, jj] for ii in (i-1):i, jj in (j-2):j) .* pattern[1][3]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][3][num.Vx[i, j], Local[ii, jj]] = ∂R∂Pt[ii, jj]
-                    end
-                end
+            ∂R∂Vx = ad_gradient(x -> SMomentum_x_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(x -> SMomentum_x_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(x -> SMomentum_x_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), P_loc)
+
+            Kt = _target(K, tid)
+            # Vx --- Vx
+            Local = SMatrix{3,3}(num.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[1][1]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
+            end
+            # Vx --- Vy
+            Local = SMatrix{4,4}(num.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1)) .* pattern[1][2]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
+            end
+            # Vx --- Pt
+            Local = SMatrix{2,3}(num.Pt[ii, jj] for ii in (i-1):i, jj in (j-2):j) .* pattern[1][3]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][3][row, Local[ii, jj]] = ∂R∂Pt[ii, jj])
             end
         end
     end
@@ -534,78 +536,54 @@ end
 function AssembleMomentum2D_y!(K, V, P, P0, ΔP, τ0, 𝐷, G, ρ, materials, num, pattern, type, BC, nc, Δ)
 
     shift = (x=2, y=1)
-    K21 = K[2][1]
-    K22 = K[2][2]
-    K23 = K[2][3]
+    assembly_loop(K, (1+shift.y):(nc.y+shift.y+1)) do j, tid
+        @inbounds for i in (1+shift.x):(nc.x+shift.x)
 
-    for j in (1+shift.y):(nc.y+shift.y+1)
-        for i in (1+shift.x):(nc.x+shift.x)
+            type.Vy[i, j] == :in || continue
+            row = num.Vy[i, j]
+            row > 0 || continue
 
-            if type.Vy[i, j] === :in
+            Vx_loc = SMatrix{4,4}(V.x[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            Vy_loc = SMatrix{3,3}(V.y[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            bcx_loc = SMatrix{4,4}(BC.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            bcy_loc = SMatrix{3,3}(BC.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            typex_loc = SMatrix{4,4}(type.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            typey_loc = SMatrix{3,3}(type.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            Gc_loc = SMatrix{1,2}(G.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            Gv_loc = SMatrix{2,1}(G.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
+            P_loc = SMatrix{3,2}(P[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            ΔP_loc = SMatrix{1,2}(ΔP.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            ρ_loc = SMatrix{1,2}(ρ.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            τxx0 = SMatrix{3,2}(τ0.xx[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            τyy0 = SMatrix{3,2}(τ0.yy[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            τxy0 = SMatrix{2,3}(τ0.xy[ii, jj] for ii in (i-1):i, jj in (j-1):(j+1))
+            Dc = SMatrix{1,2}(𝐷.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            Dv = SMatrix{2,1}(𝐷.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
+            bcv_loc = (x=bcx_loc, y=bcy_loc)
+            type_loc = (x=typex_loc, y=typey_loc)
+            G_loc = (c=Gc_loc, v=Gv_loc)
+            D = (c=Dc, v=Dv)
+            τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-                Vx_loc = @inline SMatrix{4,4}(@inbounds V.x[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                Vy_loc = @inline SMatrix{3,3}(@inbounds V.y[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                bcx_loc = @inline SMatrix{4,4}(@inbounds BC.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                bcy_loc = @inline SMatrix{3,3}(@inbounds BC.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                typex_loc = @inline SMatrix{4,4}(@inbounds type.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                typey_loc = @inline SMatrix{3,3}(@inbounds type.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                Gc_loc = @inline SMatrix{1,2}(@inbounds G.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                Gv_loc = @inline SMatrix{2,1}(@inbounds G.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
-                P_loc = @inline SMatrix{3,2}(@inbounds P[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                ΔP_loc = @inline SMatrix{1,2}(@inbounds ΔP.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                ρ_loc = @inline SMatrix{1,2}(@inbounds ρ.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                τxx0 = @inline SMatrix{3,2}(@inbounds τ0.xx[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                τyy0 = @inline SMatrix{3,2}(@inbounds τ0.yy[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                τxy0 = @inline SMatrix{2,3}(@inbounds τ0.xy[ii, jj] for ii in (i-1):i, jj in (j-1):(j+1))
-                Dc = @inline SMatrix{1,2}(@inbounds 𝐷.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                Dv = @inline SMatrix{2,1}(@inbounds 𝐷.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
-                bcv_loc = (x=bcx_loc, y=bcy_loc)
-                type_loc = (x=typex_loc, y=typey_loc)
-                G_loc = (c=Gc_loc, v=Gv_loc)
-                D = (c=Dc, v=Dv)
-                τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
+            ∂R∂Vx = ad_gradient(x -> SMomentum_y_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(x -> SMomentum_y_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(x -> SMomentum_y_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), P_loc)
 
-                ∂R∂Vx = gradient(x -> SMomentum_y_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
-                ∂R∂Vy = gradient(x -> SMomentum_y_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
-                ∂R∂Pt = gradient(x -> SMomentum_y_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
-
-
-                num_Vy = @inbounds num.Vy[i, j]
-                bounds_Vy = num_Vy > 0
-                # Vy --- Vx
-                Local1 = SMatrix{4,4}(num.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2)) .* pattern[2][1]
-                # for jj in axes(Local1,2), ii in axes(Local1,1)
-                #     if (Local1[ii,jj]>0) && bounds_Vy
-                #         @inbounds K21[num_Vy, Local1[ii,jj]] = ∂R∂Vx[ii,jj] 
-                #     end
-                # end
-                # Vy --- Vy
-                Local2 = SMatrix{3,3}(num.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[2][2]
-                # for jj in axes(Local2,2), ii in axes(Local2,1)
-                #     if (Local2[ii,jj]>0) && bounds_Vy
-                #         @inbounds K22[num_Vy, Local2[ii,jj]] = ∂R∂Vy[ii,jj]  
-                #     end
-                # end
-                # Vy --- Pt
-                Local3 = SMatrix{3,2}(num.Pt[ii, jj] for ii in (i-2):i, jj in (j-1):j) .* pattern[2][3]
-                # for jj in axes(Local3,2), ii in axes(Local3,1)
-                #     if (Local3[ii,jj]>0) && bounds_Vy
-                #         @inbounds K23[num_Vy, Local3[ii,jj]] = ∂R∂Pt[ii,jj]  
-                #     end
-                # end 
-
-                Base.@nexprs 4 jj -> begin
-                    Base.@nexprs 4 ii -> begin
-                        bounds_Vy && (Local1[ii, jj] > 0) &&
-                            (@inbounds K21[num_Vy, Local1[ii, jj]] = ∂R∂Vx[ii, jj])
-
-                        bounds_Vy && ii < 4 && jj < 4 && (Local2[ii, jj] > 0) &&
-                            (@inbounds K22[num_Vy, Local2[ii, jj]] = ∂R∂Vy[ii, jj])
-
-                        bounds_Vy && ii < 4 && jj < 3 && (Local3[ii, jj] > 0) &&
-                            (@inbounds K23[num_Vy, Local3[ii, jj]] = ∂R∂Pt[ii, jj])
-                    end
-                end
+            Kt = _target(K, tid)
+            # Vy --- Vx
+            Local = SMatrix{4,4}(num.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2)) .* pattern[2][1]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
+            end
+            # Vy --- Vy
+            Local = SMatrix{3,3}(num.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[2][2]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
+            end
+            # Vy --- Pt
+            Local = SMatrix{3,2}(num.Pt[ii, jj] for ii in (i-2):i, jj in (j-1):j) .* pattern[2][3]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][3][row, Local[ii, jj]] = ∂R∂Pt[ii, jj])
             end
         end
     end
@@ -631,8 +609,12 @@ end
 
 function AssembleContinuity2D!(K, V, P, Pt0, ΔP, τ0, 𝐷, β, ξ, materials, num, pattern, type, BC, nc, Δ)
 
-    for j in 2:(size(P, 2)-1)
-        for i in 2:(size(P, 1)-1)
+    assembly_loop(K, 2:(size(P, 2)-1)) do j, tid
+        @inbounds for i in 2:(size(P, 1)-1)
+
+            row = num.Pt[i, j]
+            row > 0 || continue
+
             Vx_loc = SMatrix{2,3}(V.x[ii, jj] for ii in i:(i+1), jj in j:(j+2))
             Vy_loc = SMatrix{3,2}(V.y[ii, jj] for ii in i:(i+2), jj in j:(j+1))
             P_loc = SMatrix{1,1}(P[ii, jj] for ii in i:i, jj in j:j)
@@ -641,25 +623,20 @@ function AssembleContinuity2D!(K, V, P, Pt0, ΔP, τ0, 𝐷, β, ξ, materials, 
             D = (;)
 
             ∂R∂Vx, ∂R∂Vy, ∂R∂P = ad_partial_gradients(Continuity, (Vx_loc, Vy_loc, P_loc), Pt0[i, j], D, β.c[i, j], ξ.c[i, j], materials, type_loc, bcv_loc, Δ)
+
+            Kt = _target(K, tid)
             # Pt --- Vx
-            Local = SMatrix{2,3}(num.Vx[ii, jj] for ii in i:(i+1), jj in j:(j+2))# .* pattern[3][1]        
+            Local = SMatrix{2,3}(num.Vx[ii, jj] for ii in i:(i+1), jj in j:(j+2))
             for jj in axes(Local, 2), ii in axes(Local, 1)
-                if Local[ii, jj] > 0 && num.Pt[i, j] > 0
-                    K[3][1][num.Pt[i, j], Local[ii, jj]] = ∂R∂Vx[ii, jj]
-                end
+                Local[ii, jj] > 0 && (Kt[3][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
             end
             # Pt --- Vy
-            Local = SMatrix{3,2}(num.Vy[ii, jj] for ii in i:(i+2), jj in j:(j+1)) #.* pattern[3][2]
+            Local = SMatrix{3,2}(num.Vy[ii, jj] for ii in i:(i+2), jj in j:(j+1))
             for jj in axes(Local, 2), ii in axes(Local, 1)
-                if Local[ii, jj] > 0 && num.Pt[i, j] > 0
-                    K[3][2][num.Pt[i, j], Local[ii, jj]] = ∂R∂Vy[ii, jj]
-                end
+                Local[ii, jj] > 0 && (Kt[3][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
             end
-
             # Pt --- Pt
-            if num.Pt[i, j] > 0
-                K[3][3][num.Pt[i, j], num.Pt[i, j]] = ∂R∂P[1, 1]
-            end
+            Kt[3][3][row, row] = ∂R∂P[1, 1]
         end
     end
     return nothing
@@ -978,6 +955,47 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
     V.y .= Vi.y
     Pt .= Pti
     return imin
+end
+
+# Backtracking line search (same strategy as the two-phase one): α = α0, α0ρ_LS, α0ρ_LS², ... and accept the
+# first α that reduces the residual. R must hold the residual of the current solution on entry.
+# Returns (α, success); the solution (V, Pt) is left unchanged, as in LineSearch!
+function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ;
+    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing)
+
+    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
+
+    # Same merit function as LineSearch!
+    merit() = @views norm(R.x[inx_Vx, iny_Vx]) / length(R.x[inx_Vx, iny_Vx]) + norm(R.y[inx_Vy, iny_Vy]) / length(R.y[inx_Vy, iny_Vy])
+
+    ϕ0 = merit()
+    Vi.x .= V.x
+    Vi.y .= V.y
+    Pti .= Pt
+
+    α, success = α0, false
+    for _ in 1:maxiter
+        V.x .= Vi.x
+        V.y .= Vi.y
+        Pt .= Pti
+        UpdateSolution!(V, Pt, α .* dx, number, type, nc)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T)
+        ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
+        if merit() < ϕ0
+            success = true
+            break
+        end
+        α *= ρ_LS
+        α < αmin && break
+    end
+    success || (α = αmin)
+
+    V.x .= Vi.x
+    V.y .= Vi.y
+    Pt .= Pti
+    return α, success
 end
 
 # T: optional temperature field (c, v) [K] for temperature-dependent creep

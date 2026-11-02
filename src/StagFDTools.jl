@@ -17,7 +17,7 @@ include("Utils.jl")
 export GenerateGrid, printxy, av2D, Plot_Tangent_Operator
 
 include("Solvers.jl")
-export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt!
+export DecoupledSolver, KSP_GCR_Stokes!, StokesGCRCache, setup_gcr!, update_preconditioner!, update_operator!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt!
 
 include("BCs.jl")
 export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
@@ -50,6 +50,7 @@ using TimerOutputs, Printf
 using JustPIC
 using CellArraysIndexing: @index
 import CellArraysIndexing as CAI
+include("StokesAssembly.jl")
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
@@ -68,6 +69,7 @@ export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
     stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")
 export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!
+export assemble_jacobian!, set_block_matrices!
 export compute_vorticity!
 end
 module StokesDeformed
