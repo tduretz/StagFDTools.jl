@@ -90,7 +90,7 @@ function constitutive_increments!(allocs::Allocs)
     allocs.D.τxx .= allocs.τ.xx .- allocs.τ0.xx
     allocs.D.τyy .= allocs.τ.yy .- allocs.τ0.yy
     allocs.D.τxy .= allocs.τ.xy .- allocs.τ0.xy
-    allocs.D.Pt .= allocs.ΔPt.c
+    allocs.D.Pt .= allocs.Pt .- allocs.Pt0 # full increment (elastic + plastic): ΔPt.c alone is only the plastic correction, the markers would lose the elastic pressure change
 end
 
 # update stress in the markers from increments

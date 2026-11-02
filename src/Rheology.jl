@@ -275,9 +275,71 @@ function TensileReturnMapping(τII, P, ηve, comp, β, Δt, σT, ηvp)
     return τII, P, λ̇
 end
 
+# Drucker-Prager with tension cap: same yield function and flow potential as DruckerPragerCap in the two-phase
+# routines (mode 2: Drucker-Prager line, mode 1: circle tangent to it and passing through the tensile strength Pt)
+function yield_Cap(τ, P, p)
+    (; k, c, py, Ry, pd, τd, a, Pt) = p
+    if τ * (py - pd) >= τd * (py - P)
+        return τ - k * P - c # mode 2
+    else
+        # mode 1: a(Rf - Ry) written as a(Rf² - Ry²)/(Rf + Ry), no cancellation when C (and py, Ry) is huge
+        Rf = sqrt(τ^2 + (P - py)^2)
+        return a * (τ^2 + (P - Pt) * (P + Pt - 2py)) / (Rf + Ry)
+    end
+end
+
+# Derivatives of the flow potential (∂Q/∂τ, ∂Q/∂P)
+function ∂Q_Cap(τ, P, p)
+    (; kq, b, pq, pd, τd) = p
+    if τ * (pq - pd) >= τd * (pq - P)
+        return one(τ), -kq # mode 2
+    else
+        Rq = sqrt(τ^2 + (P - pq)^2) # mode 1
+        return b * τ / Rq, b * (P - pq) / Rq
+    end
+end
+
+function CapResidual(x, τ_trial, P_trial, ηve, KΔt, p)
+    τ, P, λ̇ = x[1], x[2], x[3]
+    ∂Q∂τ, ∂Q∂P = ∂Q_Cap(τ, P, p)
+    return SVector(τ - τ_trial + ηve * λ̇ * ∂Q∂τ,
+                   P - P_trial + KΔt * λ̇ * ∂Q∂P,
+                   yield_Cap(τ, P, p) - λ̇ * p.ηvp)
+end
+
+# Local Newton on (τII, P, λ̇), converged to machine precision so that the global Newton is not polluted.
+# Backtracking line search on |R|: full Newton steps can cycle between the cap and the Drucker-Prager branches
+# (e.g. trial stress far in tension)
+function CapReturnMapping(τII, P, ηve, comp, β, Δt, p; α_min=1e-8)
+    yield_Cap(τII, P, p) <= 0 && return τII, P, zero(τII)
+    KΔt = comp * Δt / β
+    x   = SVector(τII, P, zero(τII))
+    tol = 1e-13 * (abs(τII) + abs(P)) + 1e-30
+    for _ in 1:100
+        R, J = fd_value_and_jacobian(CapResidual, x, τII, P, ηve, KΔt, p)
+        maximum(abs, R) < tol && return x[1], x[2], x[3]
+        δx  = -J \ R
+        nR  = sum(abs2, R)
+        α   = one(nR)
+        while α > α_min
+            sum(abs2, CapResidual(x + α * δx, τII, P, ηve, KΔt, p)) < (1 - 1e-4 * α) * nR && break # sufficient decrease
+            α /= 2
+        end
+        x = x + α * δx
+    end
+    R = CapResidual(x, τII, P, ηve, KΔt, p)
+    maximum(abs, R) < 1e3 * tol || error("Failed cap return mapping: τII = $τII, P = $P, R = $R")
+    return x[1], x[2], x[3]
+end
 
 # Return mapping --------------------------------------------
 return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
+
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases)
+    p = (k=pl.k[phases], kq=pl.kq[phases], c=pl.c[phases], a=pl.a[phases], b=pl.b[phases], py=pl.py[phases], Ry=pl.Ry[phases],
+         pd=pl.pd[phases], τd=pl.τd[phases], pq=pl.pq[phases], Pt=pl.Pt[phases], ηvp=pl.ηvp[phases])
+    return CapReturnMapping(τII, P, ηvep, comp, β, Δt, p)
+end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
     return AnalyticalReturnMapping(τII, P, ηvep, comp, β, Δt,

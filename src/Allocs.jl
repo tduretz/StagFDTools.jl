@@ -43,6 +43,7 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT
     phases::PHNT
     phase_ratios::PRNT
     X::G
+    gcr::StokesGCRCache # single-phase GCR solver storage (solver_type = :GCR)
 end
 struct Markers{P,G,X,PA,PR} <: AbstractAdvection
     particles::P
@@ -182,10 +183,11 @@ function allocate(nc, config, x, y, Δ, nphases)
 end
 
 function allocate_matrices(nVx, nVy, nPt)
+    # Plain CSC blocks: the sparsity pattern is set on the first assembly, see assemble_jacobian!
     M = Fields(
-        Fields(ExtendableSparseMatrix(nVx, nVx), ExtendableSparseMatrix(nVx, nVy), ExtendableSparseMatrix(nVx, nPt)),
-        Fields(ExtendableSparseMatrix(nVy, nVx), ExtendableSparseMatrix(nVy, nVy), ExtendableSparseMatrix(nVy, nPt)),
-        Fields(ExtendableSparseMatrix(nPt, nVx), ExtendableSparseMatrix(nPt, nVy), ExtendableSparseMatrix(nPt, nPt))
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt)),
+        Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt))
     )
     𝐊 = ExtendableSparseMatrix(nVx + nVy, nVx + nVy)
     𝐐 = ExtendableSparseMatrix(nVx + nVy, nPt)
@@ -207,5 +209,5 @@ function Allocs(nc, config, x, y, Δ, nphases)
 
     return Allocs(type, number, pattern,
         M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X)
+        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X, StokesGCRCache())
 end

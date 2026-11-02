@@ -1,10 +1,18 @@
 /.vscode
 /Manifest.toml
-/examples/.DS_Store
 .DS_Store
 *.jld2
 *.jl2d
-/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/compression/*.png
-/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/extension/*.png
-/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/compression/*.gif
-/examples/_Stokes_VEP_SSG/ShearBanding_Duretz2020/extension/*.gif
+
+# Figures, animations and movies: only those used by the README (results/, and the root folder) are tracked
+*.png
+*.gif
+*.mp4
+*.pdf
+!/*.png
+!/*.gif
+!/*.mp4
+!/results/*.png
+!/results/*.gif
+!/results/*.mp4
+!/results/*.pdf
