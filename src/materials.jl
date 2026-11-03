@@ -9,6 +9,7 @@ Base.@kwdef struct IterParams
     γ::Float64          = 1e5
     ϵ_l::Float64        = 1e-11
     ϵ_nl::Float64       = 1e-8
+    ϵ_nl_last::Float64  = 1e-5                  # last resort: after niter iterations, accept the step (with a warning) if abs. res. < ϵ_nl_last
     niter_KSP::Int64    = 1000                  # max. number of KSP iterations per linear solve (solver_type = :GCR)
     inexact::Bool       = false
     solver_type::Symbol = :PH
@@ -17,6 +18,11 @@ Base.@kwdef struct IterParams
     Pic2Newt::Float64   = Inf                   # Picard until ϵ/ϵ0 < Pic2Newt, then Newton (> 1: Newton only)
     α_Picard::Float64   = 3.0                   # first trial step of the backtracking for Picard iterations
     PC_refresh::Symbol  = :step                 # solver_type = :GCR: Picard preconditioner assembled and factorised once per time step (:step) or at each Newton iteration (:iteration); always at Picard iterations
+    Δt_red_fac::Float64 = 2.0                   # adaptive time stepping: a failed step is restarted with Δt/Δt_red_fac...
+    ntry::Int64         = 4                     # ...at most ntry times
+    Δt_inc_fac::Float64 = 1.25                  # after a successful step, Δt is multiplied by Δt_inc_fac
+    nt_max::Int64       = typemax(Int64)        # the run stops after nt_max steps...
+    time_max::Float64   = Inf                   # ...or at time_max (same units as Δ.t), whichever comes first
 end
 Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     C::T    = Float64[]

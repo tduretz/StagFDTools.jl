@@ -1,15 +1,23 @@
 # Apparent friction vs axial shortening for all <prefix>_Tet*_H* runs, read from the last step_XXXX.jld2 of each run.
 # (a) apparatus friction vs shortening, colour = gouge angle θ (one-hue ramp, light = small θ), line style = gouge thickness
-# (b) friction at the end of the runs (mean over the last 20% of the steps) vs θ
+# (b) friction at the end of the runs (mean over the last 20% of the axial shortening) vs θ
 # All text is typeset with LaTeX fonts.
 using CairoMakie, JLD2, Statistics
 
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
+# Mean of a probe v over the last fraction `tail` of the run time t (= of the axial shortening), each step weighted by its Δt
+# (adaptive time stepping: a plain mean over steps would favour the periods with small Δt); NaN entries are skipped
+function tail_mean(v, t, tail)
+    Δt = diff([0.0; t])
+    w  = (t .>= (1 - tail) * t[end]) .& .!isnan.(v)
+    return sum(v[w] .* Δt[w]) / sum(Δt[w])
+end
+
 let
     root   = dirname(@__DIR__) # run folders are next to postprocessing/
     prefix = "ShearApparatus_v9"
-    tail   = 0.2   # fraction of the steps used for the end-of-run friction
+    tail   = 0.2   # fraction of the axial shortening used for the end-of-run friction
 
     folders = filter(d -> isdir(d) && occursin(Regex("^$(prefix)_Tet\\d+_H\\d+\$"), basename(d)), readdir(root, join=true))
     runs    = map(folders) do folder
@@ -18,13 +26,13 @@ let
         d     = load_step(joinpath(folder, last(sort(steps))))
         it    = d.it
         p     = d.probes
-        tail_ = max(1, round(Int, (1 - tail) * it)):it
+        t     = p.t[1:it]
         (; θ=parse(Int, m[1]), h=parse(Int, m[2]), it,
-           δ       = p.t[1:it] * d.ε̇yy * d.Ly * d.sc.L * 1e3,     # axial shortening [mm]
+           δ       = t * d.ε̇yy * d.Ly * d.sc.L * 1e3,            # axial shortening [mm]
            μ_app   = p.app_fric_lab[1:it],                       # apparatus (lab) apparent friction
-           μ_end   = mean(p.app_fric_lab[tail_]),
-           μg_end  = mean(p.app_fric[tail_]),                    # gouge-mean apparent friction
-           μ_true  = mean(filter(!isnan, p.true_fric[1:it])))    # gouge material friction (plastic points)
+           μ_end   = tail_mean(p.app_fric_lab[1:it], t, tail),
+           μg_end  = tail_mean(p.app_fric[1:it], t, tail),       # gouge-mean apparent friction
+           μ_true  = tail_mean(p.true_fric[1:it], t, 1.0))       # gouge material friction (plastic points), whole run
     end
     sort!(runs, by=r -> (r.h, r.θ))
     θs, hs = sort(unique(r.θ for r in runs)), sort(unique(r.h for r in runs))
@@ -68,7 +76,7 @@ let
         end
 
         # (b) end-of-run friction vs θ
-        ax2 = Axis(fig[1, 3]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mu\ \mathrm{(last\ %$(round(Int, 100tail))\%\ of\ steps)}",
+        ax2 = Axis(fig[1, 3]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mu\ \mathrm{(last\ %$(round(Int, 100tail))\%\ of\ shortening)}",
                    title=L"\mathrm{(b)\ Friction\ at\ the\ end\ of\ the\ runs}", titlealign=:left, xticks=10:10:90, axkw...)
         # Rock yields for large gouge angles: shaded background, fading in between θ_yield[1] and θ_yield[2]
         xr = (θs[1] - 4, θs[end] + 4)
