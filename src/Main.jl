@@ -153,8 +153,11 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
         end
     end
 
-    # Stop instead of carrying on with an unconverged (or NaN) solution
-    ϵ < iter_params.ϵ_nl || error(@sprintf("Time step %04d: Newton did not converge in %d iterations (abs. res. = %.2e > ϵ_nl = %.2e)", it, iter, ϵ, iter_params.ϵ_nl))
+    # Stop instead of carrying on with an unconverged (or NaN) solution, unless below the last resort tolerance
+    if !(ϵ < iter_params.ϵ_nl)
+        ϵ < iter_params.ϵ_nl_last || error(@sprintf("Time step %04d: Newton did not converge in %d iterations (abs. res. = %.2e > ϵ_nl_last = %.2e)", it, iter, ϵ, iter_params.ϵ_nl_last))
+        @printf("Time step %04d: WARNING, not converged in %d iterations, accepted with abs. res. = %.2e < ϵ_nl_last = %.2e\n", it, iter, ϵ, iter_params.ϵ_nl_last)
+    end
 
     a.Pt .+= a.ΔPt.c
 

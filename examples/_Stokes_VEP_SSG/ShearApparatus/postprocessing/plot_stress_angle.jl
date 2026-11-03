@@ -3,16 +3,24 @@
 # θ is the angle of σ1 from the x axis (τ.θ). The gouge plane is at 90° + θgouge from the x axis, so the angle between σ1 and the gouge
 # plane is β = 90° + θgouge - θ (the loading axis, y, is at β = θgouge).
 # (a) β vs axial shortening, one small panel per run: mean (line) and min-max range (shaded), colour = gouge angle θgouge (same ramp as plot_friction.jl)
-# (b) β and the σ1 angle from the loading axis at the end of the runs (mean over the last 20% of the steps) vs θgouge
+# (b) β and the σ1 angle from the loading axis at the end of the runs (mean over the last 20% of the axial shortening) vs θgouge
 # All text is typeset with LaTeX fonts.
 using CairoMakie, JLD2, Statistics
 
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
+# Mean of a probe v over the last fraction `tail` of the run time t (= of the axial shortening), each step weighted by its Δt
+# (adaptive time stepping: a plain mean over steps would favour the periods with small Δt); NaN entries are skipped
+function tail_mean(v, t, tail)
+    Δt = diff([0.0; t])
+    w  = (t .>= (1 - tail) * t[end]) .& .!isnan.(v)
+    return sum(v[w] .* Δt[w]) / sum(Δt[w])
+end
+
 let
     root   = dirname(@__DIR__) # run folders are next to postprocessing/
     prefix = "ShearApparatus_v9"
-    tail   = 0.2   # fraction of the steps used for the end-of-run values
+    tail   = 0.2   # fraction of the axial shortening used for the end-of-run values
 
     folders = filter(d -> isdir(d) && occursin(Regex("^$(prefix)_Tet\\d+_H\\d+\$"), basename(d)), readdir(root, join=true))
     runs    = map(folders) do folder
@@ -23,11 +31,11 @@ let
         p     = d.probes
         θg    = parse(Int, m[1])
         β(θ)  = 90 + θg .- rad2deg.(θ[1:it])                       # angle between σ1 and the gouge plane [°]
-        tail_ = max(1, round(Int, (1 - tail) * it)):it
+        t     = p.t[1:it]
         (; θ=θg, h=parse(Int, m[2]), it,
-           δ     = p.t[1:it] * d.ε̇yy * d.Ly * d.sc.L * 1e3,        # axial shortening [mm]
+           δ     = t * d.ε̇yy * d.Ly * d.sc.L * 1e3,                # axial shortening [mm]
            β     = β(p.meanθ), βmin = β(p.maxθ), βmax = β(p.minθ),
-           β_end = mean(β(p.meanθ)[tail_]), βmin_end = mean(β(p.maxθ)[tail_]), βmax_end = mean(β(p.minθ)[tail_]))
+           β_end = tail_mean(β(p.meanθ), t, tail), βmin_end = tail_mean(β(p.maxθ), t, tail), βmax_end = tail_mean(β(p.minθ), t, tail))
     end
     sort!(runs, by=r -> (r.h, r.θ))
     θs, hs = sort(unique(r.θ for r in runs)), sort(unique(r.h for r in runs))
@@ -71,7 +79,7 @@ let
         colgap!(ga, 6); rowgap!(ga, 6)
 
         # (b) end-of-run angles vs θgouge
-        ax2 = Axis(fig[1, 2]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mathrm{Angle\ (last\ %$(round(Int, 100tail))\%\ of\ steps)}\ [^\circ]",
+        ax2 = Axis(fig[1, 2]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mathrm{Angle\ (last\ %$(round(Int, 100tail))\%\ of\ shortening)}\ [^\circ]",
                    title=L"\mathrm{(b)\ Angles\ at\ the\ end\ of\ the\ runs}", titlealign=:left, xticks=10:10:90, axkw...)
         # Rock yields for large gouge angles: shaded background, fading in between θ_yield[1] and θ_yield[2]
         xr = (θs[1] - 4, θs[end] + 4)

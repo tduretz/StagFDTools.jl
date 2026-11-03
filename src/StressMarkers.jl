@@ -66,15 +66,15 @@ function upper_convected!(tm::TensorMarkers, particles, dt)
                 Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
                 ΔP   = @inbounds @index tm.Δ.P[ip, I...]
                 tmp   = 2 * τ_xy * ω_xy
-                # Full velocity gradient correction
+                # Full velocity gradient correction: L⋅τ + τ⋅Lᵀ with L = ε̇ + ε̇_kk/3 I + W (ε̇ deviatoric)
                 ε̇_zz = -(ε̇_xx + ε̇_yy)
                 τ_zz = -(τ_xx + τ_yy)
                 ε̇_kk = 3*(ε̇_xx + ε̇_yy)
-                # trace correction
-                tr = 2(ε̇_xx*τ_xx + ε̇_yy*τ_yy + ε̇_zz*τ_zz + ε̇_xy*τ_xy)/3
-                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3)), Δτxx)
-                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3)), Δτyy)
-                @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy)), Δτxy)
+                # trace correction: mean of the convective term, 2/3 ε̇:τ, removed from the deviator and added to the mean stress (-P)
+                tr = 2(ε̇_xx*τ_xx + ε̇_yy*τ_yy + ε̇_zz*τ_zz + 2ε̇_xy*τ_xy)/3
+                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3*τ_xx) - tr), Δτxx)
+                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3*τ_yy) - tr), Δτyy)
+                @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy) + 2ε̇_kk/3*τ_xy), Δτxy)
                 @inbounds @index tm.Δ.P[ip, I...]   = muladd(-dt, tr, ΔP)
             end
         end
@@ -148,12 +148,14 @@ function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles,
 
                 η = @inbounds @index tm.t.η[ip, I...]
                 G = @inbounds @index tm.t.G[ip, I...]
-                Δt_mxw = η / G
+                # Maxwell time of the viscous(-plastic) part only: η is the effective viscosity ηvep, which contains the elastic 1/(GΔt);
+                # with η/G the diffusion would be ≥ 1 - 1/e at each step whatever Δt (i.e. its rate per unit time would scale with 1/Δt)
+                inv_ηM = max(inv(η) - inv(G * Δt), 0.0)
                   # ξ = @inbounds @index tm.t.ξ[ip, I...]
                   # K = @inbounds @index tm.t.K[ip, I...]
                   # Δt_P = comp * ξ/K
 
-                diff = -expm1(dΔt / Δt_mxw)
+                diff = -expm1(dΔt * G * inv_ηM) # = 1 - exp(-d Δt / Δt_mxw), Δt_mxw = η_M / G
                 @inbounds @index tm.Δ_sub.τxx[ip, I...] = (nτ0_xx - τ0_xx)*diff
                 @inbounds @index tm.Δ_sub.τyy[ip, I...] = (nτ0_yy - τ0_yy)*diff
                 @inbounds @index tm.Δ_sub.τxy[ip, I...] = (nτ0_xy - τ0_xy)*diff

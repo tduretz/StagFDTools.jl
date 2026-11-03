@@ -66,7 +66,7 @@ function plot_shear_apparatus(d)
     it, sc, pl = d.it, d.sc, d.plasticity
     return with_theme(theme_latexfonts()) do
         ftsz = 25
-        fig = Figure(size=(1000, 1000))
+        fig = Figure(size=(1000, 1000)) # (1000, 1150) with the Δt panel
         empty!(fig)
         # Probe colors: shared by the markers on the heatmap and the local metrics they measure
         c_salt, c_plate, c_MC1, c_MC2, c_app, c_sub = :gold, :magenta, :cyan, :limegreen, :darkorange, :gray
@@ -217,9 +217,10 @@ function plot_shear_apparatus(d)
         # scatter!(ax, d.probes.t[1:it]*sc.t/3600, d.probes.τIIN[1:it]*sc.σ./1e6, marker=:diamond, markersize=20 )
 
         ax = Axis(fig[0, 2], xlabel="Axial shortening", ylabel="-τ/σ", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
+        lines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, ones(it)*0.8, linestyle=:dash, color=:gray, label=L"$0.8$")
         lines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, ones(it)*tand(pl.ϕ[2]), linestyle=:dash, color=:gray, label=L"$\tan\phi$")
         scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric[1:it], color=:black, label="apparent (gouge mean)")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric_lab[1:it], marker=:rect, color=c_app, label="apparent (apparatus)")
+        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric_lab[1:it], marker=:rect, color=c_app, label=@sprintf("apparent (apparatus) = %.4f", d.probes.app_fric_lab[it]))
         scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric_lab_grid[1:it], marker=:circle, markersize=5, color=:gray50, label="apparent (apparatus, fixed cells)")
         scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.true_fric[1:it], marker=:utriangle, color=:black, label="true (centre)") #, markersize=20  
         tanα = cosd(pl.ψ[2])*sind(pl.ϕ[2]) / (1 - sind(pl.ψ[2])*sind(pl.ϕ[2]))
@@ -228,6 +229,7 @@ function plot_shear_apparatus(d)
         has_plates && scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_plate.σxy[1:it] ./ d.probe_plate.σyy[1:it], marker=:star5, color=c_plate, label="plate")
         scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_MC1.σxy[1:it] ./ d.probe_MC1.σyy[1:it], marker=:xcross, color=c_MC1, label="probe 1 (rock)")
         scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_MC2.σxy[1:it] ./ d.probe_MC2.σyy[1:it], marker=:xcross, color=c_MC2, label="probe 2 (gouge)")
+        ax.title = @sprintf("apparatus: -τ/σ = %.4f", d.probes.app_fric_lab[it])
         Legend(fig[0, 3], ax, framevisible=false, labelsize=12, rowgap=0, halign=:left)
 
         ax = Axis(fig[1, 2], xlabel="time [hrs]", ylabel="σ1 angle gouge", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
@@ -235,6 +237,13 @@ function plot_shear_apparatus(d)
         scatter!(ax, d.probes.t[1:it]*sc.t/3600, d.probes.meanθ[1:it]*180/π, marker=:circle, color=c_sub, label="mean")
         scatter!(ax, d.probes.t[1:it]*sc.t/3600, d.probes.maxθ[1:it]*180/π, marker=:utriangle, color=c_sub, label="max")
         Legend(fig[1, 3], ax, framevisible=false, labelsize=12, halign=:left)
+
+        # Time step history (steps saved by v8 have no Δt)
+        # if hasproperty(d.probes, :Δt)
+        #     ax = Axis(fig[4, 1:2], xlabel="Axial shortening", ylabel="Δt [s]", yscale=log10, height=120, xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz,
+        #               title=@sprintf("Δt = %.3g s", d.probes.Δt[it]*sc.t))
+        #     scatterlines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.Δt[1:it]*sc.t, color=:black, markersize=4)
+        # end
 
         colsize!(fig.layout, 3, Auto(0.3))
         return fig
@@ -257,6 +266,7 @@ function restore_state!(dst, src)
 end
 
 # niter: max. number of nonlinear (Picard + Newton) iterations per step
+# ϵ_nl_last: last resort tolerance: if not converged (abs. res. > ϵ_nl) after niter iterations, the step is still accepted (with a warning) if abs. res. < ϵ_nl_last, otherwise the run stops
 # Pic2Newt: Picard iterations until the relative residual drops below Pic2Newt, then Newton (Inf: Newton only)
 # niter_KSP: max. number of KSP (GCR) iterations per linear solve
 # line_search: :backtracking (first α reducing the residual) or :grid (best of 6 α in [0.05, 1])
@@ -265,7 +275,11 @@ end
 # plates: true: steel plates at top/bottom, Vx prescribed there (sample bonded to the pistons, v8);
 #         false: the sample sits on the top/bottom boundaries with τxy = 0 (perfectly lubricated pistons, it can slide laterally),
 #         the axial stress is the mean σyy over the sample along the top/bottom boundaries (load cell)
-@views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false)
+# Adaptive time stepping: if a step fails, it is restarted from the start of the step with Δt/Δt_red_fac, at most ntry times (then the run stops);
+#         after a successful step, Δt is multiplied by Δt_inc_fac, up to Δt_max (nothing: Δt0). Δt is also limited by the CFL condition
+# nt, time_max: the run stops after nt steps or at time_max [s], whichever comes first (time_max = Inf: nt steps)
+@views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false, ϵ_nl_last=1e-5,
+                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf)
     #--------------------------------------------#
 
     # Scaling
@@ -281,6 +295,7 @@ end
     t_salt_y  = 0.0                          # horizontal salt layers between the plates and the sample (plates = true only, 0: none)
     hgouge    = hgouge/sc.L
     Δt0       = Δt0/sc.t
+    Δt_max    = (Δt_max === nothing ? Δt0*sc.t : Δt_max)/sc.t
     L         = (x=width, y=height)
     θgouge    = (θgouge) / 180*π
     ε̇yy       = 1.31e-6*sc.t
@@ -311,10 +326,10 @@ end
     materials.G              .= [3e10,  1e9,    1e60,   1e12]  ./ sc.σ                                             # Shear modulus
     materials.β              .= [1e-11, 1e-10,  1e-12,  1e-12] .* sc.σ                                        # Compressibility
     materials.plasticity.C   .= [45e6,  0.67e6, 15e60,  15e60] ./ sc.σ                                        # Cohesion
-    materials.plasticity.ϕ   .= [31.,   30.5,   35.,    35.]                                                       # Friction angle
-    materials.plasticity.ψ   .= [0.0,   0.0,    0.0,    0.0]                                                        # Dilation angle
+    materials.plasticity.ϕ   .= [36.13, 36.13,   36.13,  36.13]                                                       # Friction angle
+    materials.plasticity.ψ   .= [0.0,   15.0,    0.0,    0.0]                                                        # Dilation angle
     materials.plasticity.Pt  .= [-10e6, -0.5e6, -1e60,  -1e60] ./ sc.σ                                         # Tensile strength (DruckerPragerCap), must be > -C/tanϕ
-    materials.plasticity.ηvp .= [1e10,  5e8,    5e11,   5e11] .* 10/sc.σ ./ sc.t                                   # Viscoplastic regularisation
+    materials.plasticity.ηvp .= [1e10,  1e8,    5e11,   5e11] .* 10/sc.σ ./ sc.t                                   # Viscoplastic regularisation
       # materials.plasticity.soft .= [0.0, 0.0, 0.0, 0.0]             # softening ?
     #                            rock   gouge   salt    plates
     preprocess!(materials)
@@ -324,7 +339,9 @@ end
 
     # Solver parameters
     # Pic2Newt = 1e10   # more than 1.0 - always Newton
-    iter_params = IterParams(niter=niter, ϵ_nl=1e-8, solver_type=:GCR, Pic2Newt=Pic2Newt, line_search=line_search, niter_KSP=niter_KSP)
+    iter_params = IterParams(niter=niter, ϵ_nl=1e-8, ϵ_nl_last=ϵ_nl_last, solver_type=:GCR, Pic2Newt=Pic2Newt, line_search=line_search, niter_KSP=niter_KSP,
+                             Δt_red_fac=Δt_red_fac, Δt_inc_fac=Δt_inc_fac, ntry=ntry,
+                             nt_max=nt, time_max=time_max/sc.t)
 
     # Discretisation
     Δ = (x=L.x/nc.x, y=L.y/nc.y, t=Δt0)
@@ -420,7 +437,7 @@ end
     ΔCc = materials.plasticity.C[1]/5 .* rand(size(C.c)...)
     ΔCv = materials.plasticity.C[1]/5 .* rand(size(C.v)...)
 
-    a.Pt .= Pbg #*rand(size(Pt)...)
+    a.Pt  .= Pbg #*rand(size(Pt)...)
     a.Pt0 .= a.Pt
     centroid2particle!(tm.p.P, a.Pt, particles) # markers carry the pressure from step to step (Pt0): start from the initial pressure
     a.Pti .= a.Pt
@@ -429,7 +446,7 @@ end
 
     rvec        = zeros(length(iter_params.α))
     err         = (x=zeros(iter_params.niter), y=zeros(iter_params.niter), p=zeros(iter_params.niter))
-    probes      = (τII=zeros(nt), τIIW=zeros(nt), τIIE=zeros(nt), τIIS=zeros(nt), τIIN=zeros(nt), true_fric=zeros(nt), app_fric=zeros(nt), app_fric_lab=zeros(nt), t=zeros(nt), εxx=zeros(nt), εyy=zeros(nt), σyyN=zeros(nt), σyyS=zeros(nt), σxxW=zeros(nt), σxxE=zeros(nt), PW=zeros(nt), PE=zeros(nt), minθ=zeros(nt), maxθ=zeros(nt), meanθ=zeros(nt),
+    probes      = (Δt=zeros(nt), τII=zeros(nt),τIIW=zeros(nt), τIIE=zeros(nt), τIIS=zeros(nt), τIIN=zeros(nt), true_fric=zeros(nt), app_fric=zeros(nt), app_fric_lab=zeros(nt), t=zeros(nt), εxx=zeros(nt), εyy=zeros(nt), σyyN=zeros(nt), σyyS=zeros(nt), σxxW=zeros(nt), σxxE=zeros(nt), PW=zeros(nt), PE=zeros(nt), minθ=zeros(nt), maxθ=zeros(nt), meanθ=zeros(nt),
                    σxx_salt_grid=zeros(nt), σyy_plate_grid=zeros(nt), P_salt_grid=zeros(nt), app_fric_lab_grid=zeros(nt)) # *_grid: old (v7) way, fixed cells
     probe_salt  = (σxx=zeros(nt), σyy=zeros(nt), σzz=zeros(nt), σxy=zeros(nt), τII=zeros(nt), P=zeros(nt), x=zeros(nt), y=zeros(nt))
     probe_plate = (σxx=zeros(nt), σyy=zeros(nt), σzz=zeros(nt), σxy=zeros(nt), τII=zeros(nt), P=zeros(nt), x=zeros(nt), y=zeros(nt))
@@ -453,26 +470,46 @@ end
     )
     checkpoint_dir  = outdir === nothing ? (@__DIR__) : outdir
     checkpoint_file(it) = joinpath(checkpoint_dir, @sprintf("checkpoint_%04d.jld2", it))
+    Δt       = Δt0                  # current time step (adaptive)
     if restart > 0
         restore_state!(state, load(checkpoint_file(restart), "state"))
         time = load(checkpoint_file(restart), "time")
+        Δt   = jldopen(f -> haskey(f, "Δt") ? f["Δt"] : Δt0, checkpoint_file(restart)) # older checkpoints: no Δt
         # Phase ratios from the restored markers
         Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
         Set_Grid_Phases!(a)
         @info "Restarting after step $(restart) from $(checkpoint_file(restart))"
     end
+    # Grid fields at the start of the step, restored when a step fails. Markers need no backup: the solver fails before they are advected
+    grid_old = deepcopy(state.grid)
 
-    for it=restart+1:nt
+    t_end = iter_params.time_max * (1 - 1e-10) # end of the run (tolerance: round-off in the sum of the Δt)
+    time >= t_end && @info "Restart: time_max already reached"
+    for it=restart+1:iter_params.nt_max
+        time >= t_end && break
 
-        # Adaptive time step
-        Vmax = max(maximum(abs.(a.V.x)), maximum(abs.(a.V.y)))
-        if Vmax > 0
-            Δ = (x=Δ.x, y=Δ.y, t=min(Δt0, 0.5*min(Δ.x, Δ.y)/Vmax))
-        end
-        time += Δ.t
+        # Adaptive time step, limited by the CFL condition and by time_max (the last step ends exactly at time_max)
+        Vmax   = max(maximum(abs.(a.V.x)), maximum(abs.(a.V.y)))
+        Δt_CFL = Vmax > 0 ? 0.5*min(Δ.x, Δ.y)/Vmax : Inf
+        restore_state!(grid_old, state.grid)
 
         # Main loop: solver and advection -------------------------------------------------------------------
-        @time main_loop(a, adv, tm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+        for itry = 0:iter_params.ntry
+            Δ = (x=Δ.x, y=Δ.y, t=min(Δt, Δt_CFL, iter_params.time_max - time))
+            try
+                @time main_loop(a, adv, tm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+                break
+            catch e
+                (e isa Union{InterruptException, UndefVarError, MethodError} || itry == iter_params.ntry) && rethrow() # Ctrl-C or bug in the code: no retry
+                @printf("Time step %04d: FAILED with Δt = %.3e s (%s), restart from the start of the step with Δt/%.2f (try %d/%d)\n", it, Δ.t*sc.t, sprint(showerror, e), iter_params.Δt_red_fac, itry+1, iter_params.ntry)
+                restore_state!(state.grid, grid_old)
+                Δt = Δ.t / iter_params.Δt_red_fac
+            end
+        end
+        time += Δ.t
+        done  = time >= t_end # last step: always saved (figure, step file, checkpoint)
+        probes.Δt[it] = Δ.t
+        Δt = min(Δ.t * iter_params.Δt_inc_fac, Δt_max) # try a larger time step for the next one
         Set_Grid_Phases!(a)
 
         # Update platic strain
@@ -507,7 +544,7 @@ end
         app_fric  = zeros(size(a.Pt))
         true_fric = zeros(size(a.Pt))
         Rot = @SMatrix[cos(π/2 - θgouge) -sin(π/2 - θgouge) 0; sin(π/2 - θgouge) cos(π/2 - θgouge) 0; 0 0 1.0] # x′ along the gouge (dipping right), y′ normal to it
-        app_fric_sum, true_fric_sum  = 0.0, 0.0
+        σ′xy_sum, σ′yy_sum, true_fric_sum = 0.0, 0.0, 0.0 # gouge-mean friction as a ratio of sums: a mean of local ratios blows up in cells where σ′yy → 0
         app_sum, true_sum  = 0, 0
         ind_mid_x = Int64(floor((nc.x+2)/2))
         ind_mid_y = Int64(floor((nc.y+2)/2))
@@ -519,7 +556,8 @@ end
                 # Compute apparent friction
                 σ′ = Rot * σ * Rot'
                 app_fric[i, j] = -σ′[1, 2] / σ′[2, 2]
-                app_fric_sum += app_fric[i, j]
+                σ′xy_sum += σ′[1, 2]
+                σ′yy_sum += σ′[2, 2]
                 # Compute true friction
                 if a.λ̇.c[i, j] > abs(ε̇yy) && i==ind_mid_x && j==ind_mid_y
                     ph     = a.phases.c[i, j]
@@ -593,7 +631,7 @@ end
         τr = σd/2 * sin(2*(π/2 - θgouge))
         τn = σm + σd/2 * cos(2*(π/2 - θgouge))
         # probes.app_fric[it] =  τr / τn
-        probes.app_fric[it] = app_fric_sum / app_sum
+        probes.app_fric[it] = -σ′xy_sum / σ′yy_sum
         probes.true_fric[it] = true_fric_sum / true_sum
 
         # σ  = @SMatrix[probes.σxxW[it] 0.0 0.; 0.0 probes.σyyS[it] 0.; 0. 0. 1/2*(probes.σxxW[it] + probes.σyyS[it])]
@@ -639,7 +677,7 @@ end
         # Visualise / save
         if outdir === nothing
             display(plot_shear_apparatus(d))
-        elseif it % nsave == 0 || it == nt
+        elseif it % nsave == 0 || it == iter_params.nt_max || done
             save(joinpath(outdir, @sprintf("figure_%04d.png", it)), plot_shear_apparatus(d))
             jldsave(joinpath(outdir, @sprintf("step_%04d.jld2", it)); d...)
         end
@@ -649,12 +687,13 @@ end
         advection!(probe_markers, RungeKutta4(), V, adv.grid_vi, Δ.t)
 
         # Checkpoint (end of step: markers already advected)
-        if ncheck > 0 && it % ncheck == 0
-            jldsave(checkpoint_file(it); it, time, state)
+        if ncheck > 0 && (it % ncheck == 0 || done)
+            jldsave(checkpoint_file(it); it, time, Δt, state)
             # Keep only the 2 most recent checkpoints
             old = checkpoint_file(it - 2ncheck)
             it - 2ncheck > 0 && isfile(old) && rm(old)
         end
+        done && break
     end
     display(to)
 end
@@ -668,18 +707,24 @@ end
 # end
 
 let
-    n  = (x = 280, y = 1000)
-    nt = 500
+    # n  = (x = 280, y = 1000)
+    n  = (x = 140, y = 500)
+    nt_max   = 1000        # max. number of steps
+    time_max = 12500.0     # [s] end of the run (if reached before nt_max steps)
     Δt = 2.5e1
     # θ  = [15 30 60] # 15.0
-    θ  = [80]# 40 50 60] # 15.0
+    θ  = [ 30]# 40 50 60 70 80.0] # 15 20 30
     # h  = [2e-3 4e-3 6e-3]
     h  = [3e-3]
 
     # Parametric study: one output folder per (angle, thickness)
     for θi in θ, hi in h
-        outdir = joinpath(@__DIR__, @sprintf("ShearApparatus_v9_Tet%02d_H%02d", round(Int, θi), round(Int, hi*1e3)))
+        outdir = joinpath(@__DIR__, @sprintf("_ShearApparatus_v9_Tet%02d_H%02d", round(Int, θi), round(Int, hi*1e3)))
         mkpath(outdir)
-        main(n, nt, Δt, θi, hi; outdir, restart=0, nsave=10, ncheck=10, niter=40, Pic2Newt=1.8, niter_KSP=40) # matches friction
+        main(n, nt_max, Δt, θi, hi; 
+        outdir, time_max, 
+        restart=0, nsave=10, ncheck=10, niter=25, 
+        Pic2Newt=1.8, niter_KSP=40, ϵ_nl_last=1e-10, 
+        Δt_red_fac=1.75, Δt_inc_fac=1.25, ntry=4)
     end
 end
