@@ -6,4 +6,5 @@ using Test
     include("test_sparsity.jl")
     include("test_xy.jl")
     include("test_iim_geometry.jl")
+    include("test_iim_trace.jl")
 end

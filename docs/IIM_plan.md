@@ -140,17 +140,36 @@ Example: `examples/_Stokes_IIM/IIM_Step1_Geometry.jl`.
   - hand-checked irregular columns
   - nodes on Γ moved to the + side
 
-### Phase 2 — interface trace operator (`src/StokesIIM/Trace.jl`)
-- [ ] `trace_weights(x_Γ, n, comp, φ, η, num)`. It returns sparse weights (indices + values)
-      for `v_Γ[comp]` and `∂ₜv_Γ[comp]` as linear functions of z:
-  - cloud selection as in `compute_dv_dtt.cxx`, using only `:in` nodes
-  - 3×3 Vandermonde solve with `StaticArrays`
-  - η-weighted average
-- [ ] Dirichlet nodes inside a cloud add an affine term. Return it separately as `(w, b)`.
-- [ ] Tests:
-  - exact for fields that are piecewise linear and continuous across a straight Γ
-  - weights sum correctly (Σw = 1 for values, Σw = 0 for derivatives)
-  - no cloud crosses Γ
+### Phase 2 — interface trace operator (`src/StokesIIM/Trace.jl`) — done
+Example: `examples/_Stokes_IIM/IIM_Step2_Trace.jl`.
+
+- [x] `InterfaceTrace(p, φc, Xc, ranges, Δ, η)` and `InterfaceTraces(Γ, φ, X, Δ, η, nc)`.
+      Each returns 6 node indices (3 per side) of one velocity grid, with weights `v` and `t`,
+      such that `v_Γ = Σ v_k z_k` and `∂ₜv_Γ = Σ t_k z_k`.
+  - Cloud selection: on each side, the 3 nodes nearest to x_Γ ± L n, with
+    L = 1/max(|n_x|/Δx, |n_y|/Δy), as in `compute_dv_dtt.cxx`.
+  - A triangle-area test rejects collinear triples, including diagonal ones that Landry's
+    row/column test misses.
+  - Landry's η-weighted average of v± = z±/η± reduces to
+    `v_Γ = (z₋(x_Γ) + z₊(x_Γ))/(η₋ + η₊)`, and likewise for ∂ₜ.
+  - **Deviation from Landry:** ∂ₜz± comes from the gradient of the same 3-node fit, not from
+    separate nearest one-sided differences. Both are O(h).
+- [ ] Dirichlet nodes in a cloud. Candidates already include the domain boundary nodes
+      (ranges as in `Ranges`). Mapping them to an affine term happens in phase 4, through
+      `num == 0`.
+- [x] Tests in `test/test_iim_trace.jl`:
+  - exact for piecewise-linear v with a kink across an inclined Γ
+  - Σ v_k η_k = 1 and Σ t_k η_k = 0
+  - each fit uses nodes of its own side only
+- [x] **Schmid 2003, contrasts 10⁻³, 10³ and 10⁶:**
+  - v_Γ converges at O(h²) and ∂ₜv_Γ at O(h).
+  - The asymptotic regime is only reached at nc ≈ 1280, about 250 cells per radius. At
+    coarser resolution, the order of ∂ₜv_Γ is 0.4–0.8, limited by the stiff-side fit
+    (e_t ≈ h|∇²v|).
+  - The error ∝ η_mat/(η_inc + η_mat), so the error of the jump [z] = Δη v_Γ is independent
+    of the contrast.
+  - **Option if phase 5 shows this limits accuracy:** a 6-point quadratic fit (Landry's
+    second-order version) or least squares.
 
 ### Phase 3 — jumps (`src/StokesIIM/Jumps.jl`)
 - [ ] `jumps(Δη, v_Γ, ∂ₜv_Γ, n) -> ([z], [∇z], [p])`: a direct port of `compute_jumps.cxx`,

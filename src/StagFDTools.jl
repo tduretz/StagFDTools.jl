@@ -87,6 +87,8 @@ module StokesIIM
 using StaticArrays, LinearAlgebra, StagFDTools
 include("StokesIIM/Geometry.jl")
 export LevelSet, FineLattice, InterfaceCrossings, IrregularNodes, MultipleCrossings, side
+include("StokesIIM/Trace.jl")
+export OneSidedFit, InterfaceTrace, InterfaceTraces, apply_trace, tangent
 end
 
 module StokesFSG
