@@ -40,3 +40,12 @@ using Test, StaticArrays, LinearAlgebra, StagFDTools, StagFDTools.StokesIIM
         @test all(φ.x[i, j] > 0 for i in axes(φ.x, 1), j in axes(φ.x, 2) if abs(X.vx_e.x[i] - 1.5) < 1e-12)
     end
 end
+
+@testset "IIM curvature" begin
+    for n in (40, 80)
+        nc = (x=n, y=n); Δ = (x=10 / n, y=10 / n)
+        X  = GenerateGrid((min=-5.0, max=5.0), (min=-5.0, max=5.0), Δ, nc)
+        Γ  = InterfaceCrossings(FineLattice(LevelSet((x, y) -> sqrt(x^2 + y^2) - 2.0, X), X, Δ))
+        @test maximum(abs(p.κ - 0.5) for p in Γ.points) < 2 * (10 / n)^2
+    end
+end

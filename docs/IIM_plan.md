@@ -207,6 +207,24 @@ Examples: `examples/_Stokes_IIM/IIM_Step4_Inclusion.jl` and `StandardFD_Schmid20
     - better ∂ₜv_Γ (quadratic or least-squares fits);
     - second-order corrections (½[∇²z]δ² and [∇p]δ, which need ∂ₜₜv_Γ and curvature).
 
+### Step 5 — quadratic fits and second-order corrections — done
+Examples: `examples/_Stokes_IIM/IIM_Step5_SecondOrder.jl` and `IIM_PressureFields.jl`. Shared
+driver: `IIM_Schmid2003.jl`.
+
+- [x] Curvature κ = ∇·(∇φ/|∇φ|) at every crossing (`Geometry.jl`).
+- [x] `QuadraticFit`: quadratic least squares on the ~10 nearest same-side nodes. With
+      `fit=:quadratic`, traces also give ∂ₛₛv_Γ (second derivative along the curved Γ).
+- [x] `InterfaceJumps2`: second-order jumps [∇∇z] and [∇p], from v_Γ, ∂ₛv_Γ, ∂ₛₛv_Γ and κ.
+  - Derived by differentiating the first-order jump relations along Γ, then using
+    ∂ₙ(∇·z) = 0, ∇²z = ∇p and the tangential derivative of [p].
+  - Validated against the exact Schmid jumps (ForwardDiff Hessians) to 1e−8–1e−12.
+  - Assumes no body-force jump. Gravity with a density jump would add [f] to [∇p].
+- [x] `AssembleIIM(...; order=2, fit=:quadratic)` adds ½δᵀ[∇∇z]δ and [∇p]·δ.
+- [x] Tests:
+  - exact quadratic traces;
+  - exact pressure-driven parallel flow at both orders (its second-order jumps vanish).
+- [x] Results (contrast 10³): see `docs/IIM_notes.pdf`, Section 7.
+
 ### Phase 5 — verification and solver (`examples/_Stokes_IIM/IIM_convergence.jl`)
 - [ ] **Schmid 2003 circle:** η contrast 1e−6…1e6 in both directions, nc 32–512, and the same
       table as phase 0.

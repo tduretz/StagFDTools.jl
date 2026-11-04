@@ -98,27 +98,42 @@ function ∇Φ(fl, I, J)
                    (Φ[I, Jp] - Φ[I, Jm]) / ((Jp - Jm) * fl.Δ.y))
 end
 
+# Curvature κ = ∇·(∇φ/|∇φ|) at fine node (I, J) by central differences (κ > 0 for a convex φ < 0 region)
+function κΦ(fl, I, J)
+    Φ  = fl.Φ
+    I  = clamp(I, 2, size(Φ, 1) - 1)
+    J  = clamp(J, 2, size(Φ, 2) - 1)
+    hx, hy = fl.Δ.x, fl.Δ.y
+    φx  = (Φ[I+1, J] - Φ[I-1, J]) / (2hx)
+    φy  = (Φ[I, J+1] - Φ[I, J-1]) / (2hy)
+    φxx = (Φ[I+1, J] - 2Φ[I, J] + Φ[I-1, J]) / hx^2
+    φyy = (Φ[I, J+1] - 2Φ[I, J] + Φ[I, J-1]) / hy^2
+    φxy = (Φ[I+1, J+1] - Φ[I+1, J-1] - Φ[I-1, J+1] + Φ[I-1, J-1]) / (4hx * hy)
+    return (φxx * φy^2 - 2φx * φy * φxy + φyy * φx^2) / (φx^2 + φy^2)^(3 / 2)
+end
+
 """
     InterfaceCrossings(fl)
 
 Intersections of Γ with the edges of the fine lattice `fl`:
 - `tx[I, J]`: fraction along the edge (I, J) → (I+1, J), `NaN` if not crossed
 - `ty[I, J]`: fraction along the edge (I, J) → (I, J+1), `NaN` if not crossed
-- `points`: list of (x, n, I, J, dir) with position, unit normal (pointing to φ > 0) and edge
+- `points`: list of (x, n, κ, I, J, dir): position, unit normal (pointing to φ > 0), curvature and edge
 """
 function InterfaceCrossings(fl)
     Φ = fl.Φ
     nI, nJ = size(Φ)
     tx = fill(NaN, nI - 1, nJ)
     ty = fill(NaN, nI, nJ - 1)
-    points = NamedTuple{(:x, :n, :I, :J, :dir),Tuple{SVector{2,Float64},SVector{2,Float64},Int,Int,Symbol}}[]
+    points = NamedTuple{(:x, :n, :κ, :I, :J, :dir),Tuple{SVector{2,Float64},SVector{2,Float64},Float64,Int,Int,Symbol}}[]
     for J in 1:nJ, I in 1:(nI-1)
         if side(Φ[I, J]) != side(Φ[I+1, J])
             t = crossing_fraction(view(Φ, :, J), I)
             tx[I, J] = t
             xΓ = SVector(fl.x[I] + t * fl.Δ.x, fl.y[J])
             n  = normalize((1 - t) * ∇Φ(fl, I, J) + t * ∇Φ(fl, I + 1, J))
-            push!(points, (x=xΓ, n=n, I=I, J=J, dir=:x))
+            κ  = (1 - t) * κΦ(fl, I, J) + t * κΦ(fl, I + 1, J)
+            push!(points, (x=xΓ, n=n, κ=κ, I=I, J=J, dir=:x))
         end
     end
     for J in 1:(nJ-1), I in 1:nI
@@ -127,7 +142,8 @@ function InterfaceCrossings(fl)
             ty[I, J] = t
             xΓ = SVector(fl.x[I], fl.y[J] + t * fl.Δ.y)
             n  = normalize((1 - t) * ∇Φ(fl, I, J) + t * ∇Φ(fl, I, J + 1))
-            push!(points, (x=xΓ, n=n, I=I, J=J, dir=:y))
+            κ  = (1 - t) * κΦ(fl, I, J) + t * κΦ(fl, I, J + 1)
+            push!(points, (x=xΓ, n=n, κ=κ, I=I, J=J, dir=:y))
         end
     end
     return (tx=tx, ty=ty, points=points)

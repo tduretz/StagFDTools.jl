@@ -88,9 +88,9 @@ using StaticArrays, LinearAlgebra, StagFDTools
 include("StokesIIM/Geometry.jl")
 export LevelSet, FineLattice, InterfaceCrossings, IrregularNodes, MultipleCrossings, side
 include("StokesIIM/Trace.jl")
-export OneSidedFit, InterfaceTrace, InterfaceTraces, apply_trace, tangent
+export OneSidedFit, QuadraticFit, InterfaceTrace, InterfaceTraces, apply_trace, tangent
 include("StokesIIM/Jumps.jl")
-export InterfaceJumps
+export InterfaceJumps, InterfaceJumps2
 include("StokesIIM/Assembly.jl")
 export JumpFunctionals, AssembleIIM, SolveIIM
 end
