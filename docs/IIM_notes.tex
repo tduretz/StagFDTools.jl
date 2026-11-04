@@ -14,8 +14,8 @@
 \newcommand{\code}[1]{\texttt{#1}}
 
 \title{Immersed interface method in StagFDTools\\[2pt]
-\large Notes on steps 1--7: from interface geometry to second-order incompressible and
-compressible inclusion tests, in Landry's z-form and in a StagFDTools stress form}
+\large Notes on steps 1--8: from interface geometry to second-order incompressible and
+compressible inclusion tests, in Landry's z-form, in a StagFDTools stress form, and matrix free}
 \author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
 \date{\today}
 
@@ -47,6 +47,8 @@ correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$.
     StagFDTools \code{Stokes} module (velocity interpolation, stresses at centroids and
     vertices), as a basis for anisotropic and non-linear rheologies, and compares it with the
     z-form.
+  \item \textbf{Step~8} (Section~\ref{sec:s8}) solves the stress form matrix free with dynamic
+    relaxation, in the vectorised style of the standalone PHDR codes.
 \end{itemize}
 The code is in \code{src/StokesIIM/}, exported by the submodule \code{StagFDTools.StokesIIM}.
 
@@ -1013,6 +1015,89 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
     viscosity of each side at $\Gamma$.
   \item Assembly by AD is about 4--5 times slower than the hand-written z-form stencils, but the
     direct solve dominates.
+\end{itemize}
+
+%---------------------------------------------------------------
+\section{Step 8: matrix-free stress form with dynamic relaxation}\label{sec:s8}
+
+\code{standalone/PHDR\_codes/Stokes2D\_DYREL\_IIM\_Schmid.jl} solves the second-order stress form
+for the Schmid inclusion with the solver of
+\code{Stokes2D\_DYREL\_Decoupled\_ViscousInclusion\_Anderson.jl}: dynamic relaxation (DYREL) for
+the velocity, Powell--Hestenes (PH) iterations for the pressure, vectorised array operations, no
+matrix. The setup (crossings, quadratic fits, jump formulas) reuses \code{StagFDTools.StokesIIM}.
+
+\paragraph{Two extended fields.} The one-sided stencils of step~7 differ from row to row, which
+does not vectorise. Instead, two copies of the fields are built (\code{extend!}, line~121):
+$V^-,P^-$ equal $V,P$ except at the $+$side nodes within 2.5 cells of $\Gamma$, where they hold
+the $z$-extension of the $-$side solution, and conversely for $V^+,P^+$. The standard stencils
+of the PHDR code (\code{residuals!}, line~134) are evaluated on both, each with the sharp
+viscosity of its side, and every equation takes the residual of its own side. Per iteration:
+\begin{itemize}
+  \item traces at all crossings: one sparse product with a precomputed trace operator
+    (26 quantities per crossing, \code{InterfaceSetup}, line~56);
+  \item jumps: \code{InterfaceJumpsC} mapped over the crossings (\code{InterfaceJumpsAll},
+    line~104);
+  \item extension at band nodes, with the crossing nearest to each node (fixed $\delta$).
+\end{itemize}
+The nearest-node crossing is the only difference from the assembled stress form, which picks a
+crossing per (row, member) pair.
+
+\paragraph{Scaling and penalty.}
+\begin{itemize}
+  \item Pseudo-time stepping is done on $z=\eta v$ (rows scaled by $1/\eta$ of their side). The
+    extension couples a soft row to stiff nodes with weights $\eta_-/\eta_+$, which would
+    dominate the Gershgorin bounds in $v$; in $z$ they are those of a unit-viscosity problem.
+  \item The PH penalty must act like a pressure: $\tilde P=P-\gamma_c\nabla\cdot v_c$ (line~189),
+    with the one-sided divergence of the continuity equation and $\gamma_c=\gamma_{fac}\eta_c$
+    of each \emph{centroid's} side, extended across $\Gamma$ like $P$; the PH update is then
+    $P\leftarrow\tilde P$. Two simpler choices failed: a penalty on the divergence of the
+    extended field converges to a $\gamma$-dependent solution (that divergence does not vanish
+    at centroids of the other side), and a penalty with the \emph{row's} $\gamma$ diverges (it
+    is not of the form $G\,\Gamma B$). With $\tilde P$, the converged pressure changes by
+    $10^{-7}$ ($10^{-4}$ at contrast $10^3$) between $\gamma_{fac}=1$ and 10.
+  \item Anderson acceleration of the PH loop stalls at contrast $10^3$ and is off by default.
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r rrrr rr@{}}
+\toprule
+& \multicolumn{4}{c}{$\eta_{inc}/\eta_{mat}=10^3$} & \multicolumn{2}{c}{$10$}\\
+\cmidrule(lr){2-5}\cmidrule(l){6-7}
+$n_c$ & DYREL & direct stress & direct z & iter/$n_c$ & DYREL & iter/$n_c$\\
+\midrule
+ 40 & 0.341 & 0.394 & 0.314 & 236 & 0.230 & 41\\
+ 80 & 0.170 & 0.195 & 0.133 & 281 & 0.111 & 38\\
+160 & 0.050 & 0.056 & 0.055 & 480 & 0.030 & 19\\
+\bottomrule
+\end{tabular}
+\caption{$L_\infty(P)$ of the matrix-free solver (quadratic fits, order~2, tolerance $10^{-6}$)
+and of the assembled direct solvers, and DYREL iterations per $n_c$.}
+\label{tab:step8}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{../standalone/PHDR_codes/Stokes2D_DYREL_IIM_Schmid.png}
+  \caption{Matrix-free stress form. \textbf{Top:} $L_\infty(P)$ against $h$ with the direct
+  solvers; iterations per $n_c$; residual history at $n_c=160$. \textbf{Bottom} ($n_c=160$,
+  $10^3$): pressure, exact pressure, and difference with the direct stress form.}
+  \label{fig:step8}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item The matrix-free solver reaches the accuracy of the direct solvers (0.050 at $n_c=160$
+    against 0.056 and 0.055). It differs from the direct stress form by 0.04 at $n_c=160$, a
+    smooth difference inside the inclusion that decreases with $h$, from the crossing choice.
+  \item At contrast 10 the iteration count is low and does not grow with resolution (about 40
+    per $n_c$). At $10^3$ it grows (236 to 480 per $n_c$), and the residual history shows the
+    PH loop as the bottleneck: the momentum residual jumps after each pressure update. A better
+    pressure update (e.g.\ a viscosity-scaled Schur preconditioner, or Anderson that does not
+    stall) is the next lever.
+  \item The extension costs a sparse product over the band and a map over the crossings per
+    iteration; the rest is the unmodified PHDR stencils, evaluated twice.
 \end{itemize}
 
 %---------------------------------------------------------------
