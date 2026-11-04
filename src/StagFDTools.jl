@@ -90,9 +90,11 @@ export LevelSet, FineLattice, InterfaceCrossings, IrregularNodes, MultipleCrossi
 include("StokesIIM/Trace.jl")
 export OneSidedFit, QuadraticFit, InterfaceTrace, InterfaceTraces, PressureTrace, apply_trace, tangent
 include("StokesIIM/Jumps.jl")
-export InterfaceJumps, InterfaceJumps2, InterfaceJumpsC
+export InterfaceJumps, InterfaceJumps2, InterfaceJumpsC, InterfaceJumpsV
 include("StokesIIM/Assembly.jl")
 export JumpFunctionals, AssembleIIM, SolveIIM
+include("StokesIIM/AssemblyStress.jl")
+export StressJumpFunctionals, AssembleIIMStress, SolveIIMStress
 end
 
 module StokesFSG

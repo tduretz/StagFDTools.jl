@@ -121,3 +121,17 @@ function InterfaceJumpsC(η, k, vΓ, w, w2, T, dT, n, κ)
     sp = SideFields(η.pos, k.pos, w, w2, T, dT, n, κ)
     return (z=(η.pos - η.neg) * vΓ, ∇z=sp.∇z - sm.∇z, ∇∇z=sp.∇∇z - sm.∇∇z, p=sp.p - sm.p, ∇p=sp.∇p - sm.∇p)
 end
+
+"""
+    InterfaceJumpsV(η, k, w, w2, T, dT, n, κ)
+
+Jumps of the velocity gradient for the stress formulation (unknown v, [v] = 0): `∇v`
+(`[∂_b v_a]`), `∇∇v` (`[∂_b ∂_c v_a]`), `p` and `∇p`, from the same inputs as `InterfaceJumpsC`.
+Unlike [∇z], [∇v] depends on the traction σn even for incompressible flow (k = 0), through
+∂ₙv_t = S/η - n·w on each side.
+"""
+function InterfaceJumpsV(η, k, w, w2, T, dT, n, κ)
+    sm = SideFields(η.neg, k.neg, w, w2, T, dT, n, κ)
+    sp = SideFields(η.pos, k.pos, w, w2, T, dT, n, κ)
+    return (∇v=sp.∇z / η.pos - sm.∇z / η.neg, ∇∇v=sp.∇∇z / η.pos - sm.∇∇z / η.neg, p=sp.p - sm.p, ∇p=sp.∇p - sm.∇p)
+end

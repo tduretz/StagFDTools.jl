@@ -6,8 +6,10 @@ import ExactFieldSolutions: Stokes2D_Schmid2003_V, Stokes2D_Schmid2003_p, Stokes
 # velocities. Pressure errors are computed after removing the mean of both pressures.
 # - order, fit: IIM variant (see AssembleIIM)
 # - exact_jumps: diagnostic, exact jumps on the circle instead of reconstructed ones
+# - form: :z (Landry, AssembleIIM) or :stress (StagFDTools-style stress form, AssembleIIMStress)
+# - extend: extension used by the stress form (:z or :v)
 
-function IIM_Schmid2003(n, params; order=1, fit=:linear, exact_jumps=false, L=10.0)
+function IIM_Schmid2003(n, params; order=1, fit=:linear, exact_jumps=false, L=10.0, form=:z, extend=:z)
     nc = (x=n, y=n)
     Δ  = (x=L / n, y=L / n)
     X  = GenerateGrid((min=-L / 2, max=L / 2), (min=-L / 2, max=L / 2), Δ, nc)
@@ -22,7 +24,18 @@ function IIM_Schmid2003(n, params; order=1, fit=:linear, exact_jumps=false, L=10
     Lin, κ = Stokes2D_Schmid2003_L(SVector(0.0, 0.0), params), 1 / params.rc
     Je(p) = (ne = normalize(p.x);
              InterfaceJumps2(η.pos - η.neg, Stokes2D_Schmid2003_V(params.rc * ne, params), Lin * tangent(ne), -κ * Lin * ne, ne, κ))
-    sol = SolveIIM(φ, X, Δ, η, nc, zbc; order, fit, Jexact=exact_jumps ? Je : nothing)
+    if form == :z
+        sol = SolveIIM(φ, X, Δ, η, nc, zbc; order, fit, Jexact=exact_jumps ? Je : nothing)
+    else
+        function Jv(p)                       # same, for the stress form (needs σn on Γ)
+            ne, te = normalize(p.x), tangent(normalize(p.x))
+            σ = -Stokes2D_Schmid2003_p(SVector(0.0, 0.0), params) * I + params.mc * (Lin + Lin')
+            k = (neg=0.0, pos=0.0)
+            merge(InterfaceJumpsC(η, k, Stokes2D_Schmid2003_V(params.rc * ne, params), Lin * te, -κ * Lin * ne, σ * ne, κ * σ * te, ne, κ),
+                  InterfaceJumpsV(η, k, Lin * te, -κ * Lin * ne, σ * ne, κ * σ * te, ne, κ))
+        end
+        sol = SolveIIMStress(φ, X, Δ, η, nc, Va; order, fit, extend, Jexact=exact_jumps ? Jv : nothing)
+    end
 
     ic = 2:(n+1)
     P  = sol.p[ic, ic] .- mean(sol.p[ic, ic])

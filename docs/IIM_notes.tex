@@ -14,8 +14,8 @@
 \newcommand{\code}[1]{\texttt{#1}}
 
 \title{Immersed interface method in StagFDTools\\[2pt]
-\large Notes on steps 1--6: from interface geometry to second-order incompressible and
-compressible inclusion tests}
+\large Notes on steps 1--7: from interface geometry to second-order incompressible and
+compressible inclusion tests, in Landry's z-form and in a StagFDTools stress form}
 \author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
 \date{\today}
 
@@ -43,6 +43,10 @@ correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$.
     and second-order corrections.
   \item \textbf{Step~6} (Section~\ref{sec:s6}) extends the method to compressible viscous flow
     and tests it on circular and elliptical inclusions.
+  \item \textbf{Step~7} (Section~\ref{sec:s7}) reformulates the IIM with the kernels of the
+    StagFDTools \code{Stokes} module (velocity interpolation, stresses at centroids and
+    vertices), as a basis for anisotropic and non-linear rheologies, and compares it with the
+    z-form.
 \end{itemize}
 The code is in \code{src/StokesIIM/}, exported by the submodule \code{StagFDTools.StokesIIM}.
 
@@ -877,6 +881,119 @@ $10^{-3}$. A: linear fits, order 1; C: quadratic fits, order 2; D: order 2, exac
 \end{itemize}
 
 %---------------------------------------------------------------
+\section{Step 7: stress form with StagFDTools kernels}\label{sec:s7}
+
+\paragraph{Motivation.} The z-form operator $\nabla^2z+c\,\nabla(\nabla\cdot z)-\nabla p$ only holds
+for an isotropic, linear viscosity that is constant in each phase, and it never forms a stress.
+The StagFDTools \code{Stokes} module instead interpolates $V_x$ to the $V_y$ nodes and $V_y$ to
+the $V_x$ nodes, evaluates all components of $\nabla\mathbf v$ at centroids and vertices,
+computes $\boldsymbol\tau=\mathcal D\,\dot{\boldsymbol\varepsilon}$ with a (tangent) operator
+$\mathcal D$, and takes $\nabla\cdot\boldsymbol\sigma$ as residual. This is what makes
+anisotropy, non-linear creep and plasticity easy. Step~7 builds the IIM on that structure; the
+z-form is kept for comparison.
+
+\paragraph{Formulation.} \code{AssembleIIMStress} (\code{AssemblyStress.jl}, line~149), unknowns
+$\mathbf v$ and $p$:
+\begin{itemize}
+  \item \code{velocity\_gradient} (lines~52 and 59) returns $(\partial_xv_x,\partial_yv_y,\partial_yv_x,
+    \partial_xv_y)$ at a centroid or a vertex exactly as the \code{Stokes} module: direct
+    differences, and differences of the 4-point averages $\bar V_x$ (at $V_y$ nodes) and
+    $\bar V_y$ (at $V_x$ nodes);
+  \item \code{residual} (lines~75--87): $\partial_x\sigma_{xx}+\partial_y\tau_{xy}$ with
+    $\sigma_{xx}$ at the two centroids and $\tau_{xy}$ at the two vertices of a $V_x$ node, and
+    likewise in $y$; continuity $\nabla\cdot\mathbf v+p/\xi=0$. Here
+    $\mathcal D=2\eta\mathbf I$ on the deviatoric $(\dot\varepsilon_{xx},\dot\varepsilon_{yy},
+    \dot\varepsilon_{xy})$.
+  \item \emph{One-sided stencils.} In the equation of a node on side $s$, every stencil value on
+    the other side is replaced by the extension of the side-$s$ field, and all stresses of that
+    equation use the material of side $s$. The kernel therefore only sees smooth fields: the
+    full strain-rate tensor at each centroid and vertex is one-sided, with no averaging across
+    $\Gamma$. The wider stencil (up to $4\times4$ $V_y$ nodes for $x$-momentum) reaches ghost
+    nodes near the boundary; their crossing is the one closest to them
+    (\code{member\_crossing}, line~28).
+  \item Each corrected value is a linear form in the interface cloud, and the row coefficients
+    are obtained by ForwardDiff of the local residual, as in the AD-local kernels of
+    StagFDTools. A non-linear $\mathcal D$ can later enter the same residual.
+\end{itemize}
+
+\paragraph{Which field to extend.} With $\delta=x_k-x_\Gamma$, two extensions are exact up to the
+Taylor remainder:
+\begin{align*}
+\texttt{extend=:v}:&\quad v_k\to v_k+s\bigl([\nabla v]\delta+\tfrac12\delta^\top[\nabla\nabla v]\delta\bigr),\\
+\texttt{extend=:z}:&\quad v_k\to\bigl(\eta_kv_k+s\bigl([z]+[\nabla z]\delta+\tfrac12\delta^\top[\nabla\nabla z]\delta\bigr)\bigr)/\eta_s.
+\end{align*}
+\begin{itemize}
+  \item The $v$-jumps (\code{InterfaceJumpsV}, \code{Jumps.jl}, line~133) depend on the shear
+    traction even for incompressible flow ($\partial_nv_t=S/\eta-\mathbf n\cdot\mathbf w$ on
+    each side), so both extensions use the traction trace of step~6.
+  \item The remainder of \code{:v} is $O(\delta^3\nabla^3v)$ of the other side. A stiff-side
+    equation multiplies it by $\eta_s$, so the error grows with the contrast: at
+    $\eta_{inc}/\eta_{mat}=10^3$ the stiff-side momentum residuals of the exact Schmid
+    solution are $\approx\eta_{inc}h$ (213 at $n_c=40$), even with exact jumps.
+  \item The remainder of \code{:z} is $O(\delta^3\nabla^3z)$, a stress gradient, independent
+    of the contrast. This is why Landry works with $z=\eta v$; the stress form keeps $v$ as
+    unknown and only extends through $z$. \code{:z} is the default.
+\end{itemize}
+
+\paragraph{Solver scaling.} With $v$ as unknown, the stiff-side columns are $\sim10^{-3}$ and the
+stiff-side rows $\sim10^{3}$; UMFPACK then pivots poorly and the LU fill-in is 2.4 times larger
+than for the z-form at $n_c=160$ (solve 18.6~s instead of 3.6~s). \code{SolveIIMStress} (line~246)
+scales velocity columns by $\eta$ and momentum rows by $1/\eta$ before the solve, which restores
+the z-form cost (both about 55~s at $n_c=320$, where the direct solver needs about 10~GB).
+
+\paragraph{Tests.} \code{test\_iim\_stress.jl}: the incompressible kink and the compressible
+uniform-strain solutions of step~6 are reproduced to round-off with both extensions, linear and
+quadratic fits and both orders; a Moutzouris-circle regression checks \code{:z} (0.27 at
+$n_c=40$) against \code{:v} (2.0).
+
+\paragraph{Results.} \code{examples/\_Stokes\_IIM/IIM\_Step7\_StressForm.jl}; the drivers of
+steps~5 and~6 take \code{form=:z|:stress}. Contrast $10^3$ in all cases.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l rr rr rr r@{}}
+\toprule
+& \multicolumn{2}{c}{A} & \multicolumn{2}{c}{C} & \multicolumn{2}{c}{D} & C, \code{:v}\\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(l){8-8}
+$n_c=160$ & z & stress & z & stress & z & stress & stress\\
+\midrule
+Schmid             & 0.404 & 0.445 & 0.0550 & 0.0564 & 0.0027 & 0.0021 & 2.77\\
+Moutzouris circle  & 0.260 & 0.254 & 0.0357 & 0.0365 & 0.0010 & 0.0012 & 1.50\\
+Moutzouris ellipse & 0.380 & 0.399 & 0.0882 & 0.0903 & 0.0040 & 0.0040 & 8.88\\
+\bottomrule
+\end{tabular}
+\caption{$L_\infty(P)$ at $n_c=160$ for the z-form and the stress form (A: linear fits, order~1;
+C: quadratic fits, order~2; D: order~2, exact jumps), and the stress form with the
+$v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
+\label{tab:step7}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_StressForm.png}
+  \caption{$L_\infty(P)$ against $h$ for the z-form (solid, circles) and the stress form (dashed,
+  crosses), and for the stress form with the $v$-extension (red, dotted).}
+  \label{fig:step7}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item With the $z$-extension, the stress form reproduces the z-form in all three tests:
+    within 3\% for C and within 25\% for D at $n_c=160$, with the same convergence. The
+    StagFDTools structure (velocity interpolation, stresses at centroids and vertices) is
+    therefore compatible with the IIM, provided every stencil is made one-sided.
+  \item At coarse resolution the stress form is somewhat less accurate (Schmid, C: 0.89 against
+    0.57 at $n_c=20$), because its wider stencil reaches members up to two cells across
+    $\Gamma$, where the Taylor extension is less accurate.
+  \item The $v$-extension does not converge at this contrast: extending through $z=\eta v$ is
+    essential, and for a general rheology the natural analogue is to scale by an effective
+    viscosity of each side at $\Gamma$.
+  \item Assembly by AD is about 4--5 times slower than the hand-written z-form stencils, but the
+    direct solve dominates.
+\end{itemize}
+
+%---------------------------------------------------------------
 \section{Next steps}
 
 \begin{itemize}
@@ -888,6 +1005,10 @@ $10^{-3}$. A: linear fits, order 1; C: quadratic fits, order 2; D: order 2, exac
     $[\beta P^0/\Delta t]$ to the continuity jump.
   \item \emph{Robustness:} more geometries (SolCx with an inclined interface, sub-cell offsets
     of the inclusion, thin layers and their fallback).
+  \item \emph{General rheology in the stress form:} replace the closed-form \code{SideFields} by
+    a side solve for the missing normal derivatives (continuity of $\mathbf v$ and of
+    $\boldsymbol\sigma\mathbf n$ with the tangent $\mathcal D$ of each side); a manufactured
+    anisotropic test; power-law creep in the inclusion with Newton iterations.
   \item \emph{StagFDTools integration:} AD-local kernels writing through \code{K[a][b]}, GCR
     with the averaged-viscosity preconditioner, markers and moving interfaces.
 \end{itemize}

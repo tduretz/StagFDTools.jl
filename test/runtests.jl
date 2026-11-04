@@ -9,4 +9,5 @@ using Test
     include("test_iim_trace.jl")
     include("test_iim_jumps.jl")
     include("test_iim_assembly.jl")
+    include("test_iim_stress.jl")
 end

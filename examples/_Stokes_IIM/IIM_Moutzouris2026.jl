@@ -7,6 +7,8 @@ import ExactFieldSolutions: Stokes2D_Moutzouris_circle, Stokes2D_Moutzouris_elli
 # (compressible), so errors are absolute.
 # - order, fit: IIM variant (see AssembleIIM)
 # - exact_jumps: diagnostic, exact jumps on the interface instead of reconstructed ones
+# - form: :z (Landry, AssembleIIM) or :stress (StagFDTools-style stress form, AssembleIIMStress)
+# - extend: extension used by the stress form (:z or :v)
 
 Moutzouris(shape) = shape == :circle ? Stokes2D_Moutzouris_circle : Stokes2D_Moutzouris_ellipse
 semi_axes(shape, params) = shape == :circle ? (params.ri, params.ri) : (params.t * params.ri, params.ri)
@@ -24,7 +26,7 @@ function ellipse_projection(x, a, b)
     return SVector(a * cos(θ), b * sin(θ)), n, a * b / (a^2 * sin(θ)^2 + b^2 * cos(θ)^2)^1.5
 end
 
-function IIM_Moutzouris2026(n, params; shape=:circle, order=1, fit=:linear, exact_jumps=false, L=1.0)
+function IIM_Moutzouris2026(n, params; shape=:circle, order=1, fit=:linear, exact_jumps=false, L=1.0, form=:z, extend=:z)
     nc = (x=n, y=n)
     Δ  = (x=L / n, y=L / n)
     X  = GenerateGrid((min=-L / 2, max=L / 2), (min=-L / 2, max=L / 2), Δ, nc)
@@ -45,9 +47,12 @@ function IIM_Moutzouris2026(n, params; shape=:circle, order=1, fit=:linear, exac
         s  = S(xΓ - 1e-10 * ne)
         σ  = s.τ - s.p * I
         te = tangent(ne)
-        InterfaceJumpsC(η, (neg=η.neg / ξ.neg, pos=η.pos / ξ.pos), s.V, s.L * te, -κ * s.L * ne, σ * ne, κ * σ * te, ne, κ)
+        k  = (neg=η.neg / ξ.neg, pos=η.pos / ξ.pos)
+        Jz = InterfaceJumpsC(η, k, s.V, s.L * te, -κ * s.L * ne, σ * ne, κ * σ * te, ne, κ)
+        form == :z ? Jz : merge(Jz, InterfaceJumpsV(η, k, s.L * te, -κ * s.L * ne, σ * ne, κ * σ * te, ne, κ))
     end
-    sol = SolveIIM(φ, X, Δ, η, nc, zbc; ξ, order, fit, Jexact=exact_jumps ? Je : nothing)
+    sol = form == :z ? SolveIIM(φ, X, Δ, η, nc, zbc; ξ, order, fit, Jexact=exact_jumps ? Je : nothing) :
+                       SolveIIMStress(φ, X, Δ, η, nc, Va; ξ, order, fit, extend, Jexact=exact_jumps ? Je : nothing)
 
     ic = 2:(n+1)
     P  = sol.p[ic, ic]

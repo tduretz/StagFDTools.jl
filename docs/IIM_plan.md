@@ -243,6 +243,27 @@ Examples: `examples/_Stokes_IIM/IIM_Step6_Compressible.jl`. Drivers: `IIM_Moutzo
       orders); Moutzouris circle regression (the grad-div term matters only there).
 - [x] Results: see `docs/IIM_notes.pdf`, Section 8.
 
+### Step 7 — stress form (StagFDTools-style kernels) — first version done
+Goal: an IIM that keeps the StagFDTools structure (Vx↔Vy interpolation, full ∇v at centroids and
+vertices, τ = 𝐷 ε̇, residual = ∇·σ), so that anisotropy, non-linear creep and plasticity can be
+plugged in. The z-form (`AssembleIIM`) is kept for cross-comparison.
+Example: `examples/_Stokes_IIM/IIM_Step7_StressForm.jl`; drivers take `form=:z|:stress`.
+
+- [x] `AssembleIIMStress` / `SolveIIMStress` (`src/StokesIIM/AssemblyStress.jl`): unknowns v, p;
+      one-sided stencils (members across Γ replaced by the extension of the row side's field,
+      all stresses of a row with that side's 𝐷); row coefficients by ForwardDiff of the local
+      residual.
+- [x] Extension of z = ηv divided by η_s (`extend=:z`): contrast independent. Extending v
+      directly (`extend=:v`, `InterfaceJumpsV`) amplifies the Taylor remainder by the contrast.
+- [x] Tests (`test_iim_stress.jl`): exact piecewise-linear solutions (both extensions, all
+      fits/orders), Moutzouris circle regression.
+- [x] Results: same accuracy as the z-form on Schmid, Moutzouris circle and ellipse
+      (`docs/IIM_notes.pdf`, Section 9).
+- [ ] General 𝐷: side solve for the missing normal derivatives from v continuity and traction
+      continuity with the tangent 𝐷 of each side (replaces the closed-form `SideFields`).
+- [ ] Manufactured anisotropic test; then power-law creep in the inclusion (Newton, jumps inside
+      the AD residual).
+
 ### Phase 5 — verification and solver (`examples/_Stokes_IIM/IIM_convergence.jl`)
 - [ ] **Schmid 2003 circle:** η contrast 1e−6…1e6 in both directions, nc 32–512, and the same
       table as phase 0.
