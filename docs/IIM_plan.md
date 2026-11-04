@@ -225,6 +225,24 @@ driver: `IIM_Schmid2003.jl`.
   - exact pressure-driven parallel flow at both orders (its second-order jumps vanish).
 - [x] Results (contrast 10³): see `docs/IIM_notes.pdf`, Section 7.
 
+### Step 6 — compressible viscous flow — done
+Examples: `examples/_Stokes_IIM/IIM_Step6_Compressible.jl`. Drivers: `IIM_Moutzouris2026.jl`,
+`StandardFD_Moutzouris2026.jl` (StagFDTools Stokes with `compressible=true`, `ξ0`).
+
+- [x] Rheology as in StagFDTools: τ = 2η(ε̇ − ⅓(∇·v)I), p = −ξ∇·v. With z = ηv and k = η/ξ per
+      side: ∇²z + ⅓∇(∇·z) − ∇p = 0, ∇·z + k p = 0. No pressure null space.
+- [x] `InterfaceJumpsC`: ∂ₙvₙ now depends on the normal traction, so the jumps need the
+      traction T = σn on Γ (and d(σn)/ds at order 2) besides v_Γ, ∂ₛv_Γ, ∂ₛₛv_Γ.
+  - Each side's ∇z, ∇∇z, p, ∇p at x_Γ follow from (w, w2, T, dT); jumps are differences.
+  - Reduces to `InterfaceJumps2` for k = 0; T drops out when η/ξ is equal on both sides.
+  - Validated against exact Moutzouris (2026) jumps, circle and ellipse.
+- [x] Traces: one-sided gradient/Hessian weights in `InterfaceTrace`, one-sided pressure fits
+      (`PressureTrace`); T averaged over both sides. Clouds now include pressure nodes.
+- [x] `AssembleIIM(...; ξ=(neg, pos))`.
+- [x] Tests: exact uniform-strain compressible state across an inclined Γ (all fits, both
+      orders); Moutzouris circle regression (the grad-div term matters only there).
+- [x] Results: see `docs/IIM_notes.pdf`, Section 8.
+
 ### Phase 5 — verification and solver (`examples/_Stokes_IIM/IIM_convergence.jl`)
 - [ ] **Schmid 2003 circle:** η contrast 1e−6…1e6 in both directions, nc 32–512, and the same
       table as phase 0.

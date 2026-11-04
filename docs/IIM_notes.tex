@@ -14,7 +14,8 @@
 \newcommand{\code}[1]{\texttt{#1}}
 
 \title{Immersed interface method in StagFDTools\\[2pt]
-\large Notes on steps 1--5: from interface geometry to a second-order viscous inclusion test}
+\large Notes on steps 1--6: from interface geometry to second-order incompressible and
+compressible inclusion tests}
 \author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
 \date{\today}
 
@@ -40,6 +41,8 @@ correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$.
     viscous inclusion test, and compares the result with standard FD.
   \item \textbf{Step~5} (Section~\ref{sec:s5}) adds quadratic fits for the interface traces
     and second-order corrections.
+  \item \textbf{Step~6} (Section~\ref{sec:s6}) extends the method to compressible viscous flow
+    and tests it on circular and elliptical inclusions.
 \end{itemize}
 The code is in \code{src/StokesIIM/}, exported by the submodule \code{StagFDTools.StokesIIM}.
 
@@ -352,10 +355,10 @@ $\mathbf t=(-n_y,n_x)$), and for each velocity component:
       $t_k=\mathbf g_k\cdot\mathbf t/(\eta_-+\eta_+)$, so that
       $v_\Gamma=\sum_k v_kz_k$ and $\partial_tv_\Gamma=\sum_k t_kz_k$.
   \end{itemize}
-\item \code{InterfaceTraces} (line~118). Applies \code{InterfaceTrace} to both components at
+\item \code{InterfaceTraces} (line~136). Applies \code{InterfaceTrace} to both components at
   every crossing inside the domain. Candidates are the $V_x$ and $V_y$ nodes of the domain,
   boundary nodes included (the ranges of \code{Ranges}).
-\item \code{apply\_trace} (line~131). Evaluates the weights on an array $z$.
+\item \code{apply\_trace} (line~150). Evaluates the weights on an array $z$.
 \end{enumerate}
 
 \noindent Tests are in \code{test/test\_iim\_trace.jl}. They check that:
@@ -490,12 +493,12 @@ closest to their midpoint.
 
 \paragraph{Implementation.}
 \begin{enumerate}[leftmargin=*]
-\item \code{JumpFunctionals} (line~33) expresses, for every crossing, the jumps as linear
+\item \code{JumpFunctionals} (line~35) expresses, for every crossing, the jumps as linear
   functions of the 12 cloud values of its two traces ($6\,z_x+6\,z_y$, from step~2). It does
   this by applying \code{InterfaceJumps} to the columns of the trace weights.
-\item \code{pair\_crossing} (line~58) selects $x_\Gamma$ for a (node, member) pair, through a
+\item \code{pair\_crossing} (line~82) selects $x_\Gamma$ for a (node, member) pair, through a
   lookup table of crossings indexed by fine-lattice edge.
-\item \code{AssembleIIM} (line~85) assembles the system:
+\item \code{AssembleIIM} (line~110) assembles the system:
   \begin{itemize}
     \item The unknowns are numbered with \code{set\_boundaries\_template!(:all\_Dirichlet)} and
       \code{Numbering!} from the \code{Stokes} module.
@@ -506,7 +509,7 @@ closest to their midpoint.
     \item Diagnostic option \code{Jexact}: given jumps enter the right-hand side instead of
       the reconstructed ones.
   \end{itemize}
-\item \code{SolveIIM} (line~189) solves with a sparse direct solver and returns $z$,
+\item \code{SolveIIM} (line~218) solves with a sparse direct solver and returns $z$,
   $\mathbf v=z/\eta$ and $p$.
 \end{enumerate}
 This first version builds the matrix from explicit triplets. Porting it to the StagFDTools
@@ -642,12 +645,12 @@ solution on both sides (ForwardDiff Hessians at $r_c(1\pm10^{-9})$). The errors 
 to $10^{-12}$, for 3 contrasts, with and without simple shear.
 
 \paragraph{Assembly.} \code{AssembleIIM(\dots; order=2, fit=:quadratic)} (\code{Assembly.jl},
-line~85) extends each correction to
+line~110) extends each correction to
 \[
 q_k\;\to\;q_k+s\bigl([q]+[\nabla q]\cdot\delta+\tfrac12\delta^\top[\nabla\nabla q]\,\delta\bigr),
 \qquad p_k\;\to\;p_k+s\bigl([p]+[\nabla p]\cdot\delta\bigr).
 \]
-\code{JumpFunctionals} (line~33) now handles clouds of any size: about 20 nodes per component
+\code{JumpFunctionals} (line~35) now handles clouds of any size: about 20 nodes per component
 for quadratic fits. \code{test\_iim\_assembly.jl} adds a pressure-driven parallel flow along an
 inclined $\Gamma$, an exact Stokes solution with a quadratic velocity. It is reproduced to
 round-off at both orders. Its second-order jumps vanish, so it checks that the quadratic fits
@@ -739,11 +742,150 @@ $L_\infty$ order of C at $10^3$.}
 \end{itemize}
 
 %---------------------------------------------------------------
+\section{Step 6: compressible viscous flow}\label{sec:s6}
+
+\paragraph{Equations.} As in the StagFDTools \code{Stokes} module (\code{compressible=true}),
+\[
+\boldsymbol\tau=2\eta\bigl(\dot{\boldsymbol\varepsilon}-\tfrac13(\nabla\cdot\mathbf v)\mathbf I\bigr),
+\qquad p=-\xi\,\nabla\cdot\mathbf v,
+\]
+with a bulk viscosity $\xi$ that may also jump across $\Gamma$. With $z=\eta\mathbf v$ and
+$k=\eta/\xi$ on each side ($k=0$: incompressible),
+\[
+\nabla^2z+\tfrac13\nabla(\nabla\cdot z)-\nabla p=0,\qquad \nabla\cdot z+k\,p=0.
+\]
+The pressure level is determined, so the Lagrange multiplier is dropped.
+\code{AssembleIIM(\dots; ξ=(neg, pos))} (\code{Assembly.jl}, line~110) uses the factor
+$\tfrac13$ instead of 1 in front of the grad-div terms and adds $k\,p$ to the continuity rows.
+
+\paragraph{Jump conditions.} Without incompressibility, $\partial_nv_n$ no longer follows from
+$\partial_tv_t$. Continuity of the normal traction $C=\mathbf n\cdot\boldsymbol\sigma\mathbf n$
+gives instead, on each side,
+\[
+\partial_nz_n=\frac{kC-(1-\tfrac23k)\,\eta\,\mathbf t\cdot\mathbf w}{1+\tfrac43k},\qquad
+\partial_nz_t=S-\eta\,\mathbf n\cdot\mathbf w,\qquad
+p=-C+\tfrac43\partial_nz_n-\tfrac23\partial_tz_t,
+\]
+with $\mathbf w=\partial_s\mathbf v$ and $S=\mathbf t\cdot\boldsymbol\sigma\mathbf n$. The
+jumps therefore depend on the traction $\mathbf T=\boldsymbol\sigma\mathbf n$ on $\Gamma$, in
+addition to $\mathbf v_\Gamma$ and $\mathbf w$:
+\begin{itemize}
+  \item \code{SideFields} (\code{Jumps.jl}, line~82) computes $\nabla z$, $\nabla\nabla z$, $p$
+    and $\nabla p$ of one side at $x_\Gamma$ from $(\mathbf w,\partial_{ss}\mathbf v,\mathbf T,
+    d\mathbf T/ds)$. The second derivatives follow as in step~5, by differentiating along
+    $\Gamma$ and closing with the side equations, which combine into $\nabla^2z=(1+k/3)\nabla p$:
+    \[
+    \partial_np=\frac{\partial_{tt}z_n-\partial_{nt}z_t}{1+\tfrac43k},\qquad
+    \partial_{nn}z_n=-\partial_{nt}z_t-k\,\partial_np,\qquad
+    \partial_{nn}z_t=(1+\tfrac k3)\,\partial_tp-\partial_{tt}z_t.
+    \]
+  \item \code{InterfaceJumpsC} (line~119) returns the differences of the two sides. For $k=0$
+    on both sides, $C$ and $S$ cancel and the result equals \code{InterfaceJumps2} (tested).
+    When $\eta/\xi$ is the same on both sides (equal Poisson ratios), $C$ cancels from the
+    first-order jumps.
+  \item \code{test\_iim\_jumps.jl} checks them against the exact Moutzouris (2026) solution
+    of \code{ExactFieldSolutions}, for the circle and the ellipse and three $(\eta,\xi)$ pairs.
+    First-order jumps agree to $10^{-7}$, second-order ones to better than $10^{-3}$ relative,
+    the accuracy of the finite-difference reference.
+\end{itemize}
+
+\paragraph{Traction trace.} $\mathbf T$ and $d\mathbf T/ds$ come from the same one-sided fits:
+\code{InterfaceTrace} now also returns one-sided gradient and Hessian weights, and
+\code{PressureTrace} (\code{Trace.jl}, line~122) fits $p$ on each side. Each side gives
+$\boldsymbol\sigma_s=-p_s\mathbf I+\nabla z_s+\nabla z_s^\top-\tfrac23(\nabla\cdot z_s)\mathbf I$,
+and $\mathbf T$ is the average of the two sides. The interface clouds therefore include
+pressure nodes. \code{test\_iim\_assembly.jl} adds two tests:
+\begin{itemize}
+  \item a uniform strain rate on each side of an inclined $\Gamma$, with different $\eta/\xi$,
+    reproduced to round-off with linear and quadratic fits and at both orders;
+  \item a regression on the Moutzouris circle at $n_c=40$, where $\nabla\cdot\mathbf v\neq0$ and
+    curvature make the grad-div factor matter (the other tests are blind to it).
+\end{itemize}
+
+\paragraph{Test.} \code{examples/\_Stokes\_IIM/IIM\_Step6\_Compressible.jl} (drivers
+\code{IIM\_Moutzouris2026.jl} and \code{StandardFD\_Moutzouris2026.jl}) solves the Moutzouris
+inclusion in $[-0.5,0.5]^2$ with exact Dirichlet velocities: $\eta_{mat}=1$, $\xi_{mat}=2$,
+pure shear $\dot\varepsilon=1$ plus far-field volumetric rate $\dot\zeta=0.5$. Two inclusions:
+\begin{itemize}
+  \item stiff: $\eta_{inc}=10^3$, $\xi_{inc}=10^5$ ($\eta/\xi$ differs from the matrix, so the
+    traction trace matters);
+  \item weak: $\eta_{inc}=10^{-3}$, $\xi_{inc}=5\cdot10^{-4}$.
+\end{itemize}
+Circle of radius 0.2, and ellipse with semi-axes $0.4\times0.2$ and the far field rotated by
+$\pi/6$. The pressure is compared without removing any mean; the exact $|P|$ reaches 3.4--5.2.
+Exact jumps (D) are evaluated at the projection of $x_\Gamma$ on the exact interface.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r rrrr rr c rrrr rr@{}}
+\toprule
+& \multicolumn{6}{c}{circle} && \multicolumn{6}{c}{ellipse}\\
+\cmidrule(lr){2-7}\cmidrule(l){9-14}
+& \multicolumn{4}{c}{$10^3$} & \multicolumn{2}{c}{$10^{-3}$} && \multicolumn{4}{c}{$10^3$} & \multicolumn{2}{c}{$10^{-3}$}\\
+$n_c$ & FD & A & C & D & FD & C && FD & A & C & D & FD & C\\
+\midrule
+ 20 & 1.29 & 0.94 & 0.504 & 0.021   & 1.38 & 0.371  && 6.26 & 0.58 & 0.752 & 0.085  & 2.64 & 0.533\\
+ 40 & 1.65 & 0.77 & 0.260 & 0.016   & 2.66 & 0.203  && 6.08 & 0.78 & 0.416 & 0.029  & 3.01 & 0.232\\
+ 80 & 4.44 & 0.52 & 0.107 & 0.0045  & 3.35 & 0.071  && 6.57 & 0.46 & 0.242 & 0.0074 & 3.12 & 0.091\\
+160 & 6.01 & 0.26 & 0.036 & 0.0010  & 3.51 & 0.038  && 6.55 & 0.38 & 0.088 & 0.0040 & 3.43 & 0.048\\
+320 & 5.38 & 0.18 & 0.0098 & 0.00035 & 3.70 & 0.0059 && 8.04 & 0.28 & 0.037 & 0.0011 & 3.67 & 0.014\\
+\bottomrule
+\end{tabular}
+\caption{$L_\infty(P)$ for the compressible inclusion, $\eta_{inc}/\eta_{mat}=10^3$ and
+$10^{-3}$. A: linear fits, order 1; C: quadratic fits, order 2; D: order 2, exact jumps.}
+\label{tab:step6}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step6_Compressible.png}
+  \caption{Compressible inclusion: $L_\infty(P)$ against $h$ for the circle (left) and the
+  ellipse (right). Markers: $\eta_{inc}/\eta_{mat}=10^3$ (circles) and $10^{-3}$ (triangles).}
+  \label{fig:step6}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=0.92\textwidth]{../examples/_Stokes_IIM/IIM_Step6_EllipseFields.png}
+  \caption{Pressure for the compressible elliptical inclusion, $\eta_{inc}/\eta_{mat}=10^3$, at
+  $n_c=40$, 80 and 160 (rows). Columns: standard FD, IIM A and C, exact. Same colour
+  conventions as Fig.~\ref{fig:fields}.}
+  \label{fig:ellipse}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item \emph{Standard FD} does not converge in $L_\infty(P)$, for either shape or contrast: the
+    error stays at 1.3--8, comparable to the pressure itself, with spikes in the cut cells
+    (Fig.~\ref{fig:ellipse}).
+  \item \emph{Second-order IIM (C)} converges in all four cases. For the circle, $L_\infty(P)$
+    drops from 0.50 to 0.0098 (mean order 1.4, local order 1.9 at the finest step); at
+    $n_c=320$ it is 550 times smaller than FD. This is the same accuracy as the incompressible
+    test (0.013, Table~\ref{tab:step5}): compressibility costs nothing.
+  \item \emph{Ellipse.} Errors of C are 1.5--4 times larger than for the circle, and C converges
+    at a mean order of 1.1 (0.75 to 0.037), still 220 times below FD at $n_c=320$. The ellipse
+    tips have a curvature of 10 (twice that of the circle), so the $O(h)$ error of
+    $\partial_{ss}\mathbf v_\Gamma$ and of $d\mathbf T/ds$ is larger there.
+  \item \emph{Exact jumps (D)} converge at a mean order of 1.5 for both shapes, with local
+    orders up to 2, so the corrected operator handles compressibility and the ellipse; the gap
+    to C (a factor of 20--35 at $n_c\ge160$) again comes from the interface traces.
+  \item \emph{First-order IIM (A)} improves only slowly (0.94 to 0.18 for the circle, 0.58 to
+    0.28 for the ellipse), as in the incompressible case.
+  \item \emph{Weak inclusion.} C behaves the same as for the stiff one (0.0059 and 0.014 at
+    $n_c=320$).
+\end{itemize}
+
+%---------------------------------------------------------------
 \section{Next steps}
 
 \begin{itemize}
-  \item \emph{Accuracy:} cubic fits for $\partial_{ss}\mathbf v_\Gamma$, to approach the
-    exact-jump curve D; density jumps ($[\rho]\mathbf g$ in $[\nabla p]$).
+  \item \emph{Accuracy:} cubic fits for $\partial_{ss}\mathbf v_\Gamma$ and $d\mathbf T/ds$, to
+    approach the exact-jump curve D (the gap is largest for the ellipse); density jumps
+    ($[\rho]\mathbf g$ in $[\nabla p]$).
+  \item \emph{Compressibility:} the out-of-plane strain rate $\dot\varepsilon_{zz}$ of the
+    Moutzouris solution, and elastic compressibility $\beta(P-P^0)/\Delta t$, which adds a source
+    $[\beta P^0/\Delta t]$ to the continuity jump.
   \item \emph{Robustness:} more geometries (SolCx with an inclined interface, sub-cell offsets
     of the inclusion, thin layers and their fallback).
   \item \emph{StagFDTools integration:} AD-local kernels writing through \code{K[a][b]}, GCR

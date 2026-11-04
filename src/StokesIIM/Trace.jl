@@ -90,37 +90,56 @@ function InterfaceTrace(p, φc, Xc, ranges, Δ, η; fit=:linear, nmax=4)
     t  = tangent(p.n)
     xo = (p.x - L * p.n, p.x + L * p.n)
     ηs = η.neg + η.pos
-    if fit == :linear
-        fm = OneSidedFit(p.x, xo[1], -1, φc, Xc, ranges, Δ; nmax)
-        fp = OneSidedFit(p.x, xo[2],  1, φc, Xc, ranges, Δ; nmax)
-        idx = vcat(collect(fm.idx), collect(fp.idx))
-        v   = vcat(fm.λ, fp.λ) ./ ηs
-        dt  = vcat(fm.g' * t, fp.g' * t) ./ ηs
-        dtt = zeros(length(idx))
-    else
-        fm = QuadraticFit(p.x, xo[1], -1, φc, Xc, ranges, Δ)
-        fp = QuadraticFit(p.x, xo[2],  1, φc, Xc, ranges, Δ)
-        dss(f) = [dot(t, f.H[:, :, k] * t) - p.κ * dot(p.n, f.g[:, k]) for k in eachindex(f.idx)]
-        idx = vcat(fm.idx, fp.idx)
-        v   = vcat(fm.λ, fp.λ) ./ ηs
-        dt  = vcat(fm.g' * t, fp.g' * t) ./ ηs
-        dtt = vcat(dss(fm), dss(fp)) ./ ηs
+    fm, fp = SideFits(p, xo, φc, Xc, ranges, Δ; fit, nmax)
+    idx = vcat(fm.idx, fp.idx)
+    v   = vcat(fm.λ, fp.λ) ./ ηs
+    dt  = vcat(fm.g' * t, fp.g' * t) ./ ηs
+    dss(f) = [dot(t, f.H[:, :, k] * t) - p.κ * dot(p.n, f.g[:, k]) for k in eachindex(f.idx)]
+    dtt = fit == :linear ? zeros(length(idx)) : vcat(dss(fm), dss(fp)) ./ ηs
+    # one-sided weights (compressible jumps): side, ∇z_s = Σ g[:, k] z[idx[k]] over side-s members, same for H
+    return (idx=idx, v=Vector(v), t=Vector(dt), tt=dtt, xo=xo,
+            s=vcat(fill(-1, length(fm.idx)), fill(1, length(fp.idx))), g=hcat(fm.g, fp.g), H=cat(fm.H, fp.H; dims=3))
+end
+
+# Linear or quadratic fits on both sides, with a Hessian (zero for linear fits)
+function SideFits(p, xo, φc, Xc, ranges, Δ; fit=:linear, nmax=4)
+    map((-1, 1), xo) do s, x
+        if fit == :linear
+            f = OneSidedFit(p.x, x, s, φc, Xc, ranges, Δ; nmax)
+            (idx=collect(f.idx), λ=Vector(f.λ), g=Matrix(f.g), H=zeros(2, 2, length(f.idx)))
+        else
+            QuadraticFit(p.x, x, s, φc, Xc, ranges, Δ)
+        end
     end
-    return (idx=idx, v=Vector(v), t=Vector(dt), tt=dtt, xo=xo)
 end
 
 """
-    InterfaceTraces(Γ, φ, X, Δ, η, nc; fit=:linear)
+    PressureTrace(p, φc, Xc, ranges, Δ; fit=:linear)
+
+One-sided pressure fits at the crossing `p` (compressible jumps need the traction σn on Γ): on
+side `s[k]`, `p_s = Σ λ[k] p[idx[k]]` and `∇p_s = Σ g[:, k] p[idx[k]]` over the side-s members.
+"""
+function PressureTrace(p, φc, Xc, ranges, Δ; fit=:linear, nmax=4)
+    L  = 1 / max(abs(p.n[1]) / Δ.x, abs(p.n[2]) / Δ.y)
+    fm, fp = SideFits(p, (p.x - L * p.n, p.x + L * p.n), φc, Xc, ranges, Δ; fit, nmax)
+    return (idx=vcat(fm.idx, fp.idx), s=vcat(fill(-1, length(fm.idx)), fill(1, length(fp.idx))),
+            λ=vcat(fm.λ, fp.λ), g=hcat(fm.g, fp.g))
+end
+
+"""
+    InterfaceTraces(Γ, φ, X, Δ, η, nc; fit=:linear, pressure=false)
 
 `InterfaceTrace` of both velocity components at every crossing of `Γ` inside the physical domain.
-Candidate nodes are the Vx and Vy nodes of the domain, boundary nodes included (`Ranges`).
+Candidate nodes are the Vx and Vy nodes of the domain, boundary nodes included (`Ranges`), and,
+with `pressure=true`, the `PressureTrace` on the numbered pressure nodes (field `pt`).
 """
-function InterfaceTraces(Γ, φ, X, Δ, η, nc; fit=:linear)
-    ranges = (x=(2:(nc.x+2), 3:(nc.y+2)), y=(3:(nc.x+2), 2:(nc.y+2)))
+function InterfaceTraces(Γ, φ, X, Δ, η, nc; fit=:linear, pressure=false)
+    ranges = (x=(2:(nc.x+2), 3:(nc.y+2)), y=(3:(nc.x+2), 2:(nc.y+2)), p=(2:(nc.x+1), 2:(nc.y+1)))
     pts = filter(p -> X.v.x[1] <= p.x[1] <= X.v.x[end] && X.v.y[1] <= p.x[2] <= X.v.y[end], Γ.points)
     return [(p=p,
              x=InterfaceTrace(p, φ.x, X.vx_e, ranges.x, Δ, η; fit),
-             y=InterfaceTrace(p, φ.y, X.vy_e, ranges.y, Δ, η; fit)) for p in pts]
+             y=InterfaceTrace(p, φ.y, X.vy_e, ranges.y, Δ, η; fit),
+             pt=pressure ? PressureTrace(p, φ.c, X.c_e, ranges.p, Δ; fit) : nothing) for p in pts]
 end
 
 """
