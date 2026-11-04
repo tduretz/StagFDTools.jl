@@ -83,6 +83,12 @@ export TangentOperator!
 export LineSearch!
 end
 
+module StokesIIM
+using StaticArrays, LinearAlgebra, StagFDTools
+include("StokesIIM/Geometry.jl")
+export LevelSet, FineLattice, InterfaceCrossings, IrregularNodes, MultipleCrossings, side
+end
+
 module StokesFSG
 using StaticArrays, ExtendableSparse, StaticArrays, StagFDTools
 include("StokesFSG.jl")

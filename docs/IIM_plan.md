@@ -112,23 +112,33 @@ need a one-sided traction, which would mean an extra unknown.
       η_inc/η_mat = 1e−3, 1e3, 1e6. Save it to `docs/IIM_baseline.md`.
       Every later phase is compared against this table.
 
-### Phase 1 — geometry (`src/StokesIIM/Geometry.jl`)
-- [ ] `LevelSet` struct: φ on the vx, vy, c and v arrays, including ghost layers, sized with
-      `Ranges(nc)`. Constructor from an analytic function and from `a.X`.
-- [ ] Nudge φ = 0 at nodes to ±ε·h. Landry's `sign()` returns 0 there and silently mislabels
-      the node.
-- [ ] `crossing(φm, φ0, φp, H)`: quadratic root, a port of `Interface::intersection`.
-- [ ] `normal(φ, x_Γ)`: a second-order gradient of φ, bilinear-interpolated to x_Γ. This is
-      better than Landry's one-sided `compute_norm`.
-- [ ] `IrregularInfo` per equation node: lists of `(kind, x_Γ, n, Δη, sgn)`, where `kind` is
-      one of `:dd`, `:dp`, `:side`, `:corner` or `:div`. This ports `Interface.hxx` and the
-      intersection part of `compute_Cp.cxx`.
-- [ ] Detect "anticorners" and multiple crossings in one stencil (layers thinner than 2h).
-      Phase 1 throws a clear error; phase 5 falls back to averaging.
-- [ ] Tests in `test/test_iim_geometry.jl`:
-  - circle crossings converge at O(h³)
-  - straight-line normals are exact
-  - node classification on a small grid matches a hand-checked case
+### Phase 1 — geometry (`src/StokesIIM/Geometry.jl`) — done
+Example: `examples/_Stokes_IIM/IIM_Step1_Geometry.jl`.
+
+- [x] `LevelSet(φfun, X)`: a NamedTuple `(x, y, c, v)` on the extended grids of `GenerateGrid`.
+- [x] Nodes with |φ| < 1e−10·Δ are moved to the + side. Without this, r_c = 2, h = 0.5 put
+      vertex (0, 2) on Γ, and round-off created a zero-width sliver.
+- [x] `FineLattice`: the four grids merged into one lattice of spacing Δ/2. Every IIM
+      interface point lies on one of its edges.
+- [x] `InterfaceCrossings`: crossings on every fine edge (`tx`, `ty`, `points`). Root of the
+      cubic through 4 samples, located by bisection (quadratic at the lattice ends).
+      Measured order O(h⁴); the plan expected a quadratic with O(h³).
+- [x] Normals: central-difference ∇φ on the fine lattice, linearly interpolated along the
+      edge. Measured order O(h²).
+- [x] `IrregularNodes`: flags Vx, Vy and Pt equations whose standard stencil crosses Γ.
+- [x] `MultipleCrossings`: counts length-Δ segments crossed twice. Error handling and
+      fallback are still to do (phase 5).
+- [ ] Per-equation lists of interface points `(kind, x_Γ, n, Δη, sgn)`. These are deferred to
+      phase 4, where they become lookups on the fine edges around each node:
+  - `:dd`: (I±1|I±2, J), (I, J±1|J±2)
+  - `:dp`: (I±1, J)
+  - `:corner` / `:side`: box edges at I±1 and J±1
+  - `:div`: the 4 edges around a centroid
+- [x] Tests in `test/test_iim_geometry.jl` (also included in `runtests.jl`):
+  - fine-lattice mapping
+  - exact crossings and normals for a straight interface
+  - hand-checked irregular columns
+  - nodes on Γ moved to the + side
 
 ### Phase 2 — interface trace operator (`src/StokesIIM/Trace.jl`)
 - [ ] `trace_weights(x_Γ, n, comp, φ, η, num)`. It returns sparse weights (indices + values)
