@@ -1,0 +1,307 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{enumitem}
+\usepackage{fontspec}
+\setmonofont{Menlo}[Scale=0.82]
+\setlist{itemsep=2pt,topsep=4pt}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Immersed interface method in StagFDTools\\[2pt]
+\large Step 1: interface geometry on the staggered grid}
+\author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\noindent This note documents the first step of the implementation plan
+(\texttt{docs/IIM\_plan.md}) for porting the immersed interface method (IIM) of
+W.~Landry (\url{https://gitlab.com/wlandry/discontinuous_stokes}) to StagFDTools.
+In that method, the Stokes equations are discretised on the standard MAC grid in terms
+of $z=\eta\mathbf v$ and $p$. Stencils that cross the viscosity interface $\Gamma$ receive
+correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$. Step~1 provides all the
+geometry these corrections need: where $\Gamma$ crosses the grid, the normal there, and which
+equations are affected. All the code is in \code{src/StokesIIM/Geometry.jl}, exported by the
+submodule \code{StagFDTools.StokesIIM}.
+
+%---------------------------------------------------------------
+\section{Discretisation}
+
+Figure~\ref{fig:mesh} summarises the discretisation. There are no unknowns beyond the
+standard ones: $z_x$ on the $x$-faces, $z_y$ on the $y$-faces and $p$ at the centroids.
+
+An equation is \emph{irregular} if its stencil has members on both sides of $\Gamma$. For each
+such equation, the jumps are evaluated where $\Gamma$ crosses the segment between stencil
+members, and they depend on two interface quantities:
+\begin{itemize}
+  \item the interface velocity $\mathbf v_\Gamma$;
+  \item its tangential derivative $\partial_t\mathbf v_\Gamma$.
+\end{itemize}
+These are not solved for. They are eliminated by one-sided linear fits on each side, combined
+with a viscosity-weighted average:
+\[
+\mathbf v_\Gamma=\frac{\eta_-\mathbf v_-+\eta_+\mathbf v_+}{\eta_-+\eta_+}.
+\]
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/iim_mesh.png}
+  \caption{IIM discretisation on the MAC grid (script \code{docs/figures/iim\_mesh.jl}).
+  \textbf{(a)}~Unknowns coloured by phase (orange: inclusion $\eta_-$, blue: matrix $\eta_+$).
+  Outlined nodes are irregular equations. Gold diamonds are the crossings of $\Gamma$ with the
+  half-grid lines, where jumps are evaluated; they are not unknowns.
+  \textbf{(b)}~One irregular $x$-momentum equation. The star and hexagon are the interface
+  points it uses for $\partial_{xx}z_x,\partial_{yy}z_x$ and for the cut corner of
+  $\partial_{xy}z_y$. Crosses mark the fit centres $x_\Gamma\pm L\mathbf n$. Triangles show the
+  3-node one-sided fits (solid: $z_x$, dashed: $z_y$) that give $\mathbf v_\Gamma$ and
+  $\partial_t\mathbf v_\Gamma$.}
+  \label{fig:mesh}
+\end{figure}
+
+%---------------------------------------------------------------
+\section{Implementation}
+
+\paragraph{Convention.} $\Gamma=\{\varphi=0\}$, with $\varphi<0$ inside the inclusion and
+$\varphi>0$ in the matrix. The function \code{side($\varphi$)} (line~14) returns $-1$ or $+1$.
+It never returns 0, so every node belongs to exactly one phase.
+
+\begin{enumerate}[leftmargin=*]
+\item \textbf{Sampling the level set} -- \code{LevelSet(φfun, X)} (line~22).
+  It evaluates $\varphi$ on the extended grids of \code{GenerateGrid}, ghost nodes included,
+  and returns the NamedTuple \code{(x, y, c, v)} for the $V_x$, $V_y$, centroid and vertex
+  arrays, following the StagFDTools convention.
+  \begin{itemize}
+    \item Nodes with $|\varphi|<10^{-10}\Delta$ lie on $\Gamma$; they are moved to the $+$ side.
+    \item Without this, a node exactly on $\Gamma$ (e.g.\ the vertex $(0,2)$ for $r_c=2$,
+      $\Delta=0.5$) gets $\varphi=-7\cdot10^{-16}$ by round-off. That creates an inside sliver
+      of zero width, which stencils cross twice.
+  \end{itemize}
+
+\item \textbf{Fine lattice} -- \code{FineLattice(φ, X, Δ)} (line~38).
+  The four staggered arrays are merged into one array $\Phi_{IJ}$ with spacing $\Delta/2$:
+  \begin{center}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    $(I,J)$ parity & node \\
+    \midrule
+    odd/odd & vertex \\
+    even/even & centroid \\
+    odd/even & $V_x$ \\
+    even/odd & $V_y$ \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+  Every interface point used by an IIM stencil lies on an edge of this lattice:
+  \begin{itemize}
+    \item $V_x$--$V_x$ and $V_x$--$p$ segments;
+    \item the box edges of the mixed derivative;
+    \item the centroid--face segments of continuity.
+  \end{itemize}
+  The crossings are therefore computed once, on the lattice edges, rather than separately for
+  each equation.
+
+\item \textbf{Crossings} -- \code{InterfaceCrossings(fl)} (line~109).
+  On every lattice edge where \code{side} changes:
+  \begin{itemize}
+    \item build the cubic Lagrange polynomial through the 4 samples $k-1,\dots,k+2$ along the
+      grid line (functions \code{crossing\_fraction}, line~79, and \code{lagrange}, line~61);
+    \item near the ends of the lattice, where only 3 samples exist, use the quadratic instead;
+    \item locate the root on $[0,1]$ by bisection. This always succeeds, because the
+      polynomial takes the endpoint values, which have opposite signs.
+  \end{itemize}
+  The output is:
+  \begin{itemize}
+    \item \code{tx}, \code{ty}: the fraction along each horizontal or vertical edge
+      (\code{NaN} if the edge is not crossed);
+    \item \code{points}: a list of $(x_\Gamma,\mathbf n,I,J,\text{dir})$, one per crossing.
+  \end{itemize}
+
+\item \textbf{Normals} -- function \code{∇Φ} (line~93).
+  \begin{itemize}
+    \item At both ends of the edge, $\nabla\varphi$ is approximated by central differences
+      (lattice spacing $\Delta/2$, so a stencil width of $\Delta$).
+    \item These are interpolated linearly to $x_\Gamma$ and normalised.
+    \item $\mathbf n$ points towards $\varphi>0$, i.e.\ out of the inclusion.
+  \end{itemize}
+
+\item \textbf{Irregular equations} -- \code{IrregularNodes(φ, nc)} (line~145).
+  An equation is flagged when any member of its standard stencil lies on the other side of
+  $\Gamma$. The indexing matches \code{Stokes.jl}:
+  \begin{center}
+  \begin{tabular}{@{}ll@{}}
+    \toprule
+    equation & stencil members checked \\
+    \midrule
+    $V_x[i,j]$ & $V_x[i\pm1,j]$, $V_x[i,j\pm1]$, $P[i-1{:}i,\,j-1]$, $V_y[i{:}i+1,\,j-1{:}j]$ \\
+    $V_y[i,j]$ & $V_y[i\pm1,j]$, $V_y[i,j\pm1]$, $P[i-1,\,j-1{:}j]$, $V_x[i-1{:}i,\,j{:}j+1]$ \\
+    $P[i,j]$ & $V_x[i{:}i+1,\,j+1]$, $V_y[i+1,\,j{:}j+1]$ \\
+    \bottomrule
+  \end{tabular}
+  \end{center}
+
+\item \textbf{Thin features} -- \code{MultipleCrossings(Γ)} (line~177).
+  Counts the lattice segments of length $\Delta$ that $\Gamma$ crosses twice. These are
+  features thinner than about $\Delta$, which the first-order IIM does not handle (Landry's
+  ``anticorners''). The count is $0$ at every resolution of the inclusion test.
+\end{enumerate}
+
+\noindent Unit tests are in \code{test/test\_iim\_geometry.jl}, which is included in
+\code{runtests.jl}. They check that:
+\begin{itemize}
+  \item the fine lattice reproduces $\varphi$ at every node;
+  \item crossings and normals are exact (to $10^{-12}$) for a straight inclined interface;
+  \item the irregular columns for a vertical interface match a hand check;
+  \item nodes on $\Gamma$ are moved to the $+$ side.
+\end{itemize}
+The example is \code{examples/\_Stokes\_IIM/IIM\_Step1\_Geometry.jl}.
+
+%---------------------------------------------------------------
+\section{Results for the viscous inclusion geometry}
+
+The test geometry is that of Schmid \& Podladchikov (2003): a circular inclusion of radius
+$r_c=2$ centred in a square domain of side $L=10$. The grid spacing is
+$h=\Delta x=\Delta y=L/n_c$, and two level-set functions with the same zero contour are used:
+\[
+\varphi_d=r-r_c\quad\text{(signed distance)},\qquad
+\varphi_t=\tanh(r-r_c)\quad\text{(not a distance function)}.
+\]
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step1_Geometry.png}
+  \caption{Geometry for the inclusion test.
+  \textbf{Left:} $n_c=20$, $\varphi=\varphi_d$. Circles are $P$, right-pointing triangles $V_x$,
+  upward triangles $V_y$; colours give the phase. Outlined nodes are the irregular equations.
+  Gold diamonds are the 60 crossings of $\Gamma$ with the fine lattice.
+  \textbf{Middle:} zoom on the first quadrant with the computed normals $\mathbf n$.
+  \textbf{Right:} maximum error of crossing positions and normals against $h$, for $\varphi_d$
+  and $\varphi_t$, with $O(h^2)$ and $O(h^4)$ reference slopes.}
+  \label{fig:step1}
+\end{figure}
+
+\paragraph{Left and middle panels.}
+\begin{itemize}
+  \item The irregular equations form a band one stencil wide on each side of $\Gamma$: 48
+    $V_x$, 48 $V_y$ and 24 $P$ equations at $n_c=20$.
+  \item Only $V_x$ and $V_y$ nodes up to one cell away from $\Gamma$ are flagged, because the
+    momentum stencils reach $\pm h$. Only cells cut by $\Gamma$ between their centroid and a
+    face are flagged for continuity.
+  \item The normals are perpendicular to the circle and point outward.
+  \item Some crossings come in close pairs near grid nodes. These are crossings of the
+    horizontal and the vertical lattice line through the same region, which is expected.
+\end{itemize}
+
+\subsection*{Discussion of the convergence (right panel)}
+
+The errors are measured over all crossings inside the physical domain:
+\[
+e_x=\max_\Gamma\bigl|\,|x_\Gamma|-r_c\bigr|,\qquad
+e_n=\max_\Gamma\bigl|\mathbf n-x_\Gamma/|x_\Gamma|\bigr|.
+\]
+Table~\ref{tab:conv} lists the values and the local orders $\log_2(e_{2h}/e_h)$.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}rrrr rr rr rr rr@{}}
+\toprule
+& & & & \multicolumn{4}{c}{$\varphi_d=r-r_c$} & \multicolumn{4}{c}{$\varphi_t=\tanh(r-r_c)$}\\
+\cmidrule(lr){5-8}\cmidrule(l){9-12}
+$n_c$ & $h$ & points & irr.\ $V_x/V_y/P$ & $e_x$ & ord. & $e_n$ & ord. & $e_x$ & ord. & $e_n$ & ord.\\
+\midrule
+ 10 & 1      &   28 & 24/24/12    & 3.9e-4  & --   & 9.3e-3 & --   & 1.5e-3 & --   & 1.5e-2 & --   \\
+ 20 & 0.5    &   60 & 48/48/24    & 1.9e-5  & 4.39 & 2.4e-3 & 1.94 & 7.6e-5 & 4.28 & 4.4e-3 & 1.74 \\
+ 40 & 0.25   &  124 & 88/88/44    & 1.7e-6  & 3.44 & 7.9e-4 & 1.63 & 6.8e-6 & 3.48 & 1.2e-3 & 1.93 \\
+ 80 & 0.125  &  252 & 184/184/92  & 1.0e-7  & 4.08 & 2.1e-4 & 1.89 & 3.8e-7 & 4.18 & 2.8e-4 & 2.06 \\
+160 & 0.0625 &  508 & 360/360/180 & 6.6e-9  & 3.94 & 4.9e-5 & 2.13 & 2.7e-8 & 3.79 & 7.3e-5 & 1.91 \\
+320 & 0.03125& 1020 & 728/728/364 & 4.3e-10 & 3.95 & 1.3e-5 & 1.90 & 1.7e-9 & 4.00 & 1.8e-5 & 2.00 \\
+\bottomrule
+\end{tabular}
+\caption{Convergence of interface positions and normals for the inclusion ($r_c=2$, $L=10$).
+\emph{points}: number of crossings; \emph{irr.}: number of irregular equations.
+No multiple crossings occur at any resolution.}
+\label{tab:conv}
+\end{table}
+
+\paragraph{Positions converge at fourth order.}
+\begin{itemize}
+  \item Along a grid line, the crossing is the root of the cubic interpolant through samples
+    spaced $\Delta/2$. The interpolation error is
+    \[
+    \frac{\varphi^{(4)}}{4!}\prod_k(s-s_k)=O(h^4),
+    \]
+    and bisection adds nothing (60 halvings).
+  \item The error that matters is the distance of $x_\Gamma$ from $\Gamma$. Shifting the root
+    along the line by $\delta s=\delta\varphi/|\partial_s\varphi|$ moves the point off
+    $\Gamma$ by
+    \[
+    \delta s\,|\mathbf n\cdot\mathbf e_s|=\delta\varphi/|\nabla\varphi|.
+    \]
+  \item The measured error $e_x$, a distance normal to $\Gamma$, is therefore \emph{not}
+    amplified at grazing intersections,
+    where $\Gamma$ is nearly parallel to the grid line. Only the tangential position of the
+    point is less accurate there, and the point still lies on $\Gamma$ to $O(h^4)$.
+  \item The local orders oscillate between 3.4 and 4.4 at coarse resolution. As $h$ changes,
+    the crossings move relative to the samples, and the factor $\prod_k(s-s_k)$ depends on
+    where in the stencil the root lies. The maximum is taken over a different set of points at
+    each resolution. The mean slope is 4.
+\end{itemize}
+
+\paragraph{Normals converge at second order.}
+Two approximations each contribute an $O(h^2)$ error:
+\begin{itemize}
+  \item the central difference over a width $\Delta$, with truncation error
+    $(\Delta^2/6)\,\partial^3\varphi$;
+  \item the linear interpolation of $\nabla\varphi$ along an edge of length $\Delta/2$.
+\end{itemize}
+Even for the exact distance function, $\partial^3\varphi\neq0$ because of the curvature
+$\kappa=1/r_c$. Hence $e_n\gg e_x$ in absolute terms ($10^{-5}$ against $10^{-10}$ at
+$n_c=320$). The order is nevertheless clean (1.6--2.1).
+
+\paragraph{A distance function is not required.}
+$\varphi_t$ gives the same orders as $\varphi_d$, with constants larger by a factor of about
+1.5--4. Both functions have $|\nabla\varphi|=1$ on $\Gamma$, so the larger constants come from
+the larger higher derivatives of $\tanh$. This matters for later steps: a level set reconstructed from
+markers will not be an exact distance function, and no redistancing is needed for the geometry
+to converge.
+
+\paragraph{Consequences for the IIM.}
+\begin{itemize}
+  \item In the first-order IIM, the corrections have the form
+    $C\sim([z]+[\nabla z]\cdot\boldsymbol\delta)/h^2$ and $C_p=\pm[p]/h$, where
+    $\boldsymbol\delta$ is the distance from $x_\Gamma$ to a grid node.
+  \item \emph{Position error.} An error $e_x=O(h^4)$ in $\boldsymbol\delta$ perturbs $C$ by
+    $O(h^2)$, which is negligible.
+  \item \emph{Normal error.} An error $e_n=O(h^2)$ rotates the $(n,t)$ frame in which the jumps
+    are written. This perturbs $[\nabla z]$ and $[p]=-2[\eta]\,\partial_t v_t$ by
+    $O(h^2)[\eta]$, which contributes $O(h)$ to the truncation error of the irregular
+    equations.
+  \item The one-sided linear fits give $\mathbf v_\Gamma$ to $O(h^2)$ and
+    $\partial_t\mathbf v_\Gamma$ to $O(h)$. Once divided by $h^2$ (and multiplied by
+    $\boldsymbol\delta\sim h$ for the derivative term), this leaves an $O(1)$ truncation error at
+    the irregular equations. That is the reason the scheme is only first order overall.
+  \item The geometry contributes at most $O(h)$, one order below the interpolation error, so it
+    is not expected to limit the accuracy of the first-order scheme. The second-order variant
+    will also need the curvature and the second derivatives of $\varphi$. These can be obtained
+    by central differences on the same lattice.
+  \item The irregular equations scale linearly with $n_c$ (about $2.3\,n_c$ for each
+    velocity component), so the extra cost of the corrections is $O(n_c)$ against $O(n_c^2)$
+    unknowns.
+\end{itemize}
+
+%---------------------------------------------------------------
+\section{Next steps}
+
+Step 2 builds the interpolation weights for $\mathbf v_\Gamma$ and
+$\partial_t\mathbf v_\Gamma$ at each crossing. Step 3 adds the jump conditions. Step 4 adds
+the corrected momentum and continuity kernels and a direct solve. The goal is the viscous
+inclusion test: unlike the standard averaging approach, the IIM pressure should converge in
+$L_\infty$.
+
+\end{document}
