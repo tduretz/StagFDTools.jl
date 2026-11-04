@@ -89,6 +89,10 @@ include("StokesIIM/Geometry.jl")
 export LevelSet, FineLattice, InterfaceCrossings, IrregularNodes, MultipleCrossings, side
 include("StokesIIM/Trace.jl")
 export OneSidedFit, InterfaceTrace, InterfaceTraces, apply_trace, tangent
+include("StokesIIM/Jumps.jl")
+export InterfaceJumps
+include("StokesIIM/Assembly.jl")
+export JumpFunctionals, AssembleIIM, SolveIIM
 end
 
 module StokesFSG

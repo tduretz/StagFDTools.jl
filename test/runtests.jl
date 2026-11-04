@@ -7,4 +7,6 @@ using Test
     include("test_xy.jl")
     include("test_iim_geometry.jl")
     include("test_iim_trace.jl")
+    include("test_iim_jumps.jl")
+    include("test_iim_assembly.jl")
 end

@@ -171,26 +171,41 @@ Example: `examples/_Stokes_IIM/IIM_Step2_Trace.jl`.
   - **Option if phase 5 shows this limits accuracy:** a 6-point quadratic fit (Landry's
     second-order version) or least squares.
 
-### Phase 3 — jumps (`src/StokesIIM/Jumps.jl`)
-- [ ] `jumps(Δη, v_Γ, ∂ₜv_Γ, n) -> ([z], [∇z], [p])`: a direct port of `compute_jumps.cxx`,
-      in SVector/SMatrix form.
-- [ ] Test: insert the exact Schmid & Podladchikov (2003) solution
-      (`ExactFieldSolutions.Stokes2D_Schmid2003`) at points on the circle and compare with
-      the jumps of that solution measured by finite differences on each side.
+### Phase 3 — jumps (`src/StokesIIM/Jumps.jl`) — done
+- [x] `InterfaceJumps(Δη, v_Γ, ∂ₜv_Γ, n) -> (z, ∇z, p)`, a port of `compute_jumps.cxx`.
+      Conventions: [q] = q₊ − q₋, Δη = η₊ − η₋, and `∇z[a, b] = [∂_b z_a]`.
+- [x] Test (`test/test_iim_jumps.jl`): at 37 points on the circle, the jumps computed from the
+      exact v_Γ and ∂ₜv_Γ match the jumps of the exact Schmid solution measured at
+      r_c(1 ± 10⁻⁷). Errors 10⁻⁶ to 10⁻¹⁰, for 3 contrasts, with and without simple shear.
 
-### Phase 4 — corrected operator and solve (`src/StokesIIM/Assembly.jl`)
-- [ ] z-form local residuals `IIM_Momentum_x`, `IIM_Momentum_y` and `IIM_Continuity`, each
-      the regular stencil plus `C`. Corrections, with x-momentum shown (Landry's file
-      `compute_Cxyz.cxx`):
-  - `:dd`: `+f·([z]·e_d + [∇z]·δ)/h²`, with f = 2 for d = dd and 1 otherwise
-  - `:side`: `−sgn·[∂z]/h`
-  - `:dp`: `+sgn·[p]/h`
-  - `:corner`: `±([z] + [∇z]·δ)/h²`
-- [ ] `Residual*_IIM!` and `Assemble*_IIM!`, with the same signatures as in `Stokes.jl`. The
-      extra columns are written through `K[a][b]`.
-- [ ] Driver `examples/_Stokes_IIM/IIM_Schmid2003.jl`: pattern → assemble → `lu` → recover v.
-- [ ] Ensure the residual is zero for z = 0, p = 0 (no affine leak), and check the Jacobian
-      against finite differences on a 16×16 grid (`test/test_iim_assembly.jl`).
+### Phase 4 — corrected operator and solve (`src/StokesIIM/Assembly.jl`) — done (first version)
+Examples: `examples/_Stokes_IIM/IIM_Step4_Inclusion.jl` and `StandardFD_Schmid2003.jl`.
+
+- [x] z-form operator with the numbering from `set_boundaries_template!(:all_Dirichlet)` and
+      `Numbering!`. The pressure level is fixed by a Lagrange multiplier (Σp = 0).
+- [x] One correction rule replaces Landry's four cases (`dd`, `side`, `dp`, `corner`): every
+      stencil member k across Γ is replaced by `q_k + s([q] + [∇q]·(x_k − x_Γ))` (only [p] for
+      pressure members).
+  - x_Γ is the crossing on the fine-lattice path between the node and k that is closest to
+    their midpoint.
+- [x] `JumpFunctionals`: the jumps as linear functions of the 12 cloud values of each crossing.
+- [x] Diagnostic option `Jexact`: given jumps enter the right-hand side.
+- [x] Tests (`test/test_iim_assembly.jl`): a simple shear parallel to an inclined Γ, with a
+      velocity offset, is reproduced to 1e−9 (v) and 1e−8 (p), including where Γ meets the
+      boundary.
+- [ ] **Not yet in StagFDTools style:** assembly uses explicit triplets in one function, not
+      AD-local kernels writing through `K[a][b]` with `PatternBlock`. Port it once the method
+      is settled.
+- [ ] Iterative solver (GCR with `M_PC`). For now, direct solve with `\`.
+- [x] **Result (Schmid 2003, nc 20–320):**
+  - Standard FD: L∞(P) does not converge (grows to 2.7–9.5).
+  - IIM: L∞(P) converges at about O(h^0.6). The results are the same for contrasts 10³ and
+    10⁶. L1(P) converges at about O(h).
+  - With exact jumps: errors are 3–10 times smaller, with a similar L∞ order. The remaining
+    order is that of the first-order corrections (truncation error O(1) at irregular nodes).
+  - **Next options:**
+    - better ∂ₜv_Γ (quadratic or least-squares fits);
+    - second-order corrections (½[∇²z]δ² and [∇p]δ, which need ∂ₜₜv_Γ and curvature).
 
 ### Phase 5 — verification and solver (`examples/_Stokes_IIM/IIM_convergence.jl`)
 - [ ] **Schmid 2003 circle:** η contrast 1e−6…1e6 in both directions, nc 32–512, and the same
