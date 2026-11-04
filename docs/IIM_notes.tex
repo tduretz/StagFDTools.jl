@@ -977,8 +977,30 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
   \label{fig:step7}
 \end{figure}
 
+\begin{figure}[p]
+  \centering
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_PressureFields_Schmid.png}\\[6pt]
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_PressureFields_Ellipse.png}
+  \caption{Pressure fields of the two IIM forms (quadratic fits, order~2) at $n_c=40$, 80 and 160
+  (rows), $\eta_{inc}/\eta_{mat}=10^3$, script \code{IIM\_Step7\_PressureFields.jl}.
+  \textbf{Top:} Schmid circle (incompressible, mean pressure removed).
+  \textbf{Bottom:} compressible Moutzouris ellipse. Columns: standard FD, z-form, stress form,
+  exact (same colour conventions as Fig.~\ref{fig:fields}), and $\log_{10}|P_z-P_{stress}|$ with
+  its maximum.}
+  \label{fig:step7fields}
+\end{figure}
+
 \paragraph{Discussion.}
 \begin{itemize}
+  \item \emph{Pressure fields} (Fig.~\ref{fig:step7fields}). Both IIM forms keep the pressure
+    jump sharp without the spikes of standard FD, and are visually indistinguishable from each
+    other and from the exact solution from $n_c=80$ on. Their difference converges: its maximum
+    drops from 0.16 to 0.025 (Schmid) and from 0.034 to 0.0084 (ellipse) between $n_c=40$ and
+    160. It is concentrated in the stiff inclusion and along $\Gamma$, where the two forms
+    use different stencils and crossings for the corrections; in the matrix it is below
+    $10^{-3}$ at $n_c=160$. For Schmid the difference inside the inclusion is smooth (four
+    lobes, mirroring the far-field pressure pattern), i.e.\ a small, slowly varying offset
+    rather than local noise.
   \item With the $z$-extension, the stress form reproduces the z-form in all three tests:
     within 3\% for C and within 25\% for D at $n_c=160$, with the same convergence. The
     StagFDTools structure (velocity interpolation, stresses at centroids and vertices) is
