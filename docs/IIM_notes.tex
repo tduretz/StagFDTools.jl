@@ -13,22 +13,28 @@
 \newcommand{\code}[1]{\texttt{#1}}
 
 \title{Immersed interface method in StagFDTools\\[2pt]
-\large Step 1: interface geometry on the staggered grid}
+\large Notes on steps 1--2: interface geometry and interface velocity}
 \author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
 \date{\today}
 
 \begin{document}
 \maketitle
 
-\noindent This note documents the first step of the implementation plan
+\noindent This note documents the first steps of the implementation plan
 (\texttt{docs/IIM\_plan.md}) for porting the immersed interface method (IIM) of
 W.~Landry (\url{https://gitlab.com/wlandry/discontinuous_stokes}) to StagFDTools.
 In that method, the Stokes equations are discretised on the standard MAC grid in terms
 of $z=\eta\mathbf v$ and $p$. Stencils that cross the viscosity interface $\Gamma$ receive
-correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$. Step~1 provides all the
-geometry these corrections need: where $\Gamma$ crosses the grid, the normal there, and which
-equations are affected. All the code is in \code{src/StokesIIM/Geometry.jl}, exported by the
-submodule \code{StagFDTools.StokesIIM}.
+correction terms built from the jumps $[z]$, $[\nabla z]$ and $[p]$.
+\begin{itemize}
+  \item \textbf{Step~1} (Sections~\ref{sec:s1impl}--\ref{sec:s1res}) provides the geometry
+    these corrections need: where $\Gamma$ crosses the grid, the normal there, and which
+    equations are affected.
+  \item \textbf{Step~2} (Section~\ref{sec:s2}) provides the interface velocity
+    $\mathbf v_\Gamma$ and its tangential derivative $\partial_t\mathbf v_\Gamma$, on which
+    all the jumps depend.
+\end{itemize}
+The code is in \code{src/StokesIIM/}, exported by the submodule \code{StagFDTools.StokesIIM}.
 
 %---------------------------------------------------------------
 \section{Discretisation}
@@ -65,7 +71,7 @@ with a viscosity-weighted average:
 \end{figure}
 
 %---------------------------------------------------------------
-\section{Implementation}
+\section{Step 1: implementation}\label{sec:s1impl}
 
 \paragraph{Convention.} $\Gamma=\{\varphi=0\}$, with $\varphi<0$ inside the inclusion and
 $\varphi>0$ in the matrix. The function \code{side($\varphi$)} (line~14) returns $-1$ or $+1$.
@@ -162,7 +168,7 @@ It never returns 0, so every node belongs to exactly one phase.
 The example is \code{examples/\_Stokes\_IIM/IIM\_Step1\_Geometry.jl}.
 
 %---------------------------------------------------------------
-\section{Results for the viscous inclusion geometry}
+\section{Step 1: results for the viscous inclusion geometry}\label{sec:s1res}
 
 The test geometry is that of Schmid \& Podladchikov (2003): a circular inclusion of radius
 $r_c=2$ centred in a square domain of side $L=10$. The grid spacing is
@@ -296,12 +302,141 @@ to converge.
 \end{itemize}
 
 %---------------------------------------------------------------
+\section{Step 2: interface velocity and tangential derivative}\label{sec:s2}
+
+\paragraph{Method.} At each crossing $x_\Gamma$ (normal $\mathbf n$, tangent
+$\mathbf t=(-n_y,n_x)$), and for each velocity component:
+\begin{itemize}
+  \item On each side $s=\pm1$, the 3 nodes of that component's grid closest to the fit centre
+    $x_\Gamma+sL\mathbf n$ define a linear interpolant of $z$. Here
+    $L=1/\max(|n_x|/\Delta x,|n_y|/\Delta y)$ is one cell along $\mathbf n$, as in Landry's
+    \code{compute\_dv\_dtt.cxx}.
+  \item The interpolant's value and gradient at $x_\Gamma$ give $z_s(x_\Gamma)$ and $\partial_t z_s$.
+  \item $\eta$ is constant on each side and $v_s=z_s/\eta_s$, so Landry's viscosity-weighted
+    average reduces to
+    \[
+    \mathbf v_\Gamma=\frac{z_-(x_\Gamma)+z_+(x_\Gamma)}{\eta_-+\eta_+},\qquad
+    \partial_t\mathbf v_\Gamma=\frac{\partial_t z_-+\partial_t z_+}{\eta_-+\eta_+}.
+    \]
+  \item This is exact when $\mathbf v$ is linear on each side and continuous across $\Gamma$
+    (then $z_\pm=\eta_\pm\mathbf v$).
+  \item Both quantities are linear in the 6 nodal values of $z$. They are therefore stored as
+    weights, which the assembly of step~4 will turn into matrix coefficients.
+  \item \emph{Deviation from Landry:} he takes $\partial_t z_\pm$ from separate nearest
+    one-sided differences. Here it comes from the gradient of the same fit. Both are $O(h)$.
+\end{itemize}
+
+\paragraph{Implementation} (\code{src/StokesIIM/Trace.jl}).
+\begin{enumerate}[leftmargin=*]
+\item \code{OneSidedFit} (line~20).
+  \begin{itemize}
+    \item Collect the candidate nodes within $\pm4$ cells of the fit centre that lie on side
+      $s$, and sort them by distance.
+    \item Take the 2 closest, then the next one that is not collinear with them
+      ($|\det[1,\,\delta x,\,\delta y]|>1/2$ in cell units). Unlike Landry's row/column test,
+      this also rejects diagonal alignments.
+    \item Return the barycentric weights $\lambda_k$ of $x_\Gamma$ and the gradient weights
+      $\mathbf g_k$, both from the inverse of the $3\times3$ matrix (\code{StaticArrays}).
+  \end{itemize}
+\item \code{InterfaceTrace} (line~53).
+  \begin{itemize}
+    \item Run the two one-sided fits.
+    \item Return the 6 node indices and the weights $v_k=\lambda_k/(\eta_-+\eta_+)$ and
+      $t_k=\mathbf g_k\cdot\mathbf t/(\eta_-+\eta_+)$, so that
+      $v_\Gamma=\sum_k v_kz_k$ and $\partial_tv_\Gamma=\sum_k t_kz_k$.
+  \end{itemize}
+\item \code{InterfaceTraces} (line~72). Applies \code{InterfaceTrace} to both components at
+  every crossing inside the domain. Candidates are the $V_x$ and $V_y$ nodes of the domain,
+  boundary nodes included (the ranges of \code{Ranges}).
+\item \code{apply\_trace} (line~85). Evaluates the weights on an array $z$.
+\end{enumerate}
+
+\noindent Tests are in \code{test/test\_iim\_trace.jl}. They check that:
+\begin{itemize}
+  \item the weights are exact (to $10^{-10}$) for a velocity field with a kink across an
+    inclined $\Gamma$;
+  \item $\sum_k v_k\eta_k=1$ and $\sum_k t_k\eta_k=0$;
+  \item each fit uses only nodes of its own side.
+\end{itemize}
+The example is \code{examples/\_Stokes\_IIM/IIM\_Step2\_Trace.jl}. It samples
+$z=\eta\mathbf v$ from the exact solution and compares the reconstructed values with the exact
+ones:
+\begin{itemize}
+  \item $\mathbf v(x_\Gamma)$ for the value;
+  \item $\mathbf L_{inc}\mathbf t$ for the derivative, where $\mathbf L_{inc}$ is the uniform
+    velocity gradient of the inclusion ($\partial_t\mathbf v$ is continuous across $\Gamma$).
+\end{itemize}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step2_Trace.png}
+  \caption{Interface velocity for the inclusion test ($r_c=2$, $L=10$, $\eta_{mat}=1$).
+  \textbf{Left:} the fits selected by the code at three crossings ($n_c=20$,
+  $\eta_{inc}/\eta_{mat}=10^3$). Stars are the crossings $x_\Gamma$ and crosses the fit centres
+  $x_\Gamma\pm L\mathbf n$. Triangles are the 3-node fits on the inclusion side (orange) and the
+  matrix side (blue), solid for $V_x$ and dashed for $V_y$.
+  \textbf{Middle, right:} maximum error of $v_\Gamma$ and $\partial_t v_\Gamma$ over all
+  crossings and both components against $h$, for three viscosity contrasts.}
+  \label{fig:step2}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}rr rr rr rr@{}}
+\toprule
+& & \multicolumn{4}{c}{$\eta_{inc}/\eta_{mat}=10^{-3}$} & \multicolumn{2}{c}{$10^{6}$}\\
+\cmidrule(lr){3-6}\cmidrule(l){7-8}
+$n_c$ & $h$ & $e_v$ & ord. & $e_t$ & ord. & $e_v$ & ord.\\
+\midrule
+  20 & 0.5     & 5.4e-1 & --   & 8.2e-1 & --   & 5.6e-5  & --   \\
+  40 & 0.25    & 1.9e-1 & 1.52 & 6.2e-1 & 0.41 & 5.1e-6  & 3.47 \\
+  80 & 0.125   & 6.9e-2 & 1.43 & 4.0e-1 & 0.64 & 2.6e-7  & 4.28 \\
+ 160 & 0.0625  & 2.2e-2 & 1.62 & 2.6e-1 & 0.62 & 2.1e-8  & 3.66 \\
+ 320 & 0.03125 & 6.2e-3 & 1.85 & 1.6e-1 & 0.69 & 6.2e-9  & 1.73 \\
+ 640 & 0.0156  & 1.7e-3 & 1.86 & 9.1e-2 & 0.81 & 1.7e-9  & 1.90 \\
+1280 & 0.0078  & 4.5e-4 & 1.93 & 4.7e-2 & 0.97 & 4.5e-10 & 1.90 \\
+\bottomrule
+\end{tabular}
+\caption{Errors of $v_\Gamma$ ($e_v$) and $\partial_tv_\Gamma$ ($e_t$). For the contrast $10^3$,
+all values equal those for $10^{-3}$ times $10^{-3}$, with identical orders. For $10^6$, $e_t$
+equals the $10^{-3}$ values times $10^{-6}$.}
+\label{tab:step2}
+\end{table}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item \emph{Orders.} $v_\Gamma$ converges at $O(h^2)$ and $\partial_t v_\Gamma$ at $O(h)$,
+    as expected for linear fits. This holds only asymptotically: the derivative reaches order~1
+    only around $n_c=1280$, about 250 cells per radius. Below that, the observed order is
+    0.4--0.8, and the error behaves as $e_t\approx h\,|\nabla^2\mathbf v|$ on the matrix side,
+    where $|\nabla^2\mathbf v|\approx12/r_c$ next to $\Gamma$.
+  \item \emph{Dependence on contrast.} Inside the inclusion the exact velocity is linear, so the
+    inclusion-side fit is exact. The whole error therefore comes from the matrix-side fit,
+    multiplied by its weight $\eta_{mat}/(\eta_{inc}+\eta_{mat})$. This explains the factors of
+    $10^{-3}$ and $10^{-6}$ between the curves.
+  \item \emph{What the IIM uses.} The quantity entering the corrections is the jump
+    $[z]=\Delta\eta\,v_\Gamma$, with error $|\Delta\eta|\,e_v$. This error is the same for the
+    contrasts $10^{-3}$ and $10^3$ (0.54 at $n_c=20$). For $10^6$ it is the same from
+    $n_c\approx320$ on ($6.2\cdot10^{-3}$), once the artifact discussed below has decayed. The
+    interface treatment therefore does not degrade at high contrast.
+  \item \emph{Coarse $10^6$ case.} Here $e_v$ is larger than the contrast scaling predicts and
+    decays at about $O(h^4)$. This is the position error of step~1, not an interpolation error:
+    $x_\Gamma$ lies $e_x=O(h^4)$ off $\Gamma$, and the exact velocity has a kink there, so the
+    reference value changes by $[\partial_n v]\,e_x$. It becomes visible only once the fit
+    error has been multiplied by $10^{-6}$.
+  \item \emph{Consequence.} The tangential derivative is the least accurate ingredient. It sets
+    $[\nabla z]$ and $[p]=-2[\eta]\partial_tv_t$, and therefore the pressure jump. If step~5
+    shows that it limits the pressure accuracy, the remedy is a 6-point quadratic fit (Landry's
+    second-order version) or a least-squares fit over more nodes.
+\end{itemize}
+
+%---------------------------------------------------------------
 \section{Next steps}
 
-Step 2 builds the interpolation weights for $\mathbf v_\Gamma$ and
-$\partial_t\mathbf v_\Gamma$ at each crossing. Step 3 adds the jump conditions. Step 4 adds
-the corrected momentum and continuity kernels and a direct solve. The goal is the viscous
-inclusion test: unlike the standard averaging approach, the IIM pressure should converge in
-$L_\infty$.
+Step 3 adds the jump conditions ($[z]$, $[\nabla z]$, $[p]$ from $\mathbf v_\Gamma$ and
+$\partial_t\mathbf v_\Gamma$). Step 4 adds the corrected momentum and continuity kernels and a
+direct solve. The goal is the viscous inclusion test: unlike the standard averaging approach,
+the IIM pressure should converge in $L_\infty$.
 
 \end{document}
