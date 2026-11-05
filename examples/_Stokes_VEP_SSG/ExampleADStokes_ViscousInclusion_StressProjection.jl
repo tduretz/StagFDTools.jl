@@ -4,17 +4,31 @@ import Random
 using DifferentiationInterface
 using TimerOutputs
 
+
 # Grid -> marker stress interpolation that preserves discrete force balance.
 #
 # After the Stokes solve, stresses are known on the grid (τxx, τyy, P at centroids, τxy at vertices).
 # Markers receive them by:
 #   (3) standard bilinear interpolation  ->  s̃
-#   (4) bilinear interpolation + equilibrium projection:
+#   (4) bilinear interpolation + equilibrium projection on the grid:
 #       s = s̃ - W⁻¹Bᵀ (B W⁻¹ Bᵀ)⁻¹ (B s̃ - f)
 #       where B = D Π, Π is the marker -> grid stress map and D the staggered discrete divergence.
 #       s is the closest field to s̃ (in the W-norm) whose marker -> grid projection is exactly in
 #       discrete force balance, i.e. it produces no spurious forces when fed back to the solver.
-
+#   (7) Airy stress function reconstruction: in each cell, a polynomial φ_k(x, y) of degree p is fitted (least
+#       squares) to the grid stresses of the surrounding 3×3 cells, with σxx = ∂²φ/∂y², σyy = ∂²φ/∂x²,
+#       σxy = -∂²φ/∂x∂y. The stress at the markers of the cell is then exactly divergence-free (pointwise,
+#       ∇·σ = 0 with g = 0), whatever the quality of the fit, but traction jumps across cell edges.
+#   (8) as (7), with φ = Σ_k w_k φ_k blended by a quadratic B-spline partition of unity (affine gauges of the φ_k
+#       aligned first). Airy(φ) is divergence-free for any φ, so markers stay in exact equilibrium; φ is C¹ across
+#       cell edges, so traction is also continuous there.
+#       For (7) and (8), only σ is reconstructed: P and τ are recovered with τzz taken from the bilinear interpolation.
+#
+# Marker-level diagnostics:
+#   - sub-grid residual D_sub Π_sub s on a staggered sub-grid with one marker per sub-cell
+#   - independent check: divergence of a linear least-squares fit of σ through the markers of each cell
+#     (cells cut by the interface are skipped since σ_tt legitimately jumps there)
+#   - pointwise: central finite-difference divergence of the reconstructed continuous field at each marker
 #--------------------------------------------#
 # Bilinear interpolation of a field F defined on a regular grid (x0, y0, Δx, Δy) to point (xm, ym)
 function bilinear(F, x0, y0, Δx, Δy, xm, ym)
@@ -73,7 +87,234 @@ function grid_residual(ops, τxx_c, τyy_c, τxy_v, P_c)
     return Rx, Ry
 end
 
-@views function marker_stress_comparison(a, nc, Δ, L, rad; nmark=4, w_mixed=1.0)
+# Equilibrium constraint rows for marker stresses s = [τxx; τyy; τxy; P]: B s = Δx * D Π s (scaled by Δx for conditioning)
+function equilibrium_constraint(ops, Πc, Πv, Δ, Nm)
+    Gx_c, Gy_v, Gy_c, Gx_v = ops
+    Z  = spzeros(size(Gx_c, 1), Nm)
+    Zy = spzeros(size(Gy_c, 1), Nm)
+    return Δ.x .* [Gx_c*Πc  Z        Gy_v*Πv  -Gx_c*Πc;
+                   Zy       Gy_c*Πc  Gx_v*Πv  -Gy_c*Πc]
+end
+
+# Closest s to s̃ (W-norm) such that B s = f
+function project(B, s̃, Winv, f)
+    S = B * Winv * B'
+    λ = cholesky(Symmetric(S + 1e-12 * mean(diag(S)) * I)) \ (B * s̃ .- f)
+    return s̃ .- Winv * (B' * λ)
+end
+
+# Exponents (a, b) of the monomials ξᵃηᵇ of φ, 2 ≤ a + b ≤ p (affine terms produce no stress)
+airy_exponents(p) = [(a, n - a) for n in 2:p for a in 0:n]
+
+# ∂^(da+db) (ξᵃηᵇ) / ∂ξ^da ∂η^db
+dmono(a, b, da, db, ξ, η) = (a < da || b < db) ? 0.0 :
+    prod(a-da+1:a; init=1.0) * prod(b-db+1:b; init=1.0) * ξ^(a - da) * η^(b - db)
+
+# Airy stress (σxx, σyy, σxy) of φ = Σ c ξᵃηᵇ in local coordinates ξ = (x - xc)/Δx, η = (y - yc)/Δy
+airy_rows(exps, ξ, η, Δ) = ([dmono(a, b, 0, 2, ξ, η) / Δ.y^2 for (a, b) in exps],
+                            [dmono(a, b, 2, 0, ξ, η) / Δ.x^2 for (a, b) in exps],
+                            [-dmono(a, b, 1, 1, ξ, η) / (Δ.x * Δ.y) for (a, b) in exps])
+
+# Collection of per-cell stress functions φ_k(x, y) = Σ C[:, k] ξᵃηᵇ + A[1, k] + A[2, k] ξ + A[3, k] η,
+# with ξ, η local to the centre of cell k
+struct AiryField{E,T,D,N}
+    exps::E
+    C::Matrix{Float64}   # polynomial coefficients (degree 2..p), one column per cell
+    A::Matrix{Float64}   # affine part (no stress, only matters for blending)
+    xc::T
+    yc::T
+    Δ::D
+    nc::N
+end
+
+# (7) Per-cell least-squares fit of φ_k to the grid stresses of the surrounding (2r+1)² cells
+# Returns the field and the rms misfit of each cell fit
+function airy_fit(X, Δ, nc, τxx_c, τyy_c, τxy_v, P_c; p=5, r=1)
+    exps = airy_exponents(p)
+    LI   = LinearIndices((nc.x, nc.y))
+    C    = zeros(length(exps), nc.x * nc.y)
+    misfit = zeros(nc.x, nc.y)
+    for j in 1:nc.y, i in 1:nc.x
+        xc, yc = X.c.x[i], X.c.y[j]
+        # Patch of (2r+1)² cells, shifted inwards at the boundaries
+        i0 = clamp(i - r, 1, nc.x - 2r); j0 = clamp(j - r, 1, nc.y - 2r)
+        A, d = Vector{Vector{Float64}}(), Float64[]
+        for jj in j0:j0+2r, ii in i0:i0+2r
+            rxx, ryy, _ = airy_rows(exps, (X.c.x[ii] - xc) / Δ.x, (X.c.y[jj] - yc) / Δ.y, Δ)
+            push!(A, rxx); push!(d, τxx_c[ii, jj] - P_c[ii, jj])
+            push!(A, ryy); push!(d, τyy_c[ii, jj] - P_c[ii, jj])
+        end
+        for jj in j0:j0+2r+1, ii in i0:i0+2r+1
+            _, _, rxy = airy_rows(exps, (X.v.x[ii] - xc) / Δ.x, (X.v.y[jj] - yc) / Δ.y, Δ)
+            push!(A, rxy); push!(d, τxy_v[ii, jj])
+        end
+        M = reduce(vcat, transpose.(A))
+        c = M \ d
+        C[:, LI[i, j]] .= c
+        misfit[i, j] = norm(M * c .- d) / sqrt(length(d))
+    end
+    return AiryField(exps, C, zeros(3, nc.x * nc.y), X.c.x, X.c.y, Δ, nc), misfit
+end
+
+# ∂^(da+db) φ_k / ∂x^da ∂y^db at (x, y), physical coordinates
+function phi_deriv(F::AiryField, k, da, db, x, y; affine=true)
+    i, j = mod1(k, F.nc.x), cld(k, F.nc.x)
+    ξ, η = (x - F.xc[i]) / F.Δ.x, (y - F.yc[j]) / F.Δ.y
+    v = 0.0
+    for (n, (a, b)) in enumerate(F.exps)
+        v += F.C[n, k] * dmono(a, b, da, db, ξ, η)
+    end
+    if affine
+        (da, db) == (0, 0) && (v += F.A[1, k] + F.A[2, k] * ξ + F.A[3, k] * η)
+        (da, db) == (1, 0) && (v += F.A[2, k])
+        (da, db) == (0, 1) && (v += F.A[3, k])
+    end
+    return v / (F.Δ.x^da * F.Δ.y^db)
+end
+
+# Unblended stress: φ of the cell containing (x, y)
+function airy_sigma_cell(F::AiryField, x, y)
+    i = clamp(floor(Int, (x - F.xc[1]) / F.Δ.x + 0.5) + 1, 1, F.nc.x)
+    j = clamp(floor(Int, (y - F.yc[1]) / F.Δ.y + 0.5) + 1, 1, F.nc.y)
+    k = i + (j - 1) * F.nc.x
+    return (phi_deriv(F, k, 0, 2, x, y), phi_deriv(F, k, 2, 0, x, y), -phi_deriv(F, k, 1, 1, x, y))
+end
+
+# Quadratic B-spline (unit knot spacing) and its first two derivatives
+function bspline2(t)
+    s = abs(t)
+    s <= 0.5 && return (0.75 - t^2, -2t, -2.0)
+    s <= 1.5 && return (0.5 * (1.5 - s)^2, -(1.5 - s) * sign(t), 1.0)
+    return (0.0, 0.0, 0.0)
+end
+
+# Partition-of-unity weights along one direction: quadratic B-splines centred on the n cell centres x0 + (i-1)h,
+# the ghost splines beyond the boundaries being merged into the boundary cells (keeps Σw = 1 and C¹).
+# Returns [(index, (w, ∂w, ∂²w))]
+function pu_weights_1d(x, x0, h, n)
+    out = Tuple{Int,NTuple{3,Float64}}[]
+    ic  = round(Int, (x - x0) / h) + 1
+    for i in ic-1:ic+1
+        b, db, d2b = bspline2((x - (x0 + (i - 1) * h)) / h)
+        w = (b, db / h, d2b / h^2)
+        b == 0 && continue
+        k = clamp(i, 1, n)
+        idx = findfirst(e -> e[1] == k, out)
+        isnothing(idx) ? push!(out, (k, w)) : (out[idx] = (k, out[idx][2] .+ w))
+    end
+    return out
+end
+
+# ∂^(ax+ay) φ / ∂x^ax ∂y^ay of the blended φ = Σ_k w_k φ_k (Leibniz rule), ax, ay ≤ 2
+function phi_blended_deriv(F::AiryField, wx, wy, ax, ay, x, y)
+    v = 0.0
+    for (kx, Wx) in wx, (ky, Wy) in wy
+        k = kx + (ky - 1) * F.nc.x
+        for bx in 0:ax, by in 0:ay
+            v += binomial(ax, bx) * binomial(ay, by) * Wx[bx+1] * Wy[by+1] * phi_deriv(F, k, ax - bx, ay - by, x, y)
+        end
+    end
+    return v
+end
+
+# (8) Blended stress: σ = Airy(Σ_k w_k φ_k). Any φ gives ∇·σ = 0, so blending cannot break pointwise equilibrium;
+# φ is C¹ across the knot lines (cell edges), hence traction σ·n is continuous there
+function airy_sigma_blended(F::AiryField, x, y)
+    wx = pu_weights_1d(x, F.xc[1], F.Δ.x, F.nc.x)
+    wy = pu_weights_1d(y, F.yc[1], F.Δ.y, F.nc.y)
+    return (phi_blended_deriv(F, wx, wy, 0, 2, x, y), phi_blended_deriv(F, wx, wy, 2, 0, x, y), -phi_blended_deriv(F, wx, wy, 1, 1, x, y))
+end
+
+# Each φ_k is only defined up to an affine part, and Airy(w_k a_k) ≠ 0: choose the affine parts so that overlapping
+# φ_k agree as well as possible (weighted least squares on 5 sample points per cell). Only affects accuracy.
+function align_affine!(F::AiryField)
+    N  = F.nc.x * F.nc.y
+    II, JJ, VV, rhs, r = Int[], Int[], Float64[], Float64[], 0
+    for j in 1:F.nc.y, i in 1:F.nc.x, (ox, oy) in ((0, 0), (-0.25, -0.25), (0.25, -0.25), (-0.25, 0.25), (0.25, 0.25))
+        x, y = F.xc[i] + ox * F.Δ.x, F.yc[j] + oy * F.Δ.y
+        act = [(kx + (ky - 1) * F.nc.x, Wx[1] * Wy[1]) for (kx, Wx) in pu_weights_1d(x, F.xc[1], F.Δ.x, F.nc.x)
+                                                       for (ky, Wy) in pu_weights_1d(y, F.yc[1], F.Δ.y, F.nc.y)]
+        for p in eachindex(act), q in p+1:length(act)
+            (k, wk), (l, wl) = act[p], act[q]
+            s = sqrt(wk * wl)
+            r += 1
+            for (m, sg) in ((k, 1.0), (l, -1.0))
+                mi, mj = mod1(m, F.nc.x), cld(m, F.nc.x)
+                ξ, η = (x - F.xc[mi]) / F.Δ.x, (y - F.yc[mj]) / F.Δ.y
+                append!(II, (r, r, r)); append!(JJ, 3m .- (2, 1, 0)); append!(VV, sg * s .* (1.0, ξ, η))
+            end
+            push!(rhs, -s * (phi_deriv(F, k, 0, 0, x, y; affine=false) - phi_deriv(F, l, 0, 0, x, y; affine=false)))
+        end
+    end
+    M  = sparse(II, JJ, VV, r, 3N)
+    Nm = M' * M
+    a  = cholesky(Symmetric(Nm + 1e-10 * mean(diag(Nm)) * I)) \ (M' * rhs)   # regularisation fixes the global affine
+    F.A .= reshape(a, 3, N)
+    return F
+end
+
+# Marker stresses from a stress-field closure σf(x, y) -> (σxx, σyy, σxy); P and τ recovered with τzz from bilinear
+function markers_from_sigma(σf, xm, ym, τzz_m)
+    Nm = length(xm)
+    τxx, τyy, τxy, P = zeros(Nm), zeros(Nm), zeros(Nm), zeros(Nm)
+    Threads.@threads for m in 1:Nm
+        σxx, σyy, σxy = σf(xm[m], ym[m])
+        # σzz = τzz - P, P = -(σxx + σyy + σzz)/3
+        P[m]   = -(σxx + σyy + τzz_m[m]) / 2
+        τxx[m] = σxx + P[m]
+        τyy[m] = σyy + P[m]
+        τxy[m] = σxy
+    end
+    return τxx, τyy, τxy, P
+end
+
+# Independent pointwise check: central finite-difference divergence of the reconstructed field σf at each marker
+# (h ≪ distance of the markers to the cell edges). Returns |∇·σ| per marker and the largest derivative magnitude
+function fd_divergence(σf, xm, ym, h)
+    div = zeros(length(xm)); dmax = 0.0
+    for m in eachindex(xm)
+        x, y = xm[m], ym[m]
+        sxp, sxm, syp, sym = σf(x + h, y), σf(x - h, y), σf(x, y + h), σf(x, y - h)
+        d = ((sxp[1] - sxm[1]), (syp[3] - sym[3]), (sxp[3] - sxm[3]), (syp[2] - sym[2])) ./ (2h)
+        div[m] = hypot(d[1] + d[2], d[3] + d[4])
+        dmax = max(dmax, maximum(abs, d))
+    end
+    return div, dmax
+end
+
+# Stress jumps across interior cell edges (sampled at 3 points per edge, ±ε on each side):
+# traction (normal-normal, normal-tangential) must be continuous for equilibrium, σ_tt may jump
+function edge_jumps(σf, X, Δ, nc; ε=1e-6)
+    jt, jtt = 0.0, 0.0
+    for j in 1:nc.y, i in 2:nc.x, s in (0.25, 0.5, 0.75)        # vertical edges x = X.v.x[i]: traction (σxx, σxy)
+        x, y = X.v.x[i], X.v.y[j] + s * Δ.y
+        l, r = σf(x - ε * Δ.x, y), σf(x + ε * Δ.x, y)
+        jt  = max(jt, abs(l[1] - r[1]), abs(l[3] - r[3])); jtt = max(jtt, abs(l[2] - r[2]))
+    end
+    for j in 2:nc.y, i in 1:nc.x, s in (0.25, 0.5, 0.75)        # horizontal edges y = X.v.y[j]: traction (σxy, σyy)
+        x, y = X.v.x[i] + s * Δ.x, X.v.y[j]
+        b, t = σf(x, y - ε * Δ.y), σf(x, y + ε * Δ.y)
+        jt  = max(jt, abs(b[2] - t[2]), abs(b[3] - t[3])); jtt = max(jtt, abs(b[1] - t[1]))
+    end
+    return jt, jtt
+end
+
+# Divergence of a linear least-squares fit σ ≈ c₀ + c₁x + c₂y through the markers of each cell (NaN in mixed cells)
+function cell_fit_divergence(xm, ym, τxx, τyy, τxy, P, nc, nmark, mixed)
+    divx, divy = fill(NaN, nc.x, nc.y), fill(NaN, nc.x, nc.y)
+    n = nmark^2
+    for j in 1:nc.y, i in 1:nc.x
+        mixed[i, j] && continue
+        ms = ((j - 1) * nc.x + (i - 1)) * n .+ (1:n)
+        A  = [ones(n) xm[ms] ym[ms]]
+        cxx, cyy, cxy = A \ (τxx[ms] .- P[ms]), A \ (τyy[ms] .- P[ms]), A \ τxy[ms]
+        divx[i, j] = cxx[2] + cxy[3]
+        divy[i, j] = cxy[2] + cyy[3]
+    end
+    return divx, divy
+end
+
+@views function marker_stress_comparison(a, nc, Δ, L, rad; nmark=4, w_mixed=1.0, airy_p=5)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
     X = a.X
@@ -83,14 +324,12 @@ end
     τxx_c = a.τ.xx[inx_c, iny_c]
     τyy_c = a.τ.yy[inx_c, iny_c]
     τxy_v = a.τ.xy[inx_v, iny_v]
-    τzz_c = .-(τxx_c .+ τyy_c)
 
     ops = divergence_operators(nc, Δ)
     Rx_grid, Ry_grid = grid_residual(ops, τxx_c, τyy_c, τxy_v, P_c)
     @printf("Grid solution:            max|R| = %.3e  (reference: discrete balance of the solver)\n", max(maximum(abs, Rx_grid), maximum(abs, Ry_grid)))
-    @printf("Boundary vertices:        max|τxy| = %.3e\n", max(maximum(abs, τxy_v[1, :]), maximum(abs, τxy_v[end, :]), maximum(abs, τxy_v[:, 1]), maximum(abs, τxy_v[:, end])))
 
-    # (2) Markers: nmark × nmark per cell, randomly perturbed
+    # (2) Markers: nmark × nmark per cell (one per sub-cell), randomly perturbed
     Random.seed!(1234)
     xm, ym = Float64[], Float64[]
     for j in 1:nc.y, i in 1:nc.x, jm in 1:nmark, im in 1:nmark
@@ -110,100 +349,125 @@ end
     τyy_b = [bilinear(τyy_e, xc0, yc0, Δ.x, Δ.y, xm[m], ym[m]) for m in 1:Nm]
     P_b   = [bilinear(P_e,   xc0, yc0, Δ.x, Δ.y, xm[m], ym[m]) for m in 1:Nm]
     τxy_b = [bilinear(τxy_v, xv0, yv0, Δ.x, Δ.y, xm[m], ym[m]) for m in 1:Nm]
-    τzz_b = .-(τxx_b .+ τyy_b)
+    s̃     = [τxx_b; τyy_b; τxy_b; P_b]
 
     # Marker -> grid maps; boundary τxy is set by the free slip condition (τxy = 0), so it has no marker contribution
+    inner(nx, ny) = (act = trues(nx, ny); act[1, :] .= false; act[end, :] .= false; act[:, 1] .= false; act[:, end] .= false; act)
     Πc = marker_to_grid_matrix(xm, ym, X.c.x[1], X.c.y[1], Δ.x, Δ.y, nc.x, nc.y, trues(nc.x, nc.y))
-    act_v = trues(nc.x + 1, nc.y + 1); act_v[1, :] .= false; act_v[end, :] .= false; act_v[:, 1] .= false; act_v[:, end] .= false
-    Πv = marker_to_grid_matrix(xm, ym, xv0, yv0, Δ.x, Δ.y, nc.x + 1, nc.y + 1, act_v)
+    Πv = marker_to_grid_matrix(xm, ym, xv0, yv0, Δ.x, Δ.y, nc.x + 1, nc.y + 1, inner(nc.x + 1, nc.y + 1))
+    B  = equilibrium_constraint(ops, Πc, Πv, Δ, Nm)
 
-    # Constraint B s = f with s = [τxx; τyy; τxy; P] on markers (rows scaled by Δx for conditioning)
-    Gx_c, Gy_v, Gy_c, Gx_v = ops
-    Z  = spzeros(size(Gx_c, 1), Nm)
-    Zy = spzeros(size(Gy_c, 1), Nm)
-    B  = Δ.x .* [Gx_c*Πc  Z        Gy_v*Πv  -Gx_c*Πc;
-                 Zy       Gy_c*Πc  Gx_v*Πv  -Gy_c*Πc]
-    f  = zeros(size(B, 1))   # no body force here (g = 0)
+    # Sub-grid: each marker is the centroid value of its own sub-cell; sub-grid vertices average the surrounding markers
+    ns   = (x = nmark * nc.x, y = nmark * nc.y)
+    Δs   = (x = Δ.x / nmark, y = Δ.y / nmark)
+    LIs  = LinearIndices((ns.x, ns.y))
+    sub  = [LIs[clamp(floor(Int, (xm[m] - xv0) / Δs.x) + 1, 1, ns.x), clamp(floor(Int, (ym[m] - yv0) / Δs.y) + 1, 1, ns.y)] for m in 1:Nm]
+    Πc_s = sparse(sub, 1:Nm, ones(Nm), ns.x * ns.y, Nm)
+    Πv_s = marker_to_grid_matrix(xm, ym, xv0, yv0, Δs.x, Δs.y, ns.x + 1, ns.y + 1, inner(ns.x + 1, ns.y + 1))
+    ops_s = divergence_operators(ns, Δs)
+    B_s   = equilibrium_constraint(ops_s, Πc_s, Πv_s, Δs, Nm)
 
-    # (4) Equilibrium projection. W: confidence per marker; markers in cells cut by the interface can be
-    # made cheaper to modify (w_mixed < 1) so that the correction goes where bilinear interpolation is least reliable
+    # Weights W: confidence per marker; markers in cells cut by the interface can be made cheaper to modify
+    # (w_mixed < 1) so that the correction goes where bilinear interpolation is least reliable
     cell_of(m) = (clamp(floor(Int, (xm[m] - xv0) / Δ.x) + 1, 1, nc.x), clamp(floor(Int, (ym[m] - yv0) / Δ.y) + 1, 1, nc.y))
     mixed = falses(nc.x, nc.y)
     for m in 1:Nm
         i, j = cell_of(m)
         mixed[i, j] |= phase[m] != phase[1 + (m - 1) - mod(m - 1, nmark^2)]   # differs from first marker of the cell
     end
-    w     = [mixed[cell_of(m)...] ? w_mixed : 1.0 for m in 1:Nm]
-    Winv  = spdiagm(repeat(1 ./ w, 4))
-    s̃     = [τxx_b; τyy_b; τxy_b; P_b]
-    S     = B * Winv * B'
-    λ     = cholesky(Symmetric(S + 1e-12 * mean(diag(S)) * I)) \ (B * s̃ .- f)
-    s     = s̃ .- Winv * (B' * λ)
-    τxx_p, τyy_p, τxy_p, P_p = s[1:Nm], s[Nm+1:2Nm], s[2Nm+1:3Nm], s[3Nm+1:4Nm]
-    τzz_p = .-(τxx_p .+ τyy_p)
+    w    = [mixed[cell_of(m)...] ? w_mixed : 1.0 for m in 1:Nm]
+    Winv = spdiagm(repeat(1 ./ w, 4))
 
-    # Round trip marker -> grid and discrete force balance
-    back(τxx, τyy, τxy, P) = (reshape(Πc * τxx, nc.x, nc.y), reshape(Πc * τyy, nc.x, nc.y), reshape(Πv * τxy, nc.x + 1, nc.y + 1), reshape(Πc * P, nc.x, nc.y))
-    Rx_b, Ry_b = grid_residual(ops, back(τxx_b, τyy_b, τxy_b, P_b)...)
-    Rx_p, Ry_p = grid_residual(ops, back(τxx_p, τyy_p, τxy_p, P_p)...)
-    @printf("Bilinear  -> grid:        max|R| = %.3e\n", max(maximum(abs, Rx_b), maximum(abs, Ry_b)))
-    @printf("Projected -> grid:        max|R| = %.3e\n", max(maximum(abs, Rx_p), maximum(abs, Ry_p)))
-    @printf("Marker change (projected - bilinear): max|ΔP| = %.3e, max|Δτxx| = %.3e, max|Δτxy| = %.3e (max|τxx| = %.3e)\n",
-        maximum(abs, P_p .- P_b), maximum(abs, τxx_p .- τxx_b), maximum(abs, τxy_p .- τxy_b), maximum(abs, τxx_b))
+    # (4) grid-level projection (no body force here, f = 0)
+    s4 = project(B, s̃, Winv, zeros(size(B, 1)))
+
+    # (7) per-cell Airy reconstruction, (8) the same φ_k blended with a partition of unity
+    τzz_b = .-(τxx_b .+ τyy_b)
+    t_fit   = @elapsed (AF, misfit) = airy_fit(X, Δ, nc, τxx_c, τyy_c, τxy_v, P_c; p=airy_p)
+    t_align = @elapsed align_affine!(AF)
+    σ_cell(x, y)  = airy_sigma_cell(AF, x, y)
+    σ_blend(x, y) = airy_sigma_blended(AF, x, y)
+    t7 = @elapsed s7 = markers_from_sigma(σ_cell,  xm, ym, τzz_b)
+    t8 = @elapsed s8 = markers_from_sigma(σ_blend, xm, ym, τzz_b)
+    @printf("Airy p = %d: fit %.2f s, affine alignment %.2f s, marker evaluation %.2f s (cell) / %.2f s (blended) | fit misfit rms: median %.2e, max %.2e\n",
+        airy_p, t_fit, t_align, t7, t8, sort(vec(misfit))[end÷2+1], maximum(misfit))
+
+    # Independent pointwise check: FD divergence of each reconstructed continuous field at the markers
+    σ_bilin(x, y) = (bilinear(τxx_e, xc0, yc0, Δ.x, Δ.y, x, y) - bilinear(P_e, xc0, yc0, Δ.x, Δ.y, x, y),
+                     bilinear(τyy_e, xc0, yc0, Δ.x, Δ.y, x, y) - bilinear(P_e, xc0, yc0, Δ.x, Δ.y, x, y),
+                     bilinear(τxy_v, xv0, yv0, Δ.x, Δ.y, x, y))
+    for (name, σf) in (("(3) bilinear", σ_bilin), ("(7) Airy per cell", σ_cell), ("(8) Airy blended", σ_blend))
+        dv, dmax = fd_divergence(σf, xm, ym, 1e-4 * Δ.x)
+        jt, jtt = edge_jumps(σf, X, Δ, nc)
+        @printf("Pointwise FD |∇·σ| at markers, %-18s: median %.2e, max %.2e (max |∂σ| = %.2e) | cell-edge jumps: traction %.2e, σ_tt %.2e\n",
+            name, sort(dv)[end÷2+1], maximum(dv), dmax, jt, jtt)
+    end
+
+    split4(s) = (s[1:Nm], s[Nm+1:2Nm], s[2Nm+1:3Nm], s[3Nm+1:4Nm])
+    methods = (("(3) bilinear", split4(s̃)), ("(4) grid projection", split4(s4)),
+               ("(7) Airy p = $airy_p", s7), ("(8) Airy p = $airy_p blended", s8))
+
+    # Diagnostics: grid residual after marker -> grid, sub-grid (marker-level) residual, per-cell fit divergence
+    back(τxx, τyy, τxy, P)     = (reshape(Πc * τxx, nc.x, nc.y), reshape(Πc * τyy, nc.x, nc.y), reshape(Πv * τxy, nc.x + 1, nc.y + 1), reshape(Πc * P, nc.x, nc.y))
+    back_sub(τxx, τyy, τxy, P) = (reshape(Πc_s * τxx, ns.x, ns.y), reshape(Πc_s * τyy, ns.x, ns.y), reshape(Πv_s * τxy, ns.x + 1, ns.y + 1), reshape(Πc_s * P, ns.x, ns.y))
+    diag_out = map(methods) do (name, f)
+        R    = grid_residual(ops, back(f...)...)
+        Rs   = grid_residual(ops_s, back_sub(f...)...)
+        divf = cell_fit_divergence(xm, ym, f..., nc, nmark, mixed)
+        dabs = filter(!isnan, sqrt.(divf[1] .^ 2 .+ divf[2] .^ 2))
+        @printf("%-24s grid max|R| = %.2e | sub-grid max|R| = %.2e | cell-fit |div σ|: median %.2e, max %.2e | max|Δs| vs (3) = %.2e\n",
+            name, max(maximum(abs, R[1]), maximum(abs, R[2])), max(maximum(abs, Rs[1]), maximum(abs, Rs[2])),
+            sort(dabs)[end÷2+1], maximum(dabs), maximum(abs, vcat(f...) .- s̃))
+        (R=R, Rs=Rs, divf=divf)
+    end
 
     #--------------------------------------------#
-    # Figure: grid (FD) solution, markers (bilinear / projected / difference) and residual of the marker -> grid round trip
-    Fig = Figure(size=(2000, 1350), fontsize=14)
+    # Figure: columns = grid (FD), (3), (4), (7) Airy per cell, (8) Airy blended; rows = τxx, P, grid residual, sub-grid residual, cell-fit divergence
+    Fig = Figure(size=(2500, 2300), fontsize=14)
     θ   = LinRange(0, 2π, 200)
+    circle!(ax) = lines!(ax, rad .* cos.(θ), rad .* sin.(θ), color=:black, linewidth=1)
     # Each marker sits in its own sub-cell (nmark × nmark per cell), so marker values are shown as an image, one pixel per marker
-    xs  = X.v.x[1] .+ ((1:nmark*nc.x) .- 0.5) .* Δ.x / nmark
-    ys  = X.v.y[1] .+ ((1:nmark*nc.y) .- 0.5) .* Δ.y / nmark
-    to_image(val) = reshape(permutedims(reshape(val, nmark, nmark, nc.x, nc.y), (1, 3, 2, 4)), nmark * nc.x, nmark * nc.y)
-    function marker_panel(pos, title, val; cmap=:redsblues, crange=nothing)
+    xs  = X.v.x[1] .+ ((1:ns.x) .- 0.5) .* Δs.x
+    ys  = X.v.y[1] .+ ((1:ns.y) .- 0.5) .* Δs.y
+    to_image(val) = reshape(permutedims(reshape(val, nmark, nmark, nc.x, nc.y), (1, 3, 2, 4)), ns.x, ns.y)
+    function panel(pos, title, x, y, val; cmap=:redsblues, crange=(-1, 1) .* maximum(abs, filter(!isnan, val)))
         ax = Axis(Fig[pos...], aspect=DataAspect(), title=title, xlabel="x", ylabel="y")
-        cr = isnothing(crange) ? (m = maximum(abs, val); (-m, m)) : crange
-        sc = heatmap!(ax, xs, ys, to_image(val), colormap=cmap, colorrange=cr)
-        lines!(ax, rad .* cos.(θ), rad .* sin.(θ), color=:black, linewidth=1)
-        Colorbar(Fig[pos[1], pos[2]+1], sc)
-        return ax
-    end
-    function grid_panel(pos, title, val; cmap=:redsblues, crange)
-        ax = Axis(Fig[pos...], aspect=DataAspect(), title=title, xlabel="x", ylabel="y")
-        hm = heatmap!(ax, X.c.x, X.c.y, val, colormap=cmap, colorrange=crange)
-        lines!(ax, rad .* cos.(θ), rad .* sin.(θ), color=:black, linewidth=1)
+        hm = heatmap!(ax, x, y, val, colormap=cmap, colorrange=crange, nan_color=:lightgray)
+        circle!(ax)
         Colorbar(Fig[pos[1], pos[2]+1], hm)
         return ax
     end
     cr_τ = (-1, 1) .* maximum(abs, τxx_b)
     cr_P = (-1, 1) .* maximum(abs, P_b)
-    grid_panel(  (1, 1), "τxx — grid (FD)",     τxx_c; crange=cr_τ)
-    marker_panel((1, 3), "τxx — bilinear (3)",  τxx_b; crange=cr_τ)
-    marker_panel((1, 5), "τxx — projected (4)", τxx_p; crange=cr_τ)
-    marker_panel((1, 7), "τxx: (4) − (3)",      τxx_p .- τxx_b)
-    grid_panel(  (2, 1), "P — grid (FD)",       P_c; crange=cr_P)
-    marker_panel((2, 3), "P — bilinear (3)",    P_b; crange=cr_P)
-    marker_panel((2, 5), "P — projected (4)",   P_p; crange=cr_P)
-    marker_panel((2, 7), "P: (4) − (3)",        P_p .- P_b)
+    lR   = (-16, 3)
+    lg(R, n) = log10.(abs.(reshape(R, n...)) .+ 1e-16)
 
-    # Residual magnitude at Vx nodes
-    xVx, yVx = X.v.x[2:end-1], X.c.y
-    lR(R)    = log10.(abs.(reshape(R, nc.x - 1, nc.y)) .+ 1e-16)
-    for (col, R, title) in ((1, Rx_grid, "log₁₀|Rx| — grid (FD)"), (3, Rx_b, "log₁₀|Rx| — (3) markers → grid"), (5, Rx_p, "log₁₀|Rx| — (4) markers → grid"))
-        ax = Axis(Fig[3, col], aspect=DataAspect(), title=title, xlabel="x", ylabel="y")
-        hm = heatmap!(ax, xVx, yVx, lR(R), colormap=:viridis, colorrange=(-16, 2))
-        Colorbar(Fig[3, col+1], hm)
+    panel((1, 1), "τxx — grid (FD)", X.c.x, X.c.y, τxx_c; crange=cr_τ)
+    panel((2, 1), "P — grid (FD)",   X.c.x, X.c.y, P_c;   crange=cr_P)
+    panel((3, 1), "log₁₀|Rx| grid — FD", X.v.x[2:end-1], X.c.y, lg(Rx_grid, (nc.x - 1, nc.y)); cmap=:viridis, crange=lR)
+    for (k, ((name, f), d)) in enumerate(zip(methods, diag_out))
+        col = 2k + 1
+        panel((1, col), "τxx — $name", xs, ys, to_image(f[1]); crange=cr_τ)
+        panel((2, col), "P — $name",   xs, ys, to_image(f[4]); crange=cr_P)
+        panel((3, col), "log₁₀|Rx| grid — $name",     X.v.x[2:end-1], X.c.y, lg(d.R[1], (nc.x - 1, nc.y)); cmap=:viridis, crange=lR)
+        panel((4, col), "log₁₀|Rx| sub-grid — $name", xs[1:end-1] .+ Δs.x / 2, ys, lg(d.Rs[1], (ns.x - 1, ns.y)); cmap=:viridis, crange=lR)
+        panel((5, col), "log₁₀|div σ|ₓ cell fit — $name", X.c.x, X.c.y, log10.(abs.(d.divf[1]) .+ 1e-16); cmap=:viridis, crange=(-4, 2))
     end
 
     # Profile across the inclusion along y ≈ 0
-    ax = Axis(Fig[3, 7:8], title="σxx = τxx − P along |y| < Δy/4", xlabel="x", ylabel="σxx")
-    jc   = argmin(abs.(X.c.y))
+    ax = Axis(Fig[4, 1:2], title="σxx = τxx − P along |y| < Δy/4", xlabel="x", ylabel="σxx")
+    jc    = argmin(abs.(X.c.y))
     strip = findall(abs.(ym .- X.c.y[jc]) .< Δ.y / 4)
-    o    = strip[sortperm(xm[strip])]
+    o     = strip[sortperm(xm[strip])]
     lines!(ax, X.c.x, τxx_c[:, jc] .- P_c[:, jc], color=:black, label="grid (centroids)")
-    scatter!(ax, xm[o], τxx_b[o] .- P_b[o], markersize=5, color=:steelblue, label="(3) bilinear")
-    scatter!(ax, xm[o], τxx_p[o] .- P_p[o], markersize=5, color=:orangered, label="(4) projected")
+    for ((name, f), c) in zip(methods, (:steelblue, :orangered, :seagreen, :purple))
+        scatter!(ax, xm[o], f[1][o] .- f[4][o], markersize=4, color=c, label=name)
+    end
     vlines!(ax, [-rad, rad], color=:gray, linestyle=:dash)
     axislegend(ax, position=:rb)
+
+    # Marker change of the blended Airy reconstruction
+    panel((5, 1), "τxx: (8) − (3)", xs, ys, to_image(methods[4][2][1] .- τxx_b))
 
     return Fig
 end
@@ -212,7 +476,7 @@ end
     #--------------------------------------------#
 
     # Resolution
-    nc = (x = 150, y = 150)
+    nc = (x = 50, y = 50)
 
     # Boundary loading type
     config = BC_template
