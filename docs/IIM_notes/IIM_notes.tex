@@ -1017,6 +1017,78 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
     direct solve dominates.
 \end{itemize}
 
+\subsection*{Pressure at vertices: one-sided interpolation}
+
+\paragraph{Where it is needed.} The pressure is a centroid unknown. The \code{Stokes} module
+also needs it at vertices: the tangent operator $\mathcal D$ has a pressure column
+(\code{𝐷.v[i][3,4] * Pt\_v} in \code{SMomentum\_x\_Generic}), which is non-zero for
+pressure-dependent rheologies (Drucker--Prager yield, dilatancy, caps). The vertex value is the
+4-point average of the surrounding centroids, \code{Pt\_v = av(Pt)}, exactly as $V_x$ is averaged
+to the $V_y$ nodes. For linear viscous rheology this column vanishes, so none of the results above
+uses a vertex pressure.
+
+\paragraph{The problem.} The pressure jumps across $\Gamma$ ($[p]=-2\Delta\eta\,\mathbf t\cdot
+\mathbf w$ for viscous flow, $O(1)$). At a vertex whose 4 centroids are not all on its side, the
+plain average mixes $p_-$ and $p_+$ and is wrong by a fraction of $[p]$, independently of $h$. A
+yield function evaluated there would see a wrong pressure in every cut cell.
+
+\paragraph{One-sided interpolation.} The rule of the stress form applies unchanged: for a vertex on
+side $s$, each centroid $k$ on the other side is replaced by the extension of the side-$s$
+pressure before averaging,
+\[
+P_v=\frac14\sum_{k=1}^{4}\begin{cases}p_k & \text{side}(k)=s,\\[2pt]
+p_k+s\bigl([p]+[\nabla p]\cdot\delta_k\bigr) & \text{otherwise,}\end{cases}
+\qquad \delta_k=x_k-x_\Gamma,
+\]
+with the jumps at the crossing closest to $x_k$ between the vertex and the centroid (as for the
+stencil values), evaluated on the current solution. The four values are then samples of the smooth
+side-$s$ pressure, and $P_v$ is accurate to $O(h^2)$ plus the error of the jumps. In the AD kernel
+this only means fetching the 4 centroid pressures through the same corrected getter as the
+other stencil values. \code{VertexPressure} (\code{AssemblyStress.jl}, line~249) implements it as
+a post-processing step; \code{test\_iim\_stress.jl} checks that it is exact for the
+compressible uniform-strain solution, while the plain average is not.
+
+\paragraph{Test.} \code{IIM\_Step7\_VertexPressure.jl} evaluates both averages on the converged
+stress-form solutions (quadratic fits, order~2, contrast $10^3$) and compares them with the exact
+pressure at the vertices (Table~\ref{tab:vertexp}, Fig.~\ref{fig:vertexp}).
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r rrr c rrr@{}}
+\toprule
+& \multicolumn{3}{c}{Schmid circle} && \multicolumn{3}{c}{Moutzouris ellipse}\\
+\cmidrule(lr){2-4}\cmidrule(l){6-8}
+$n_c$ & plain & one-sided & centroids && plain & one-sided & centroids\\
+\midrule
+ 40 & 2.39 & 0.357 & 0.394 && 1.94 & 0.397 & 0.436\\
+ 80 & 2.17 & 0.208 & 0.195 && 1.86 & 0.229 & 0.241\\
+160 & 2.07 & 0.064 & 0.056 && 1.85 & 0.098 & 0.090\\
+\bottomrule
+\end{tabular}
+\caption{Maximum pressure error at the vertices next to $\Gamma$ (not all 4 centroids on the
+vertex's side), plain and one-sided averages, and $L_\infty(P)$ at the centroids for reference.}
+\label{tab:vertexp}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/IIM_Step7_VertexPressure.png}
+  \caption{Vertex pressure. \textbf{Left:} maximum error at the vertices next to $\Gamma$
+  against $h/L$, plain (dashed) and one-sided (solid) averages. \textbf{Middle and right:}
+  $\log_{10}$ of the vertex pressure error for the ellipse at $n_c=80$, plain and one-sided.}
+  \label{fig:vertexp}
+\end{figure}
+
+\paragraph{Discussion.} The plain average does not converge: its error stays at about 2 (half of
+$|[p]|$) in a one-cell band along $\Gamma$, which is the pressure analogue of the cut-cell spikes
+of standard FD. The one-sided average removes the band; its maximum error is that of the centroid
+pressure (within 15\%) and converges with it. The same rule is needed for every quantity that is
+averaged between centroids and vertices and jumps across $\Gamma$. The old stresses $\tau^0$ of
+visco-elasticity are the next case: they are discontinuous across $\Gamma$ (only $\sigma\mathbf n$
+is continuous), and their jumps are not given by the current jump conditions, so they are better
+kept one-sided (stored per side, or recomputed from one-sided strain rates).
+
 %---------------------------------------------------------------
 \section{Step 8: matrix-free stress form with dynamic relaxation}\label{sec:s8}
 

@@ -41,5 +41,5 @@ function IIM_Schmid2003(n, params; order=1, fit=:linear, exact_jumps=false, L=10
     P  = sol.p[ic, ic] .- mean(sol.p[ic, ic])
     Pa = [Stokes2D_Schmid2003_p(SVector(X.c_e.x[i], X.c_e.y[j]), params) for i in ic, j in ic]
     Pa = Pa .- mean(Pa)
-    return (P=P, P_ana=Pa, X=X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))))
+    return (P=P, P_ana=Pa, X=X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))), sol=sol, φ=φ)
 end

@@ -59,5 +59,5 @@ function IIM_Moutzouris2026(n, params; shape=:circle, order=1, fit=:linear, exac
     Pa = [S(SVector(X.c_e.x[i], X.c_e.y[j])).p for i in ic, j in ic]
     ix, jx = 3:(n+1), 3:(n+2)
     ϵV = maximum(abs.(sol.v.x[ix, jx] .- Va.x[ix, jx]))
-    return (P=P, P_ana=Pa, X=X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))), ϵV=ϵV)
+    return (P=P, P_ana=Pa, X=X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))), ϵV=ϵV, sol=sol, φ=φ)
 end

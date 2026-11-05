@@ -94,7 +94,7 @@ export InterfaceJumps, InterfaceJumps2, InterfaceJumpsC, InterfaceJumpsV
 include("StokesIIM/Assembly.jl")
 export JumpFunctionals, AssembleIIM, SolveIIM
 include("StokesIIM/AssemblyStress.jl")
-export StressJumpFunctionals, AssembleIIMStress, SolveIIMStress
+export StressJumpFunctionals, AssembleIIMStress, SolveIIMStress, VertexPressure
 end
 
 module StokesFSG

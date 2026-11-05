@@ -41,6 +41,11 @@ import ExactFieldSolutions: Stokes2D_Moutzouris_circle
         sol = SolveIIMStress(φ, X, Δ, η, nc, vc; ξ, fit, order)
         @test maximum(abs.(sol.v.x[ix, jx] .- vc.x[ix, jx])) < 1e-9
         @test maximum(abs.(P(sol) .- Pa)) < 1e-8
+        # vertex pressure (pressure column of 𝐷): one-sided average exact, plain average not
+        Pex = [sd(SVector(x, y)) ? -ξ.neg * tr(Lm) : -ξ.pos * tr(Lp) for x in X.v_e.x, y in X.v_e.y]
+        ok  = .!isnan.(VertexPressure(sol.S, sol.v, sol.p, φ, X))
+        @test maximum(abs.(VertexPressure(sol.S, sol.v, sol.p, φ, X; order)[ok] .- Pex[ok])) < 1e-8
+        @test maximum(abs.(VertexPressure(sol.S, sol.v, sol.p, φ, X; onesided=false)[ok] .- Pex[ok])) > 1e-1
     end
 end
 

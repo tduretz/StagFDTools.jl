@@ -232,7 +232,35 @@ function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:lin
         f0 == :p && !comp && (push!(Is, r, ndof); push!(Js, ndof, r); push!(Vs, 1.0, 1.0))
     end
     K = sparse(Is, Js, Vs, ndof, ndof)
-    return (K=K, b=b, num=num, off=off, Γ=Γ, tr=tr)
+    return (K=K, b=b, num=num, off=off, Γ=Γ, tr=tr, J=J, lookup=lookup)
+end
+
+"""
+    VertexPressure(S, v, p, φ, X; onesided=true, order=2)
+
+Pressure at the vertices (grid `v_e`) by averaging the 4 surrounding centroid pressures, as the
+Stokes module does for the pressure column of 𝐷 (`Pt_v = av(Pt)`). With `onesided`, centroids
+on the other side of Γ than the vertex are first replaced by the extension of the vertex side's
+pressure, p_k + s([p] + [∇p]·δ) (δ = x_k - x_Γ, [∇p] term with `order = 2`), the same rule as for
+the stencil values of `AssembleIIMStress`; otherwise the plain average, which mixes p₋ and p₊.
+`S` is the output of `AssembleIIMStress`; `v`, `p` the solution (jumps are evaluated on it).
+Returns an array on `v_e`, NaN where the 4 centroids are not all inside the domain.
+"""
+function VertexPressure(S, v, p, φ, X; onesided=true, order=2)
+    val = (x=v.x, y=v.y, p=p)
+    Pv  = fill(NaN, size(φ.v))
+    for j in 3:(size(φ.v, 2) - 2), i in 3:(size(φ.v, 1) - 2)
+        sv, xv = side(φ.v[i, j]), SVector(X.v_e.x[i], X.v_e.y[j])
+        Pv[i, j] = sum(CartesianIndex(i + di, j + dj) for di in -1:0, dj in -1:0) do K
+            (onesided && side(φ.c[K]) != sv) || return p[K] / 4
+            xk = node_position(Val(:p), K, X)
+            Jc = S.J[member_crossing(S.lookup, (2i - 1, 2j - 1), fine_index(Val(:p), K), xk, S.J)]
+            δ  = xk - Jc.xΓ
+            jp = sum((Jc.p[m] + (order == 2 ? dot(Jc.∇p[:, m], δ) : 0.0)) * val[Jc.field[m]][Jc.idx[m]] for m in eachindex(Jc.p))
+            (p[K] + sv * jp) / 4
+        end
+    end
+    return Pv
 end
 
 """
