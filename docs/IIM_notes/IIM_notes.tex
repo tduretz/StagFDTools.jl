@@ -196,7 +196,7 @@ $h=\Delta x=\Delta y=L/n_c$, and two level-set functions with the same zero cont
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step1_Geometry.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step1_Geometry.png}
   \caption{Geometry for the inclusion test.
   \textbf{Left:} $n_c=20$, $\varphi=\varphi_d$. Circles are $P$, right-pointing triangles $V_x$,
   upward triangles $V_y$; colours give the phase. Outlined nodes are the irregular equations.
@@ -385,7 +385,7 @@ ones:
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step2_Trace.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step2_Trace.png}
   \caption{Interface velocity for the inclusion test ($r_c=2$, $L=10$, $\eta_{mat}=1$).
   \textbf{Left:} the fits selected by the code at three crossings ($n_c=20$,
   $\eta_{inc}/\eta_{mat}=10^3$). Stars are the crossings $x_\Gamma$ and crosses the fit centres
@@ -540,7 +540,7 @@ errors are computed after removing the mean of both the numerical and the exact 
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step4_Inclusion.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step4_Inclusion.png}
   \caption{Viscous inclusion test.
   \textbf{Top:} $L_\infty$ and $L_1$ pressure errors against $h$ ($n_c=20$--320) for
   $\eta_{inc}/\eta_{mat}=10^{-3}$ (blue), $10^3$ (orange) and $10^6$ (green). Squares: standard
@@ -698,7 +698,7 @@ $L_\infty$ order of C at $10^3$.}
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step5_SecondOrder.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step5_SecondOrder.png}
   \caption{Second-order IIM.
   \textbf{Top:} $L_\infty$ and $L_1$ pressure errors against $h$. Colours: standard FD (blue),
   A (orange), B (pink), C (green), D (grey, dashed). Markers: $\eta_{inc}/\eta_{mat}=10^3$
@@ -710,7 +710,7 @@ $L_\infty$ order of C at $10^3$.}
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_PressureFields.png}
+  \includegraphics[width=\textwidth]{figures/IIM_PressureFields.png}
   \caption{Pressure fields at $n_c=40$, 80 and 160 (rows), $\eta_{inc}/\eta_{mat}=10^3$, zoomed on
   the inclusion (script \code{IIM\_PressureFields.jl}). Columns: standard FD, IIM variants A, B and
   C, and the exact solution. All panels share the colour scale of the exact solution; lime and
@@ -845,7 +845,7 @@ $10^{-3}$. A: linear fits, order 1; C: quadratic fits, order 2; D: order 2, exac
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step6_Compressible.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step6_Compressible.png}
   \caption{Compressible inclusion: $L_\infty(P)$ against $h$ for the circle (left) and the
   ellipse (right). Markers: $\eta_{inc}/\eta_{mat}=10^3$ (circles) and $10^{-3}$ (triangles).}
   \label{fig:step6}
@@ -853,7 +853,7 @@ $10^{-3}$. A: linear fits, order 1; C: quadratic fits, order 2; D: order 2, exac
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=0.92\textwidth]{../examples/_Stokes_IIM/IIM_Step6_EllipseFields.png}
+  \includegraphics[width=0.92\textwidth]{figures/IIM_Step6_EllipseFields.png}
   \caption{Pressure for the compressible elliptical inclusion, $\eta_{inc}/\eta_{mat}=10^3$, at
   $n_c=40$, 80 and 160 (rows). Columns: standard FD, IIM A and C, exact. Same colour
   conventions as Fig.~\ref{fig:fields}.}
@@ -973,7 +973,7 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
 
 \begin{figure}[h]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_StressForm.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step7_StressForm.png}
   \caption{$L_\infty(P)$ against $h$ for the z-form (solid, circles) and the stress form (dashed,
   crosses), and for the stress form with the $v$-extension (red, dotted).}
   \label{fig:step7}
@@ -981,8 +981,8 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
 
 \begin{figure}[p]
   \centering
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_PressureFields_Schmid.png}\\[6pt]
-  \includegraphics[width=\textwidth]{../examples/_Stokes_IIM/IIM_Step7_PressureFields_Ellipse.png}
+  \includegraphics[width=\textwidth]{figures/IIM_Step7_PressureFields_Schmid.png}\\[6pt]
+  \includegraphics[width=\textwidth]{figures/IIM_Step7_PressureFields_Ellipse.png}
   \caption{Pressure fields of the two IIM forms (quadratic fits, order~2) at $n_c=40$, 80 and 160
   (rows), $\eta_{inc}/\eta_{mat}=10^3$, script \code{IIM\_Step7\_PressureFields.jl}.
   \textbf{Top:} Schmid circle (incompressible, mean pressure removed).
@@ -1020,85 +1020,11 @@ $v$-extension. At $n_c=320$ (Schmid, C): 0.0133 (z) and 0.0166 (stress).}
 %---------------------------------------------------------------
 \section{Step 8: matrix-free stress form with dynamic relaxation}\label{sec:s8}
 
-\code{standalone/PHDR\_codes/Stokes2D\_DYREL\_IIM\_Schmid.jl} solves the second-order stress form
-for the Schmid inclusion with the solver of
-\code{Stokes2D\_DYREL\_Decoupled\_ViscousInclusion\_Anderson.jl}: dynamic relaxation (DYREL) for
-the velocity, Powell--Hestenes (PH) iterations for the pressure, vectorised array operations, no
-matrix. The setup (crossings, quadratic fits, jump formulas) reuses \code{StagFDTools.StokesIIM}.
-
-\paragraph{Two extended fields.} The one-sided stencils of step~7 differ from row to row, which
-does not vectorise. Instead, two copies of the fields are built (\code{extend!}, line~121):
-$V^-,P^-$ equal $V,P$ except at the $+$side nodes within 2.5 cells of $\Gamma$, where they hold
-the $z$-extension of the $-$side solution, and conversely for $V^+,P^+$. The standard stencils
-of the PHDR code (\code{residuals!}, line~134) are evaluated on both, each with the sharp
-viscosity of its side, and every equation takes the residual of its own side. Per iteration:
-\begin{itemize}
-  \item traces at all crossings: one sparse product with a precomputed trace operator
-    (26 quantities per crossing, \code{InterfaceSetup}, line~56);
-  \item jumps: \code{InterfaceJumpsC} mapped over the crossings (\code{InterfaceJumpsAll},
-    line~104);
-  \item extension at band nodes, with the crossing nearest to each node (fixed $\delta$).
-\end{itemize}
-The nearest-node crossing is the only difference from the assembled stress form, which picks a
-crossing per (row, member) pair.
-
-\paragraph{Scaling and penalty.}
-\begin{itemize}
-  \item Pseudo-time stepping is done on $z=\eta v$ (rows scaled by $1/\eta$ of their side). The
-    extension couples a soft row to stiff nodes with weights $\eta_-/\eta_+$, which would
-    dominate the Gershgorin bounds in $v$; in $z$ they are those of a unit-viscosity problem.
-  \item The PH penalty must act like a pressure: $\tilde P=P-\gamma_c\nabla\cdot v_c$ (line~189),
-    with the one-sided divergence of the continuity equation and $\gamma_c=\gamma_{fac}\eta_c$
-    of each \emph{centroid's} side, extended across $\Gamma$ like $P$; the PH update is then
-    $P\leftarrow\tilde P$. Two simpler choices failed: a penalty on the divergence of the
-    extended field converges to a $\gamma$-dependent solution (that divergence does not vanish
-    at centroids of the other side), and a penalty with the \emph{row's} $\gamma$ diverges (it
-    is not of the form $G\,\Gamma B$). With $\tilde P$, the converged pressure changes by
-    $10^{-7}$ ($10^{-4}$ at contrast $10^3$) between $\gamma_{fac}=1$ and 10.
-  \item Anderson acceleration of the PH loop stalls at contrast $10^3$ and is off by default.
-\end{itemize}
-
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{@{}r rrrr rr@{}}
-\toprule
-& \multicolumn{4}{c}{$\eta_{inc}/\eta_{mat}=10^3$} & \multicolumn{2}{c}{$10$}\\
-\cmidrule(lr){2-5}\cmidrule(l){6-7}
-$n_c$ & DYREL & direct stress & direct z & iter/$n_c$ & DYREL & iter/$n_c$\\
-\midrule
- 40 & 0.341 & 0.394 & 0.314 & 236 & 0.230 & 41\\
- 80 & 0.170 & 0.195 & 0.133 & 281 & 0.111 & 38\\
-160 & 0.050 & 0.056 & 0.055 & 480 & 0.030 & 19\\
-\bottomrule
-\end{tabular}
-\caption{$L_\infty(P)$ of the matrix-free solver (quadratic fits, order~2, tolerance $10^{-6}$)
-and of the assembled direct solvers, and DYREL iterations per $n_c$.}
-\label{tab:step8}
-\end{table}
-
-\begin{figure}[h]
-  \centering
-  \includegraphics[width=\textwidth]{../standalone/PHDR_codes/Stokes2D_DYREL_IIM_Schmid.png}
-  \caption{Matrix-free stress form. \textbf{Top:} $L_\infty(P)$ against $h$ with the direct
-  solvers; iterations per $n_c$; residual history at $n_c=160$. \textbf{Bottom} ($n_c=160$,
-  $10^3$): pressure, exact pressure, and difference with the direct stress form.}
-  \label{fig:step8}
-\end{figure}
-
-\paragraph{Discussion.}
-\begin{itemize}
-  \item The matrix-free solver reaches the accuracy of the direct solvers (0.050 at $n_c=160$
-    against 0.056 and 0.055). It differs from the direct stress form by 0.04 at $n_c=160$, a
-    smooth difference inside the inclusion that decreases with $h$, from the crossing choice.
-  \item At contrast 10 the iteration count is low and does not grow with resolution (about 40
-    per $n_c$). At $10^3$ it grows (236 to 480 per $n_c$), and the residual history shows the
-    PH loop as the bottleneck: the momentum residual jumps after each pressure update. A better
-    pressure update (e.g.\ a viscosity-scaled Schur preconditioner, or Anderson that does not
-    stall) is the next lever.
-  \item The extension costs a sparse product over the band and a map over the crossings per
-    iteration; the rest is the unmodified PHDR stencils, evaluated twice.
-\end{itemize}
+The stress form of step~7 has also been solved matrix free, with dynamic relaxation and
+Powell--Hestenes pressure iterations in the vectorised style of the standalone PHDR codes
+(\code{standalone/PHDR\_codes/Stokes2D\_DYREL\_IIM\_Schmid.jl}). It reaches the accuracy of the
+direct solvers ($L_\infty(P)=0.050$ at $n_c=160$, contrast $10^3$). The method, the choice of
+penalty and the results are in a separate report, \code{docs/IIM\_DYREL/IIM\_DYREL.pdf}.
 
 %---------------------------------------------------------------
 \section{Next steps}

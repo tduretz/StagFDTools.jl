@@ -223,7 +223,7 @@ driver: `IIM_Schmid2003.jl`.
 - [x] Tests:
   - exact quadratic traces;
   - exact pressure-driven parallel flow at both orders (its second-order jumps vanish).
-- [x] Results (contrast 10³): see `docs/IIM_notes.pdf`, Section 7.
+- [x] Results (contrast 10³): see `docs/IIM_notes/IIM_notes.pdf`, Section 7.
 
 ### Step 6 — compressible viscous flow — done
 Examples: `examples/_Stokes_IIM/IIM_Step6_Compressible.jl`. Drivers: `IIM_Moutzouris2026.jl`,
@@ -241,7 +241,7 @@ Examples: `examples/_Stokes_IIM/IIM_Step6_Compressible.jl`. Drivers: `IIM_Moutzo
 - [x] `AssembleIIM(...; ξ=(neg, pos))`.
 - [x] Tests: exact uniform-strain compressible state across an inclined Γ (all fits, both
       orders); Moutzouris circle regression (the grad-div term matters only there).
-- [x] Results: see `docs/IIM_notes.pdf`, Section 8.
+- [x] Results: see `docs/IIM_notes/IIM_notes.pdf`, Section 8.
 
 ### Step 7 — stress form (StagFDTools-style kernels) — first version done
 Goal: an IIM that keeps the StagFDTools structure (Vx↔Vy interpolation, full ∇v at centroids and
@@ -258,11 +258,22 @@ Example: `examples/_Stokes_IIM/IIM_Step7_StressForm.jl`; drivers take `form=:z|:
 - [x] Tests (`test_iim_stress.jl`): exact piecewise-linear solutions (both extensions, all
       fits/orders), Moutzouris circle regression.
 - [x] Results: same accuracy as the z-form on Schmid, Moutzouris circle and ellipse
-      (`docs/IIM_notes.pdf`, Section 9).
+      (`docs/IIM_notes/IIM_notes.pdf`, Section 9).
 - [ ] General 𝐷: side solve for the missing normal derivatives from v continuity and traction
       continuity with the tangent 𝐷 of each side (replaces the closed-form `SideFields`).
 - [ ] Manufactured anisotropic test; then power-law creep in the inclusion (Newton, jumps inside
       the AD residual).
+
+### Step 8 — matrix-free stress form (DYREL, standalone) — first version done
+Script: `standalone/PHDR_codes/Stokes2D_DYREL_IIM_Schmid.jl`. Report: `docs/IIM_DYREL/IIM_DYREL.pdf`.
+
+- [x] Two extended fields V±, P± (z-extension at band nodes, nearest crossing), unmodified PHDR
+      stencils on each, every equation takes its own side's residual.
+- [x] Pseudo-time stepping on z = ηv (unit-viscosity Gershgorin bounds).
+- [x] PH penalty as a pressure: P̃ = P − γ_c ∇·v_c (one-sided divergence, γ of the centroid's
+      side), extended like P; P ← P̃. Other penalty forms are γ-dependent or diverge.
+- [x] Schmid, contrast 10³: L∞(P) = 0.050 at nc = 160 (direct solvers 0.055–0.056).
+- [ ] Faster PH at high contrast (240–480 iterations/nc); compressible case; anisotropy.
 
 ### Phase 5 — verification and solver (`examples/_Stokes_IIM/IIM_convergence.jl`)
 - [ ] **Schmid 2003 circle:** η contrast 1e−6…1e6 in both directions, nc 32–512, and the same

@@ -1,0 +1,196 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{enumitem}
+\usepackage{fontspec}
+\setmonofont{Menlo}[Scale=0.82]
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\emergencystretch}{3em}
+
+\newcommand{\code}[1]{\texttt{#1}}
+
+\title{Matrix-free second-order IIM with dynamic relaxation\\[2pt]
+\large Viscous inclusion of Schmid \& Podladchikov (2003)}
+\author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\noindent\textbf{Aim.} Solve the second-order stress-form immersed interface method (IIM) of
+\code{docs/\allowbreak IIM\_notes} (step~7) without assembling a matrix, in the vectorised style and with
+the dynamic relaxation (DYREL) and Powell--Hestenes (PH) solver of the standalone script
+\code{Stokes2D\_DYREL\_Decoupled\_ViscousInclusion\_Anderson.jl} (\code{standalone/\allowbreak PHDR\_codes}).
+\textbf{Result.} The matrix-free solver reaches the accuracy of the direct IIM solvers
+($L_\infty(P)=0.050$ at $n_c=160$ for a viscosity contrast of $10^3$, against 9.5 for
+standard FD). This requires two choices that are not obvious: pseudo-time stepping on
+$z=\eta v$, and a PH penalty that acts like a pressure. The pressure iterations remain the
+bottleneck at high contrast.
+\textbf{Code.} \code{standalone/\allowbreak PHDR\_codes/\allowbreak Stokes2D\_DYREL\_IIM\_Schmid.jl}; the setup reuses
+\code{StagFDTools.StokesIIM}.
+
+%---------------------------------------------------------------
+\section{Method}
+
+\paragraph{Starting point.} In the stress form, the equation of a node on side $s$ of the
+interface $\Gamma$ uses the standard stencils, with the material of side $s$, and every stencil
+value from the other side replaced by the extension of the side-$s$ solution:
+\[
+v_k\;\to\;\frac{\eta_kv_k+s\bigl([z]+[\nabla z]\delta+\tfrac12\delta^\top[\nabla\nabla z]\delta\bigr)}{\eta_s},
+\qquad
+p_k\;\to\;p_k+s\bigl([p]+[\nabla p]\cdot\delta\bigr),
+\]
+with $z=\eta v$, $[q]=q_+-q_-$ and $\delta=x_k-x_\Gamma$. The jumps follow from interface traces
+(one-sided quadratic fits) of the current solution.
+
+\paragraph{Two extended fields.} Per-row stencils do not vectorise, because each array entry is
+shared by equations of both sides. Instead, two copies of the fields are built
+(\code{extend!}, line~121):
+\begin{itemize}
+  \item $V^-,P^-$ equal $V,P$ everywhere except at the $+$side nodes within 2.5 cells of
+    $\Gamma$, where they hold the extension of the $-$side solution; conversely for $V^+,P^+$;
+  \item the unmodified PHDR stencils (\code{residuals!}, line~134) are evaluated on both copies,
+    each with the sharp viscosity of its side (no averaging);
+  \item every equation takes the residual of its own side, e.g.\
+    \code{Rx .= ifelse.(sVx .< 0, Rx⁻, Rx⁺)}.
+\end{itemize}
+Each extended node uses the crossing nearest to it, so $\delta$ is fixed. This is the only
+difference from the assembled stress form, which picks a crossing per (equation, node) pair.
+
+\paragraph{Interface work per iteration.}
+\begin{itemize}
+  \item Traces at all crossings: one sparse product with a trace operator precomputed from the
+    fit weights (26 quantities per crossing; \code{InterfaceSetup}, line~56).
+  \item Jumps: \code{InterfaceJumpsC} mapped over the crossings (\code{InterfaceJumpsAll},
+    line~104).
+  \item Extension at the band nodes (broadcast over index lists).
+\end{itemize}
+
+\paragraph{Pseudo-time stepping on $z=\eta v$.} The extension couples a soft equation to stiff
+nodes with weight $\eta_-/\eta_+$, which would dominate the Gershgorin bounds if the unknown were
+$v$ (the same effect makes the LU factors of the assembled stress form 2.4 times larger unless
+the matrix is scaled). The residuals are therefore divided by $\eta$ of their side and the
+updates are applied to $z$. The bounds are then those of a unit-viscosity problem, and
+\code{Gershgorin\_Stokes2D\_SC} is used unchanged with $\eta=1$.
+
+\paragraph{Penalty as a pressure.} The PH penalty is not added to $\tau$. It enters through
+\[
+\tilde P_c=P_c-\gamma_c\,(\nabla\cdot v)_c,\qquad \gamma_c=\gamma_{fac}\,\eta_c
+\quad\text{(line~189)},
+\]
+where $(\nabla\cdot v)_c$ is the one-sided divergence of the continuity equation (the divergence
+of $V^{s_c}$, $s_c$ the side of centroid $c$) and $\eta_c$ the viscosity of the centroid's side.
+$\tilde P$ is extended across $\Gamma$ like $P$, and the PH update is simply
+$P\leftarrow\tilde P$. The penalty then vanishes at convergence, and the penalised system is the
+augmented Lagrangian $A+G\,\Gamma\,B$ of the IIM operators, with one coefficient per centroid.
+
+%---------------------------------------------------------------
+\section{Choice of penalty}
+
+Table~\ref{tab:penalty} compares this choice with three simpler ones, at $n_c=40$ and contrast
+$10^3$, without Anderson acceleration. In variants A--C, the equation of side $s$ uses
+$\gamma_s=\gamma_{fac}\eta_s$ of its own side for all centroids of its stencil.
+\begin{itemize}
+  \item A: penalty on the divergence of the extended field $V^s$. At centroids of the other side
+    this divergence does not vanish at convergence, so the penalty adds $\gamma_s$ times the
+    extension error: the solution depends on $\gamma$.
+  \item B: penalty on the one-sided divergence. It vanishes at convergence, but it is not of the
+    form $G\,\Gamma B$ (the coefficient depends on the equation, not on the centroid), and the
+    relaxation diverges.
+  \item C: as A, at the centroids of side $s$ only. The PH update no longer matches the
+    penalty near $\Gamma$, and the iteration diverges.
+  \item D: $\tilde P$ (this report).
+\end{itemize}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}l ccc@{}}
+\toprule
+& \multicolumn{3}{c}{$L_\infty(P)$ after convergence}\\
+\cmidrule(l){2-4}
+Penalty & $\gamma_{fac}=1$ or 3 & $\gamma_{fac}=10$ & $\gamma_{fac}=30$\\
+\midrule
+A: $\gamma_s\nabla\cdot V^s$, all centroids    & 0.301 ($\gamma_{fac}=3$) & 0.993 & diverges\\
+B: $\gamma_s\,(\nabla\cdot v)_c$ one-sided       & diverges & diverges & diverges\\
+C: $\gamma_s\nabla\cdot V^s$, own-side centroids & diverges & diverges & diverges\\
+D: $\tilde P$, $\gamma_c$ of the centroid        & 0.34171 / 0.34170 & 0.34168 & --\\
+\bottomrule
+\end{tabular}
+\caption{Penalty variants, $n_c=40$, $\eta_{inc}/\eta_{mat}=10^3$. With D, the converged pressure
+changes by $2\cdot10^{-4}$ between $\gamma_{fac}=1$ and 10 ($10^{-7}$ at contrast 10).}
+\label{tab:penalty}
+\end{table}
+
+%---------------------------------------------------------------
+\section{Results}
+
+Schmid inclusion, radius 2 in a $10\times10$ box, exact Dirichlet velocities, quadratic fits,
+second-order corrections, $\gamma_{fac}=3$, tolerance $10^{-6}$ (Table~\ref{tab:results},
+Fig.~\ref{fig:dyrel}). The direct solvers are the assembled z-form and stress form of
+\code{docs/IIM\_notes}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r rrrr rr@{}}
+\toprule
+& \multicolumn{4}{c}{$\eta_{inc}/\eta_{mat}=10^3$} & \multicolumn{2}{c}{$10$}\\
+\cmidrule(lr){2-5}\cmidrule(l){6-7}
+$n_c$ & DYREL & direct stress & direct z & iter/$n_c$ & DYREL & iter/$n_c$\\
+\midrule
+ 40 & 0.341 & 0.394 & 0.314 & 236 & 0.230 & 41\\
+ 80 & 0.170 & 0.195 & 0.133 & 281 & 0.111 & 38\\
+160 & 0.050 & 0.056 & 0.055 & 480 & 0.030 & 19\\
+\bottomrule
+\end{tabular}
+\caption{$L_\infty(P)$ (mean removed) of the matrix-free solver and of the direct IIM solvers,
+and DYREL iterations per $n_c$. Standard FD gives 1.7--9.5 at contrast $10^3$.}
+\label{tab:results}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/Stokes2D_DYREL_IIM_Schmid.png}
+  \caption{\textbf{Top:} $L_\infty(P)$ against $h$ for the matrix-free solver and the direct
+  solvers, contrast $10^3$; DYREL iterations per $n_c$ for contrasts 10 and $10^3$; relative
+  residuals of momentum and continuity against iterations at $n_c=160$, $10^3$ (one point per
+  PH step). \textbf{Bottom} ($n_c=160$, $10^3$): pressure of the matrix-free solver, exact
+  pressure, and $\log_{10}$ of the difference with the direct stress form.}
+  \label{fig:dyrel}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item \emph{Accuracy.} The matrix-free solver converges like the direct solvers and is as
+    accurate at $n_c=160$ (0.050 against 0.056 and 0.055). It differs from the direct stress
+    form by 0.04 at $n_c=160$, as a smooth pattern inside the inclusion that decreases with
+    $h$: the effect of the crossing choice, not of the solver.
+  \item \emph{Iterations, contrast 10.} About 40 per $n_c$ or fewer, decreasing with resolution,
+    in about 20 PH steps.
+  \item \emph{Iterations, contrast $10^3$.} 236 to 480 per $n_c$ for $n_c=40$ to 160, in about
+    50 PH steps. The residual history shows the PH loop as the bottleneck: the momentum residual
+    jumps after every pressure update and the continuity residual decreases slowly.
+  \item \emph{Anderson acceleration} of the PH loop, which helps with averaged viscosities,
+    stalls at contrast $10^3$ (100 PH steps without convergence at $n_c=80$); it is off by
+    default ($m=0$).
+  \item \emph{Cost.} Per iteration, the PHDR stencils run twice (once per side) plus a sparse
+    product over the interface band and a map over the crossings. Runtime at $n_c=160$,
+    contrast $10^3$: about 60~s.
+\end{itemize}
+
+\paragraph{Next steps.}
+\begin{itemize}
+  \item Faster pressure iterations at high contrast: an Anderson variant that does not stall,
+    or a viscosity-scaled Schur-complement estimate for the PH update.
+  \item The compressible case (Moutzouris 2026): the pressure is then determined locally, which
+    may remove the PH bottleneck.
+  \item The interpolated strain-rate components (Vx on Vy nodes and vice versa) for anisotropic
+    rheologies: they apply directly to the extended fields $V^\pm$.
+\end{itemize}
+
+\end{document}
