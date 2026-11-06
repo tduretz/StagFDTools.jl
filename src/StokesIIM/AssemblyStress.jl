@@ -147,7 +147,7 @@ isotropic viscosity (𝐷 = 2η I). `extend`: `:z` or `:v` (see above). Diagnost
 returns exact jumps at crossing `p` (fields of `InterfaceJumpsC` and of `InterfaceJumpsV`). Returns the matrix, right-hand side, numbering and interface data.
 """
 function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing)
-    order == 2 && fit != :quadratic && isnothing(Jexact) && error("order = 2 requires fit = :quadratic")
+    order == 2 && fit == :linear && isnothing(Jexact) && error("order = 2 requires fit = :quadratic or :cubic")
     size_x, size_y, size_c = size(φ.x), size(φ.y), size(φ.c)
     type   = Fields(fill(:out, size_x...), fill(:out, size_y...), fill(:out, size_c...))
     number = Fields(zeros(Int, size_x...), zeros(Int, size_y...), zeros(Int, size_c...))

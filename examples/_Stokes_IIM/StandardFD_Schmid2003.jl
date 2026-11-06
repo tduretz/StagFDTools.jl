@@ -7,8 +7,10 @@ using ExactFieldSolutions
 # viscous inclusion of Schmid & Podladchikov (2003), with Dirichlet velocities from the exact
 # solution. Reference for the IIM comparison; setup follows
 # examples/_Stokes_VEP_SSG/untested/ExampleADStokes_ViscousInclusionSchmid2003.jl.
+# Domain (xlim, ylim), centred by default; boundary values and reference from `bcparams`
+# (e.g. the inviscid inclusion for sticky air).
 
-@views function StandardFD_Schmid2003(n, params; L=(x=10.0, y=10.0))
+@views function StandardFD_Schmid2003(n, params; L=(x=10.0, y=10.0), xlim=(-L.x / 2, L.x / 2), ylim=(-L.y / 2, L.y / 2), bcparams=params)
     nc = (x=n, y=n)
     config = :all_Dirichlet
 
@@ -20,9 +22,9 @@ using ExactFieldSolutions
 
     iter_params = IterParams(niter=2, ϵ_nl=1e-10, α=LinRange(0.05, 1.0, 10))
 
-    x = (min=-L.x / 2, max=L.x / 2)
-    y = (min=-L.y / 2, max=L.y / 2)
-    Δ = (x=L.x / nc.x, y=L.y / nc.y, t=1.0)
+    x = (min=xlim[1], max=xlim[2])
+    y = (min=ylim[1], max=ylim[2])
+    Δ = (x=(x.max - x.min) / nc.x, y=(y.max - y.min) / nc.y, t=1.0)
     a = Allocs(nc, config, x, y, Δ, nphases)
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -30,13 +32,13 @@ using ExactFieldSolutions
     BC     = (Vx=zeros(size_x...), Vy=zeros(size_y...))
     Pt_ana = zero(a.Pt)
     for j in axes(a.Pt, 2), i in axes(a.Pt, 1)
-        Pt_ana[i, j] = Stokes2D_Schmid2003_circle([a.X.c_e.x[i], a.X.c_e.y[j]]; params).p
+        Pt_ana[i, j] = Stokes2D_Schmid2003_circle([a.X.c_e.x[i], a.X.c_e.y[j]]; params=bcparams).p
     end
     for j in 2:(size_x[2]-1), i in 1:size_x[1]
-        BC.Vx[i, j] = a.V.x[i, j] = Stokes2D_Schmid2003_circle([a.X.v_e.x[i], a.X.c_e.y[j-1]]; params).V[1]
+        BC.Vx[i, j] = a.V.x[i, j] = Stokes2D_Schmid2003_circle([a.X.v_e.x[i], a.X.c_e.y[j-1]]; params=bcparams).V[1]
     end
     for j in 1:size_y[2], i in 2:(size_y[1]-1)
-        BC.Vy[i, j] = a.V.y[i, j] = Stokes2D_Schmid2003_circle([a.X.c_e.x[i-1], a.X.v_e.y[j]]; params).V[2]
+        BC.Vy[i, j] = a.V.y[i, j] = Stokes2D_Schmid2003_circle([a.X.c_e.x[i-1], a.X.v_e.y[j]]; params=bcparams).V[2]
     end
 
     # Phases (inclusion = 2)
@@ -51,5 +53,6 @@ using ExactFieldSolutions
 
     P  = a.Pt[inx_c, iny_c] .- mean(a.Pt[inx_c, iny_c])
     Pa = Pt_ana[inx_c, iny_c] .- mean(Pt_ana[inx_c, iny_c])
-    return (P=P, P_ana=Pa, X=a.X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))))
+    return (P=P, P_ana=Pa, X=a.X, ϵP=(L1=mean(abs.(P .- Pa)), Linf=maximum(abs.(P .- Pa))),
+            Pt=a.Pt[inx_c, iny_c], V=a.V, Pt_ana=Pt_ana[inx_c, iny_c])
 end

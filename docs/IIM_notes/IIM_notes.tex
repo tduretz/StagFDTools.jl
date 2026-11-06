@@ -1099,6 +1099,301 @@ direct solvers ($L_\infty(P)=0.050$ at $n_c=160$, contrast $10^3$). The method, 
 penalty and the results are in a separate report, \code{docs/IIM\_DYREL/IIM\_DYREL.pdf}.
 
 %---------------------------------------------------------------
+\section{Step 9: free surface without sticky air}\label{sec:s9}
+
+\paragraph{Test.} Gravity-driven relaxation of a Gaussian topography: incompressible fluid,
+$\eta=\rho=1$, $\mathbf g=(0,-1)$, box $x\in[-3,3]$, $y\ge-5$, free surface
+$y=h(x)=e^{-x^2/\sigma^2}$ with $\sigma=0.5$, instantaneous Stokes solution. The references are a
+FEM solution on a body-fitted triangular mesh (\code{FCFV\_Geodynamics.jl}) and an FD solution on
+a deformed (surface-fitted) staggered grid (\code{FullStaggeredGrid}). In both, the sides and the
+bottom are no slip, so the IIM runs use no slip as well.
+
+\paragraph{Method.} A regular MAC grid covers the box up to $y=1.5$; the surface cuts it. The
+unknowns are the nodes in the fluid, $\varphi=y-h(x)\le0$, and the velocity faces next to a
+fluid centroid (step~10 shows why), with the standard stencils
+($\boldsymbol\sigma=-p\mathbf I+2\eta(\dot{\boldsymbol\varepsilon}-\frac13\nabla\cdot\mathbf v\,\mathbf I)$).
+Every other stencil value above the surface is a ghost, the Taylor extension of the fluid solution from the closest point $\mathbf x_\Gamma$ of the surface,
+\[
+\mathbf v_k=\mathbf v_\Gamma+\nabla\mathbf v\,\delta+\tfrac12\delta^\top\nabla\nabla\mathbf v\,\delta,
+\qquad p_k=p_\Gamma+\nabla p\cdot\delta,\qquad \delta=\mathbf x_k-\mathbf x_\Gamma.
+\]
+This is the one-sided half of the jump machinery:
+\begin{itemize}
+  \item $\mathbf v_\Gamma$, $\partial_s\mathbf v$ and $\partial_{ss}\mathbf v$ come from one-sided
+    cubic least-squares fits of 24 fluid nodes (\code{QuadraticFit} with \code{degree=3}; quadratic
+    fits are one order less accurate, step~10, and need 16 nodes, see the robustness paragraph);
+  \item the normal derivatives, $p_\Gamma$ and $\nabla p_\Gamma$ follow from \code{SideFields}
+    (step~6) with zero traction, $\mathbf T=d\mathbf T/ds=0$. For incompressible flow this gives
+    $p_\Gamma=2\eta\,\partial_n v_n=-2\eta\,\partial_s v_s$;
+  \item gravity enters the second-order terms: \code{SideFields} takes a body force $\mathbf f$,
+    which adds $f_n/(1+\frac43k)$ to $\partial_n p$ and $-f_t$ to $\partial_{nn}z_t$. For a flat
+    surface at rest this gives the exact hydrostatic ghost, $p_k=-\rho g\,\delta_y$.
+  \item pressure ghosts are extrapolated linearly along the grid line of the stencil, through
+    the fluid neighbour $p_k$ and $p_\Gamma$ at the crossing (fraction $s$ of the segment):
+    $p_g=p_k+(p_\Gamma-p_k)/s$, as Gibou et al.\ (2002) do for Dirichlet conditions. This uses
+    only first derivatives of the fits and ties $p_g$ to the fluid pressure (the Taylor ghost
+    $p_\Gamma+\nabla p\cdot\delta$ is 10 times less accurate in step~10).
+\end{itemize}
+Each ghost value is a linear form in the fluid unknowns, so the residuals are assembled directly
+and solved with a sparse direct solver. The traction condition fixes the pressure level: there
+is no null space. Code: \code{examples/\allowbreak \_Stokes\_IIM/\allowbreak IIM\_FreeSurface.jl};
+figures: \code{IIM\_FreeSurface\_Figures.jl}.
+
+\paragraph{Results.} A flat surface between grid lines gives $\mathbf v=0$ and the hydrostatic
+pressure to $10^{-12}$. Mass is conserved to machine precision ($\int v_y\,dx\approx10^{-15}$ at
+every depth). Table~\ref{tab:fs} and Fig.~\ref{fig:fs}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r r ccc c ccc@{}}
+\toprule
+& & \multicolumn{3}{c}{no slip} && \multicolumn{3}{c}{free slip}\\
+\cmidrule(lr){3-5}\cmidrule(l){7-9}
+$n_x$ & unknowns & $v_y$(top) & $\max|v_x|$ & $\max v_y$ && $v_y$(top) & $\max|v_x|$ & $\max v_y$\\
+\midrule
+ 48 &   5\,896 & $-0.2012$ & 0.0540 & 0.0644 && $-0.2293$ & 0.0532 & 0.0930\\
+ 96 &  23\,654 & $-0.2016$ & 0.0544 & 0.0654 && $-0.2296$ & 0.0535 & 0.0934\\
+192 &  94\,750 & $-0.2016$ & 0.0545 & 0.0655 && $-0.2294$ & 0.0536 & 0.0935\\
+384 & 379\,256 & $-0.2017$ & 0.0546 & 0.0655 && $-0.2294$ & 0.0537 & 0.0936\\
+\bottomrule
+\end{tabular}
+\caption{Free-surface test: vertical velocity at the top of the bump and extrema of the cell
+velocities. One direct solve, about 6~s at $n_x=384$.}
+\label{tab:fs}
+\end{table}
+
+\begin{figure}[p]
+  \centering
+  \setlength{\tabcolsep}{2pt}
+  \begin{tabular}{@{}cccc@{}}
+  & FEM, body-fitted & FD, deformed grid & IIM, regular grid ($n_x=96$)\\
+  \rotatebox{90}{\hspace{1.2cm}$v_x$} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FEM_Vx.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FDM_Vx.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_IIM_Vx.png}\\
+  \rotatebox{90}{\hspace{1.2cm}$v_y$} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FEM_Vy.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FDM_Vy.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_IIM_Vy.png}\\
+  \rotatebox{90}{\hspace{1.2cm}$p$} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FEM_P.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_FDM_P.png} &
+  \includegraphics[width=0.31\textwidth]{figures/FreeSurfaceTest_IIM_P.png}
+  \end{tabular}
+  \caption{Free-surface test, no slip on the sides and the bottom; same colour ranges in each
+  row ($v_x\in[-0.055,0.055]$, $v_y\in[-0.2,0.1]$, $p\in[0,5]$). IIM: cells clipped at the
+  surface; in cut cells whose centroid is in the void, the ghost (extended) values are shown.}
+  \label{fig:fs}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item \emph{Agreement.} The IIM fields match the FEM solution: $v_y\approx-0.20$ at the top of
+    the bump, uplift maxima of 0.065 near $x=\pm2$, $|v_x|\approx0.054$ at
+    $(\pm0.9,-0.4)$, and nearly flat isobars. The deformed-grid FD solution shows the same
+    velocities, but its isobars bulge under the bump. That script has a bulk viscosity
+    $\eta_b=K\Delta t=1$, so its material is compressible, which may account for the difference.
+  \item \emph{Boundary conditions.} With free slip on the sides, the uplift is largest at the
+    walls (0.09) and the bump sinks faster ($-0.229$). Both references are no slip.
+  \item \emph{Convergence.} $v_y$(top) varies by $5\cdot10^{-4}$ over $n_x=48$--384 and by
+    $10^{-4}$ from 192 to 384. The largest pressure difference between these grids is
+    $4\cdot10^{-3}$ (free slip) next to the surface and $2$--$5\cdot10^{-4}$ below $y=-0.5$; with
+    no slip it is $5\cdot10^{-2}$ at the corners where the surface meets the walls (a singularity
+    of the no-slip problem).
+  \item \emph{Negative pressure.} The pressure is positive everywhere in the fluid: its minimum,
+    0.02, is at the top of the bump. Along the flanks the surface pressure
+    $p_\Gamma=2\eta\,\partial_nv_n$ is about 0.25 (Fig.~\ref{fig:fsps}). In the field figures, cut
+    cells whose centroid is in the void show the extended pressure, slightly negative
+    (a few hundredths at most) since it extrapolates the hydrostatic gradient above the surface.
+  \item \emph{Stress-form kernel.} With Vx interpolated to the Vy nodes and Vy to the Vx nodes, as
+    in the StagFDTools stress form, the solution differs by $3\cdot10^{-11}$: for isotropic
+    viscosity the interpolated components enter $\boldsymbol\tau$ with zero weight. They add 44\%
+    ghost nodes and explicit zeros to the matrix, and matter once $\mathcal D$ couples the
+    components (anisotropy, plasticity).
+  \item \emph{Resolution.} The radius of curvature at the top of the bump is
+    $\sigma^2/2=0.125$, one cell at $n_x=48$; with cubic fits $v_y$(top) is nevertheless within
+    $5\cdot10^{-4}$ of the finest grid there (quadratic fits: $2\cdot10^{-3}$).
+  \item \emph{Next.} Time stepping (advecting $\varphi$, initialising nodes that leave the void
+    with the same extension) and the implicit surface correction (FSSA) against the drunken-sailor
+    instability. That correction is a Robin condition
+    $\mathbf T=-\Delta t\,(\rho\mathbf g\cdot\mathbf n)(\mathbf v\cdot\mathbf n)\,\mathbf n$, which
+    \code{SideFields} accepts through $\mathbf T$.
+\end{itemize}
+
+\paragraph{Robustness: defects found on the way} (more in step~10).
+\begin{itemize}
+  \item \emph{Pressure null space.} The normal-stress condition reaches the solution only
+    through the pressure ghosts, i.e.\ through momentum equations whose stencil contains a void
+    centroid. With a flat surface lying exactly on a row of Vy nodes, those nodes were ghosts and no
+    equation reached the void: the pressure level was free (error 4.3 in the hydrostatic test).
+    Nodes on the surface ($\varphi=0$) are now fluid nodes. Making nodes within $\theta\Delta$ of
+    the surface ghosts (a common small-cut remedy) recreates the problem and must not be used.
+  \item \emph{Fit size.} With 10-point quadratic fits (6 coefficients), the surface pressure had
+    non-converging spikes at $x\approx\pm0.63$, where the slope is $45^\circ$, at $n_x=96$ and
+    384 (left of Fig.~\ref{fig:fsps}). The fits pass the conditioning check there but are close
+    to degenerate on the staircase of nodes; the extension carries the noise into the solution.
+    16-point fits remove the spikes. On a manufactured solution (smooth flow with the matching
+    traction and body force, free slip) both converge at second order, the 16-point fits with
+    twice larger errors ($|\mathbf v|$ error $1.7\cdot10^{-5}$, $p$ error $1.5\cdot10^{-4}$ at
+    $n_x=384$). The cubic fits now used have 10 coefficients and take 24 nodes.
+\end{itemize}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/IIM_FreeSurface_SurfacePressure.png}
+  \caption{Surface pressure $p_\Gamma=2\eta\,\partial_nv_n$ with 10- and 16-point quadratic fits, and the
+  surface velocity, no slip. The rise at $x=\pm3$ is the corner between the surface and the
+  no-slip walls.}
+  \label{fig:fsps}
+\end{figure}
+
+%---------------------------------------------------------------
+\section{Step 10: free-surface accuracy test with an exact solution}\label{sec:s10}
+
+\paragraph{Test.} The test of Duretz et al.\ (2016, GJI 204, Fig.~3), also used in GMD 19,
+8839 (2026, Figs~7--9): the inviscid circular inclusion of Schmid \& Podladchikov (2003),
+radius 0.5 at the origin, seen through the box $[-0.25,0.25]\times[-0.75,-0.25]$. The matrix
+($\eta=1$) fills the bottom of the box and its top is a curved free surface (zero traction is
+exact for an inviscid inclusion). Exact velocities on the sides and the bottom, no gravity. Both
+papers report the pressure error in L1 only. Neither states the far field; I used pure shear,
+$\dot\varepsilon=-1$. Errors are taken at the centroids (pressure) and faces (velocity) in the
+matrix: L1 $=\frac1V\int|e|\,dV$ (mean over the cells), L$_\infty=\max|e|$.
+
+\paragraph{Variants.}
+\begin{itemize}
+  \item \emph{IIM free surface:} step~9 with a circular level set (exact closest point and
+    curvature) and Dirichlet sides; cubic (default) or quadratic fits.
+  \item \emph{Sticky air:} the inclusion filled with viscosity $\eta_{air}$, exact inviscid
+    velocities on all sides (also on the top, in the air), compared with the inviscid solution
+    after removing the mean pressure difference over the matrix (the pressure level is free).
+    (a) Two-phase IIM, z-form of step~5 (\code{AssembleIIM}, order 2, cubic or quadratic fits),
+    up to $n=160$ (memory); (b) standard FD with phase-averaged viscosity
+    (\code{StandardFD\_Schmid2003.jl}).
+\end{itemize}
+Code: \code{examples/\allowbreak \_Stokes\_IIM/\allowbreak IIM\_FreeSurface\_Schmid.jl}.
+
+\paragraph{Defects found and fixed.}
+\begin{itemize}
+  \item \emph{Surface pressure missing in columns where $\Gamma$ is nearly parallel to a grid
+    line.} At the bottom of the circle, a row of centroids lies a fraction of a cell below
+    $\Gamma$. The face above each of them is in the void, so it was a ghost without an
+    equation, and $p_\Gamma$ (which enters only through the pressure ghosts of momentum
+    equations) never reached these columns: their pressure was integrated horizontally from the
+    ends of the row. Shifting the grid by $0.37\Delta$ raised L$_\infty(p)$ from 0.03 to 1.9 at
+    $n=160$. Fix: every face next to a fluid centroid is an unknown with its momentum equation,
+    as in ghost-fluid free-surface methods; its void neighbour centroid carries the pressure
+    ghost. The error is then independent of the grid shift. This also improves step~9
+    (manufactured solution: L$_\infty(p)$ $4.4\cdot10^{-5}$ instead of $1.5\cdot10^{-4}$ at
+    $n_x=384$, cleanly second order).
+  \item \emph{Dirichlet values in the void.} Where $\Gamma$ meets a side, wall nodes and mirror
+    ghosts above $\Gamma$ took the exact solution at the wall, i.e.\ the inclusion's velocity
+    rather than the extension of the matrix flow. They are now extensions like any void node.
+  \item \emph{Dirichlet wall ghosts.} The tangential ghost across a Dirichlet wall was the linear
+    mirror $2v_w-v_1$, which gave a first-order pressure error at the bottom corners of the box
+    (visible in the error map of FD sticky air, which uses the same mirror). It is now quadratic,
+    $(8v_w-6v_1+v_2)/3$.
+  \item \emph{z-form near the boundary.} For a ghost node across $\Gamma$ next to the boundary,
+    the crossing between it and its row node can lie outside the domain, where no trace is
+    built; \code{pair\_crossing} now falls back to the nearest crossing (as the stress form did).
+\end{itemize}
+
+\paragraph{Error budget of the free surface.} To find what limits the accuracy, the fitted
+quantities were replaced one at a time by exact ones (diagnostic options \code{vexact}: exact
+velocity ghosts from the analytic continuation of the matrix flow; \code{pΓexact}: exact
+$p_\Gamma$). With quadratic fits, at $n=160$:
+\begin{center}
+\small
+\begin{tabular}{@{}l cc l@{}}
+\toprule
+& $p$ L1 & $p$ L$_\infty$ & behaviour\\
+\midrule
+quadratic fits                          & 2.8e-3 & 1.0e-2 & L$_\infty$ order 1.4--2, irregular\\
+exact velocity ghosts                   & 3.7e-3 & 4.6e-3 & L$_\infty$ clean second order\\
+exact $p_\Gamma$                        & 2.4e-3 & 6.8e-3 & uniform offset changes sign\\
+both exact, linear wall ghosts          & 1.8e-4 & 3.0e-3 & L$_\infty$ first order, bottom corners\\
+both exact, quadratic wall ghosts       & 3.3e-4 & 4.3e-4 & \\
+cubic fits (no exact data)              & 1.2e-4 & 6.8e-4 & L1 third, L$_\infty$ second order\\
+\bottomrule
+\end{tabular}
+\end{center}
+The fitted velocity ghosts and the fitted $p_\Gamma$ contribute errors of the same size and
+opposite sign to a uniform pressure offset; the velocity ghosts also make the L$_\infty$ rate
+irregular. Neither the pressure ghost nor its order is the limit: quadratic pressure ghosts
+(through two fluid centroids and $p_\Gamma$, Gibou \& Fedkiw 2005) change nothing. Cubic fits,
+one order more accurate for $\partial_s\mathbf v$ and $\partial_{ss}\mathbf v$, reduce both
+contributions: with them, L1$(p)$ is 150 times smaller at $n=640$.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{@{}r cc cc c cc cc c cc@{}}
+\toprule
+& \multicolumn{4}{c}{IIM free surface} && \multicolumn{4}{c}{IIM sticky, $\eta_{air}=10^{-6}$} && \multicolumn{2}{c}{FD sticky, $10^{-4}$}\\
+\cmidrule(lr){2-5}\cmidrule(lr){7-10}\cmidrule(l){12-13}
+$n$ & $p$ L1 & $p$ L$_\infty$ & $\mathbf v$ L1 & $\mathbf v$ L$_\infty$ && $p$ L1 & $p$ L$_\infty$ & $\mathbf v$ L1 & $\mathbf v$ L$_\infty$ && $p$ L1 & $p$ L$_\infty$\\
+\midrule
+ 20 & 5.7e-2 & 1.1e-1 & 3.2e-4 & 2.6e-3 && 2.5e-3 & 2.4e-2 & 7.5e-5 & 4.7e-4 && 1.8e-1 & 2.4\\
+ 40 & 5.8e-3 & 1.5e-2 & 2.2e-5 & 1.3e-4 && 3.9e-4 & 5.8e-3 & 2.0e-5 & 8.4e-5 && 1.1e-1 & 2.6\\
+ 80 & 8.5e-4 & 2.6e-3 & 4.3e-6 & 1.8e-5 && 7.5e-5 & 7.5e-4 & 3.8e-6 & 1.6e-5 && 5.9e-2 & 2.6\\
+160 & 1.2e-4 & 6.8e-4 & 1.1e-6 & 3.6e-6 && 1.8e-5 & 3.3e-4 & 8.6e-7 & 4.0e-6 && 3.2e-2 & 2.7\\
+320 & 1.3e-5 & 1.7e-4 & 2.4e-7 & 8.4e-7 && & & & && 1.7e-2 & 2.8\\
+640 & 1.2e-6 & 3.6e-5 & 5.8e-8 & 2.0e-7 && & & & && 8.5e-3 & 2.8\\
+\midrule
+order & 2.8--3.5 & 2.0--2.2 & 2.0--2.1 & 2.0--2.4 && 2.1--2.7 & 1.2--2.9 & 2.2--2.4 & 2.0--2.5 && 0.9 & --\\
+\bottomrule
+\end{tabular}
+\caption{Inviscid inclusion, cubic fits: errors against the exact solution. IIM free surface with
+linear pressure ghosts (no pressure shift); sticky air with the mean pressure difference
+removed. Orders from $n=80$ on for the free surface. With quadratic fits: free surface
+$1.8\cdot10^{-4}$ / $9.3\cdot10^{-4}$ (L1 / L$_\infty$ of $p$ at $n=640$, second order); IIM sticky
+$4.9\cdot10^{-5}$ / $2.0\cdot10^{-3}$ at $n=160$.}
+\label{tab:fs2}
+\end{table}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/IIM_FreeSurface_Schmid.png}
+  \caption{Inviscid inclusion. \textbf{Top:} pressure errors in L1 and L$_\infty$, velocity
+  errors, against $h$. Black: IIM free surface (cubic, quadratic fits); blue: IIM sticky air
+  (solid cubic, dashed quadratic fits); orange: FD sticky air (the two contrasts overlap). In the
+  velocity panel, grey: free surface with quadratic fits. \textbf{Bottom:} $\log_{10}$ of the
+  pressure error at $n=160$, cubic fits.}
+  \label{fig:fs2}
+\end{figure}
+
+\paragraph{Discussion.}
+\begin{itemize}
+  \item \emph{Free surface.} With cubic fits, pressure converges at third order in L1 and second
+    order in L$_\infty$ ($3.6\cdot10^{-5}$ at $n=640$), velocity at second order in both norms.
+    Duretz et al.\ (2016) and the GMD study get first order in L1 and do not report L$_\infty$.
+    The fits matter more than anything else: at $n=640$ quadratic fits give 150 times larger L1
+    and 26 times larger L$_\infty$. Pressure ghosts: linear ghosts are 10 times more accurate in
+    L1 than Taylor ghosts ($p_\Gamma+\nabla p\cdot\delta$), which also need $\nabla p_\Gamma$.
+  \item \emph{FD sticky air.} First order in L1, no convergence in L$_\infty$ (2.7 in the cut
+    cells), the same for $\eta_{air}=10^{-2}$ and $10^{-4}$: the error of the averaged viscosity
+    dominates the modelling error of the air. This matches the papers.
+  \item \emph{IIM sticky air.} With $\eta_{air}=10^{-2}$ the error stalls at L1 $=4.7\cdot10^{-3}$
+    (L$_\infty=7\cdot10^{-2}$): the modelling error of a viscous air, not a discretisation error.
+    With $10^{-4}$ it stalls from $n=160$ on (L1 $5.5\cdot10^{-5}$); with $10^{-6}$ it converges
+    at second order. The IIM removes the discretisation error of sticky air and leaves only the
+    modelling error, proportional to $\eta_{air}$. The price is the air unknowns and a much more
+    expensive direct solve (18~s against 0.6~s at $n=160$).
+  \item \emph{Why sticky air seemed to converge faster in L$_\infty$} (quadratic fits). Its
+    maximum error sits in cells whose centroid lies almost on $\Gamma$ (0.01--0.03$\Delta$); it
+    starts large and decreases quickly, a pre-asymptotic rate. A few cells away from $\Gamma$ its
+    error converged at first order only. The free-surface error was instead a smooth error over
+    the whole domain, set by the fits (error budget above), whose maximum moved between the bottom
+    of the circle and the corners with the walls, hence the irregular rate. With cubic fits both
+    are more accurate and comparable at $n=160$ (L$_\infty$ $6.8\cdot10^{-4}$ free surface,
+    $3.3\cdot10^{-4}$ sticky air).
+  \item \emph{Remaining limit of IIM sticky air.} At $n=160$ its largest error is where $\Gamma$
+    meets the side walls (L$_\infty$ rate 1.2 between $n=80$ and 160). There the cubic fits fall
+    back to quadratic ones (too few nodes) and the corrections use the nearest crossing inside
+    the domain. Away from the walls the error is 2--4 times smaller.
+\end{itemize}
+
+%---------------------------------------------------------------
 \section{Next steps}
 
 \begin{itemize}

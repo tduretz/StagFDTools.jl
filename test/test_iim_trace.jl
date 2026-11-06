@@ -76,3 +76,25 @@ end
     end
     @test errv < 1e-9 && errs < 1e-8 && errss < 1e-6
 end
+
+@testset "IIM one-sided cubic fit" begin
+    nc = (x=20, y=18)
+    L  = (x=2.0, y=1.8)
+    Δ  = (x=L.x / nc.x, y=L.y / nc.y)
+    X  = GenerateGrid((min=0.0, max=L.x), (min=0.0, max=L.y), Δ, nc)
+    n  = normalize(SVector(1.0, 0.6))
+    x0 = SVector(1.03, 0.91)
+    φ  = LevelSet((x, y) -> dot(n, SVector(x, y) - x0), X)
+    # A cubic polynomial on side -1 is reproduced exactly (value, gradient, Hessian at xΓ)
+    c(x)  = 0.3 + x[1] - 0.4x[2] + 0.7x[1]^2 - 0.2x[1] * x[2] + 0.5x[1]^3 - 0.3x[1]^2 * x[2] + 0.2x[2]^3
+    ∇c(x) = SVector(1 + 1.4x[1] - 0.2x[2] + 1.5x[1]^2 - 0.6x[1] * x[2], -0.4 - 0.2x[1] - 0.3x[1]^2 + 0.6x[2]^2)
+    Hc(x) = SMatrix{2,2}(1.4 + 3x[1] - 0.6x[2], -0.2 - 0.6x[1], -0.2 - 0.6x[1], 1.2x[2])
+    ranges = (2:(nc.x+2), 3:(nc.y+2))
+    xΓ = x0 + 0.1 * tangent(n)
+    F  = QuadraticFit(xΓ, xΓ - Δ.x * n, -1, φ.x, X.vx_e, ranges, Δ; npts=24, degree=3)
+    f  = [c(SVector(X.vx_e.x[I[1]], X.vx_e.y[I[2]])) for I in F.idx]
+    @test all(I -> side(φ.x[I]) == -1, F.idx)
+    @test abs(dot(F.λ, f) - c(xΓ)) < 1e-10
+    @test norm(F.g * f - ∇c(xΓ)) < 1e-9
+    @test norm([dot(F.H[a, b, :], f) for a in 1:2, b in 1:2] - Hc(xΓ)) < 1e-7
+end

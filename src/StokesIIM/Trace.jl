@@ -5,6 +5,7 @@
 # n, as in Landry's compute_dv_dtt) define a fit of z:
 #   :linear     3 nodes, linear interpolant (Landry, first order)
 #   :quadratic  ~10 nodes, quadratic least squares
+#   :cubic      ~24 nodes, cubic least squares (one order more accurate derivatives)
 # Its value and derivatives at x_Γ give z_s, ∂ₛz_s = t·∇z_s and ∂ₛₛz_s = tᵀ(∇∇z_s)t - κ n·∇z_s
 # (second derivative along the curved Γ, κ = ∇·n). Since η is constant on each side, Landry's
 # η-weighted average of v_s = z_s/η_s reduces to
@@ -50,21 +51,23 @@ function OneSidedFit(xΓ, xo, s, φc, Xc, ranges, Δ; nmax=4)
 end
 
 """
-    QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=10, nmax=5)
+    QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=10, nmax=5, degree=2)
 
 Quadratic least-squares fit of the `npts` nodes of side `s` closest to `xo` (more if the
 6×6 normal matrix is ill-conditioned). Basis in cell units centred at `xΓ`:
-[1, dx, dy, dx²/2, dy²/2, dx dy]. Returns indices, value weights `λ`, gradient weights `g`
-(2×N) and Hessian weights `H` (H[a, b, k]).
+[1, dx, dy, dx²/2, dy²/2, dx dy]. `degree=3` adds [dx³/6, dx²dy/2, dx dy²/2, dy³/6] (cubic fit,
+one order more accurate for the value and derivatives; use npts ≈ 24). Returns indices, value
+weights `λ`, gradient weights `g` (2×N) and Hessian weights `H` (H[a, b, k]) at `xΓ`.
 """
-function QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=10, nmax=5)
+function QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=10, nmax=5, degree=2)
     cand, xk = side_candidates(xo, s, φc, Xc, ranges, Δ, nmax)
     row(I) = (dx = (xk(I)[1] - xΓ[1]) / Δ.x; dy = (xk(I)[2] - xΓ[2]) / Δ.y;
-              SVector(1.0, dx, dy, dx^2 / 2, dy^2 / 2, dx * dy))
+              degree == 2 ? SVector(1.0, dx, dy, dx^2 / 2, dy^2 / 2, dx * dy) :
+                            SVector(1.0, dx, dy, dx^2 / 2, dy^2 / 2, dx * dy, dx^3 / 6, dx^2 * dy / 2, dx * dy^2 / 2, dy^3 / 6))
     for N in npts:length(cand)
         V = reduce(vcat, (row(I)' for I in cand[1:N]))
         σ = svdvals(V)
-        σ[end] > 1e-2 * σ[1] || continue
+        σ[end] > (degree == 2 ? 1e-2 : 1e-3) * σ[1] || continue   # (cubic terms span a wider range)
         P = pinv(V)                                          # a = P * f
         g = vcat((P[2, :] ./ Δ.x)', (P[3, :] ./ Δ.y)')
         H = zeros(2, 2, N)
@@ -73,6 +76,8 @@ function QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=10, nmax=5)
         H[1, 2, :] .= H[2, 1, :] .= P[6, :] ./ (Δ.x * Δ.y)
         return (idx=cand[1:N], λ=P[1, :], g=g, H=H)
     end
+    # too few nodes for a cubic (e.g. where Γ meets the boundary): quadratic fit
+    degree == 3 && return QuadraticFit(xΓ, xo, s, φc, Xc, ranges, Δ; npts=min(npts, 16), nmax, degree=2)
     error("QuadraticFit: no well-conditioned set of nodes on side $s near $xΓ")
 end
 
@@ -101,12 +106,14 @@ function InterfaceTrace(p, φc, Xc, ranges, Δ, η; fit=:linear, nmax=4)
             s=vcat(fill(-1, length(fm.idx)), fill(1, length(fp.idx))), g=hcat(fm.g, fp.g), H=cat(fm.H, fp.H; dims=3))
 end
 
-# Linear or quadratic fits on both sides, with a Hessian (zero for linear fits)
+# Linear, quadratic or cubic fits on both sides, with a Hessian (zero for linear fits)
 function SideFits(p, xo, φc, Xc, ranges, Δ; fit=:linear, nmax=4)
     map((-1, 1), xo) do s, x
         if fit == :linear
             f = OneSidedFit(p.x, x, s, φc, Xc, ranges, Δ; nmax)
             (idx=collect(f.idx), λ=Vector(f.λ), g=Matrix(f.g), H=zeros(2, 2, length(f.idx)))
+        elseif fit == :cubic
+            QuadraticFit(p.x, x, s, φc, Xc, ranges, Δ; npts=24, degree=3)
         else
             QuadraticFit(p.x, x, s, φc, Xc, ranges, Δ)
         end

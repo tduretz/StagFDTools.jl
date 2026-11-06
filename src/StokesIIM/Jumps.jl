@@ -77,9 +77,10 @@ end
 # Second order: d/ds of the above gives [∂ₜ∂_β z_α] and ∂ₜp; then
 #   ∂ₙp = (∂ₜₜzₙ - ∂ₙₜzₜ)/(1 + ⁴⁄₃k),   ∂ₙₙzₙ = -∂ₙₜzₜ - k∂ₙp,   ∂ₙₙzₜ = (1 + k/3)∂ₜp - ∂ₜₜzₜ
 # For k = 0 on both sides, C and S cancel and the jumps reduce to InterfaceJumps2.
+# A body force f (∇·σ + f = 0) adds f_n/(1 + ⁴⁄₃k) to ∂ₙp and -f_t to ∂ₙₙzₜ.
 
-# Fields on one side of Γ at x_Γ (see above)
-function SideFields(η, k, w, w2, T, dT, n, κ)
+# Fields on one side of Γ at x_Γ (see above); f: body force on that side
+function SideFields(η, k, w, w2, T, dT, n, κ; f=zero(SVector{2,Float64}))
     t = tangent(n)
     C, S   = dot(n, T), dot(t, T)
     dC, dS = dot(n, dT) + κ * dot(t, T), dot(t, dT) - κ * dot(n, T)
@@ -97,9 +98,9 @@ function SideFields(η, k, w, w2, T, dT, n, κ)
     un, ut = dG' * n, dG' * t
     zn_nt, zn_tt = dot(un, n), dot(un, t)
     zt_nt, zt_tt = dot(ut, n), dot(ut, t)
-    pn    = (zn_tt - zt_nt) / μ
+    pn    = (zn_tt - zt_nt + dot(n, f)) / μ
     zn_nn = -zt_nt - k * pn
-    zt_nn = (1 + k / 3) * pt - zt_tt
+    zt_nn = (1 + k / 3) * pt - zt_tt - dot(t, f)
     Hn = R * @SMatrix([zn_nn zn_nt; zn_nt zn_tt]) * R'
     Ht = R * @SMatrix([zt_nn zt_nt; zt_nt zt_tt]) * R'
     Hx, Hy = n[1] * Hn + t[1] * Ht, n[2] * Hn + t[2] * Ht

@@ -16,3 +16,19 @@
 !/results/*.gif
 !/results/*.mp4
 !/results/*.pdf
+
+# LaTeX build files
+*.aux
+*.log
+*.out
+*.toc
+*.fls
+*.fdb_latexmk
+*.synctex.gz
+*.synctex(busy)
+*.bbl
+*.blg
+*.nav
+*.snm
+*.lof
+*.lot

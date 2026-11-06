@@ -78,7 +78,8 @@ function JumpFunctionals(tr, η; ξ=nothing)
 end
 
 # Crossing used for the stencil pair (node, member): the crossing on the fine-lattice edges
-# between them that is closest to their midpoint
+# between them that is closest to their midpoint; if that crossing is outside the domain (Γ
+# meets the boundary, member is a ghost node), the crossing closest to the midpoint
 function pair_crossing(lookup, F0, F1, xmid, J)
     Imin, Imax = minmax(F0[1], F1[1])
     Jmin, Jmax = minmax(F0[2], F1[2])
@@ -90,7 +91,7 @@ function pair_crossing(lookup, F0, F1, xmid, J)
         d = norm(J[c].xΓ - xmid)
         d < dbest && ((best, dbest) = (c, d))
     end
-    best == 0 && error("no interface crossing between fine nodes $F0 and $F1")
+    best == 0 && (best = argmin(c -> norm(J[c].xΓ - xmid), eachindex(J)))
     return best
 end
 
@@ -102,13 +103,13 @@ the full Vx/Vy arrays and provides the values of the non-numbered (boundary and 
 - `ξ`: `nothing` (incompressible; the pressure null space is removed with a Lagrange multiplier,
   Σ p = 0) or `(neg, pos)` bulk viscosities (compressible: τ = 2η(ε̇ - ⅓(∇·v)I), p = -ξ∇·v)
 - `order`: 1 (Landry) or 2 (adds ½δᵀ[∇∇z]δ and [∇p]·δ; requires `fit=:quadratic`)
-- `fit`: `:linear` or `:quadratic` one-sided fits for v_Γ, ∂ₛv_Γ, ∂ₛₛv_Γ (see `InterfaceTrace`)
+- `fit`: `:linear`, `:quadratic` or `:cubic` one-sided fits for v_Γ, ∂ₛv_Γ, ∂ₛₛv_Γ (see `InterfaceTrace`)
 Diagnostic: `Jexact(p)` returns given jumps (as `InterfaceJumps2`) at crossing `p`; they then
 enter the right-hand side instead of being reconstructed from z.
 Returns the matrix, right-hand side, numbering and interface data.
 """
 function AssembleIIM(φ, X, Δ, η, nc, zbc; ξ=nothing, order=1, fit=:linear, corrections=true, Jexact=nothing)
-    order == 2 && fit != :quadratic && isnothing(Jexact) && error("order = 2 requires fit = :quadratic")
+    order == 2 && fit == :linear && isnothing(Jexact) && error("order = 2 requires fit = :quadratic or :cubic")
     size_x, size_y, size_c = size(φ.x), size(φ.y), size(φ.c)
     type   = Fields(fill(:out, size_x...), fill(:out, size_y...), fill(:out, size_c...))
     number = Fields(zeros(Int, size_x...), zeros(Int, size_y...), zeros(Int, size_c...))
