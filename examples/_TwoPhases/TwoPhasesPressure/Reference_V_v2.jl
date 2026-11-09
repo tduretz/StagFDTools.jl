@@ -34,7 +34,6 @@ let
     ηc = σc * tc
 
     @info "--------- Dimensional model ---------"
-
     @show L_d    = L  * Lc
     @show ηs_d   = ηs * ηc
     @show ηΦ_d   = ηΦ * ηc
@@ -46,7 +45,6 @@ let
     k_ηf_d       = δ_d^2 / (ηΦ_d + 4/3 * ηs_d) # Permeability / fluid viscosity
     k_ηf0_d      = k_ηf_d/Φi^n_CK 
     δ_d1 = sqrt((k_ηf0_d * Φi^n_CK) * (ηΦ_d + 4/3*ηs_d)) 
-
     @show δ_d, δ_d1
     @show k_ηf_d 
     @show k_ηf0_d
@@ -56,7 +54,6 @@ let
     Ks = 1.1e4
     Kf = 1.0e4
     KΦ = 0.9e4
-
     @show  G*σc
     @show Ks*σc
     @show Kf*σc
@@ -166,10 +163,10 @@ end
 
     # Stencil extent for each block matrix
     pattern = Fields(
-        Fields(@SMatrix([0 1 0; 1 1 1; 0 1 0]),                 @SMatrix([0 0 0 0; 0 1 1 0; 0 1 1 0; 0 0 0 0]), @SMatrix([0 1 0;  0 1 0]),        @SMatrix([0 1 0;  0 1 0])), 
-        Fields(@SMatrix([0 0 0 0; 0 1 1 0; 0 1 1 0; 0 0 0 0]),  @SMatrix([0 1 0; 1 1 1; 0 1 0]),                @SMatrix([0 0; 1 1; 0 0]),        @SMatrix([0 0; 1 1; 0 0])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
+        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1;  1 1 1]),        @SMatrix([1 1 1;  1 1 1])),
+        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([1 1; 1 1; 1 1]),        @SMatrix([1 1; 1 1; 1 1])),
+        Fields(@SMatrix([0 1 0;  0 1 0]),                               @SMatrix([0 0; 1 1; 0 0]),                               @SMatrix([1]),                    @SMatrix([1])),
+        Fields(@SMatrix([1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1]),  @SMatrix([1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1]), @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
     )
 
     # Sparse matrix assembly
@@ -178,14 +175,14 @@ end
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
     M     = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
     M_PC  = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
@@ -233,6 +230,8 @@ end
 ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
     div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    ΔΦ      = zeros(size_c...)
+    T       = (c  = ones(size_c...), v  = ones(size_v...) )   # temperature [K], unused (Ea = 0)
     P       = (t=zeros(size_c...), f=zeros(size_c...))
     
     xv  = LinRange(-L.x/2, L.x/2, nc.x+1)
@@ -289,6 +288,10 @@ end
     )
     to   = TimerOutput()
 
+    # Sparsity pattern is recorded at the first assembly
+    pattern_ready = false
+    M_fixed = M_PC_fixed = nothing
+
     for it=1:nt
 
         @printf("\nStep %04d\n", it)
@@ -314,16 +317,13 @@ end
 
             # Residual check
             @timeit to "Tangent operator" begin
-                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
-
-
-
+                @time TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ)
             end
             @timeit to "Residual" begin
-                @time ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                @time ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-                @time ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-                @time ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+                @time ResidualMomentum2D_x!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                @time ResidualMomentum2D_y!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+                @time ResidualContinuity2D!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+                @time ResidualFluidContinuity2D!(R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
             end
             @info "Residuals"
             @show norm(R.x[inx_Vx,iny_Vx])/sqrt(nVx)
@@ -336,28 +336,39 @@ end
 
             #--------------------------------------------#
             @timeit to "Assembly" begin
+                # Record the sparsity pattern once (first assembly), then write straight into the CSC nonzeros
+                if !pattern_ready
+                    K_pat = pattern_storage()
+                    AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                    AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                    AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                    AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                    set_sparsity_pattern!(M, K_pat)
+                    K_pat = pattern_storage()
+                    AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                    AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                    AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                    AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                    set_sparsity_pattern!(M_PC, K_pat)
+                    M_fixed, M_PC_fixed = fixed_pattern(M), fixed_pattern(M_PC)
+                    pattern_ready = true
+                end
                 # Assemble global Jacobian
                 @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M, M_PC_threads)
-                end
+                zero_values!(M)
+                AssembleMomentum2D_x!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
                 # Assemble preconditionner
                 @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
-                M_PC_threads = reset_parallel_storage(number)
-                @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-                @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-                @timeit to "Reduction" begin
-                    reduce_sparse_matrix!(M_PC, M_PC_threads)
-                end
+                zero_values!(M_PC)
+                AssembleMomentum2D_x!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
             end
-            
+
             @info "Solver"
             # Prepare work space (symbolic factorization)
             if iter==1 && it==1 && solver == :GCR

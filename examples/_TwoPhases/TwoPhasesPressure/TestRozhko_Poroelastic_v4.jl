@@ -174,10 +174,10 @@ using DifferentiationInterface
 
     # Stencil extent for each block matrix
     pattern = Fields(
-        Fields(@SMatrix([0 1 0; 1 1 1; 0 1 0]),                 @SMatrix([0 0 0 0; 0 1 1 0; 0 1 1 0; 0 0 0 0]), @SMatrix([0 1 0;  0 1 0]),        @SMatrix([0 1 0;  0 1 0])), 
-        Fields(@SMatrix([0 0 0 0; 0 1 1 0; 0 1 1 0; 0 0 0 0]),  @SMatrix([0 1 0; 1 1 1; 0 1 0]),                @SMatrix([0 0; 1 1; 0 0]),        @SMatrix([0 0; 1 1; 0 0])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
-        Fields(@SMatrix([0 1 0;  0 1 0]),                       @SMatrix([0 0; 1 1; 0 0]),                      @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
+        Fields(@SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1;  1 1 1]),        @SMatrix([1 1 1;  1 1 1])),
+        Fields(@SMatrix([0 1 1 0; 1 1 1 1; 1 1 1 1; 0 1 1 0]),          @SMatrix([1 1 1; 1 1 1; 1 1 1]),                         @SMatrix([1 1; 1 1; 1 1]),        @SMatrix([1 1; 1 1; 1 1])),
+        Fields(@SMatrix([0 1 0;  0 1 0]),                               @SMatrix([0 0; 1 1; 0 0]),                               @SMatrix([1]),                    @SMatrix([1])),
+        Fields(@SMatrix([1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1; 1 1 1 1 1]),  @SMatrix([1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1; 1 1 1 1]), @SMatrix([1 1 1; 1 1 1; 1 1 1]),  @SMatrix([1 1 1; 1 1 1; 1 1 1])),
     )
 
     # Sparse matrix assembly
@@ -186,14 +186,14 @@ using DifferentiationInterface
     nPt   = maximum(number.Pt)
     nPf   = maximum(number.Pf)
     M     = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
     M_PC  = Fields(
-        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPt)),
-        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPt)),
+        Fields(spzeros(nVx, nVx), spzeros(nVx, nVy), spzeros(nVx, nPt), spzeros(nVx, nPf)),
+        Fields(spzeros(nVy, nVx), spzeros(nVy, nVy), spzeros(nVy, nPt), spzeros(nVy, nPf)),
         Fields(spzeros(nPt, nVx), spzeros(nPt, nVy), spzeros(nPt, nPt), spzeros(nPt, nPf)),
         Fields(spzeros(nPf, nVx), spzeros(nPf, nVy), spzeros(nPf, nPt), spzeros(nPf, nPf)),
     )
@@ -243,6 +243,8 @@ using DifferentiationInterface
 ρ0      = (s = materials.ρs[1]*ones(size_c...), f = materials.ρf[1]*ones(size_c...), t = zeros(size_c...))
     div_qD  = (c  = zeros(size_c...), v  = zeros(size_v...) )
     div_Vs  = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    ΔΦ      = zeros(size_c...)
+    T       = (c  = ones(size_c...), v  = ones(size_v...) )   # temperature [K], unused (Ea = 0)
 
     # Generate grid coordinates 
     X = GenerateGrid(x, y, Δ, nc)
@@ -372,6 +374,10 @@ using DifferentiationInterface
     # display(fig)  
 
     #--------------------------------------------#
+    # Sparsity pattern is recorded at the first assembly
+    pattern_ready = false
+    M_fixed = M_PC_fixed = nothing
+
     for it=1:nt
 
         @printf("\nStep %04d\n", it)
@@ -405,12 +411,12 @@ using DifferentiationInterface
 
             #--------------------------------------------#
             # Residual check
-            TangentOperator!( 𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, V, P, ΔP, P0, Φ, Φ0, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+            TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ)
 
-            ResidualMomentum2D_x!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-            ResidualMomentum2D_y!(     R, V, P, ΔP, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
-            ResidualContinuity2D!(     R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
-            ResidualFluidContinuity2D!(R, V, P, ΔP, old,    rheo, materials, number, type, BC, nc, Δ) 
+            ResidualMomentum2D_x!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+            ResidualMomentum2D_y!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
+            ResidualContinuity2D!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
+            ResidualFluidContinuity2D!(R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ) 
             println("min/max λ̇.c  - ",  extrema(λ̇.c[inx_c,iny_c]))
             println("min/max λ̇.v  - ",  extrema(λ̇.v[3:end-2,3:end-2]))
             println("min/max ΔP.t - ",  extrema(ΔP.t[inx_c,iny_c]))
@@ -438,23 +444,37 @@ using DifferentiationInterface
             # Assembly
             @info "Assembly, ndof  = $(nVx + nVy + nPt + nPf)"
             
+            # Record the sparsity pattern once (first assembly), then write straight into the CSC nonzeros
+            if !pattern_ready
+                K_pat = pattern_storage()
+                AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+                set_sparsity_pattern!(M, K_pat)
+                K_pat = pattern_storage()
+                AssembleMomentum2D_x!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleMomentum2D_y!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+                AssembleContinuity2D!(     K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                AssembleFluidContinuity2D!(K_pat, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+                set_sparsity_pattern!(M_PC, K_pat)
+                M_fixed, M_PC_fixed = fixed_pattern(M), fixed_pattern(M_PC)
+                pattern_ready = true
+            end
             # Assemble global Jacobian
             @info "Assemble Jacobian, ndof  = $(nVx + nVy + nPt + nPf)"
-            M_PC_threads = reset_parallel_storage(number)
-            @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-            @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-            @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-            @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ)
-            reduce_sparse_matrix!(M, M_PC_threads)
-            
+            zero_values!(M)
+            AssembleMomentum2D_x!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleMomentum2D_y!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleContinuity2D!(     M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleFluidContinuity2D!(M_fixed, V, P, ΔP, ΔΦ, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
             # Assemble preconditionner
             @info "Assemble PC, ndof  = $(nVx + nVy + nPt + nPf)"
-            M_PC_threads = reset_parallel_storage(number)
-            @time AssembleMomentum2D_x!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-            @time AssembleMomentum2D_y!(     M_PC_threads, V, P, ΔP, old, 𝐷_ctl, rheo, materials, number, pattern, type, BC, nc, Δ)
-            @time AssembleContinuity2D!(     M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-            @time AssembleFluidContinuity2D!(M_PC_threads, V, P, ΔP, old,        rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
-            reduce_sparse_matrix!(M_PC, M_PC_threads)
+            zero_values!(M_PC)
+            AssembleMomentum2D_x!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleMomentum2D_y!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ)
+            AssembleContinuity2D!(     M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
+            AssembleFluidContinuity2D!(M_PC_fixed, V, P, ΔP, ΔΦ, old, 𝐷,     rheo, materials, number, pattern, type, BC, nc, Δ; PC=true)
 
             #--------------------------------------------#
             @info "Solver"
@@ -469,8 +489,8 @@ using DifferentiationInterface
                 ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true )
 
             #--------------------------------------------#
-            imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
-            UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
+            α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, T, nc, Δ)
+            UpdateSolution!(V, P, α_best*dx, number, type, nc)
         end
 
         #--------------------------------------------#
