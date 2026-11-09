@@ -176,8 +176,10 @@ function ΔP_P3(Φ, Pt_trial, Pf_trial, Φ_trial, divVs, divqD, Pt0, Pf0, Φ0, K
 
     for iter=1:10
         R, J = ad_value_and_jacobian(ΔP_residual_P3, x, Φ, Pt_trial, Pf_trial, Φ_trial, divVs, divqD, Pt0, Pf0, Φ0, KΦ, Ks, Kf, ξ0, m, G, τII, pl, ph, λ̇, Δt)
-        x  = x .- J \ R
         nr = mynorm(R)
+        # Converged (e.g. λ̇ = 0: R = 0 at x = 0): check before solving, J is singular for Ks, Kf → ∞
+        iszero(nr) && break
+        x  = x .- J \ R
         if iter==1 && nr>1e-17
             r0 = nr
         end
