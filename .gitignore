@@ -16,3 +16,10 @@
 !/results/*.gif
 !/results/*.mp4
 !/results/*.pdf
+*.log
+*.fls
+*.out
+*.gz
+*.aux
+*_latexmk
+
