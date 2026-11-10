@@ -278,8 +278,11 @@ end
 # Adaptive time stepping: if a step fails, it is restarted from the start of the step with Δt/Δt_red_fac, at most ntry times (then the run stops);
 #         after a successful step, Δt is multiplied by Δt_inc_fac, up to Δt_max (nothing: Δt0). Δt is also limited by the CFL condition
 # nt, time_max: the run stops after nt steps or at time_max [s], whichever comes first (time_max = Inf: nt steps)
+# Gouge plasticity: friction angle ϕ_gouge + Δϕ_gouge tanh(εp/εh_gouge) [°] and cohesion C_gouge + ΔC_gouge tanh(εp/εh_gouge) [Pa], εp = ∫λ̇dt.
+#         Defaults: cohesion hardening fitted to the lab apparent friction (30-50°, low-res runs). No hardening (previous defaults):
+#         ϕ_gouge=36.13, C_gouge=0.67e6, ΔC_gouge=0.0
 @views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false, ϵ_nl_last=1e-5,
-                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf)
+                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=1.0)
     #--------------------------------------------#
 
     # Scaling
@@ -325,11 +328,14 @@ end
     materials.η0             .= [1e48,  1e28,   1e10,   1e48]  ./ sc.σ ./ sc.t                                    # Reference viscosity 
     materials.G              .= [3e10,  1e9,    1e60,   1e12]  ./ sc.σ                                             # Shear modulus
     materials.β              .= [1e-11, 1e-10,  1e-12,  1e-12] .* sc.σ                                        # Compressibility
-    materials.plasticity.C   .= [45e6,  0.67e6, 15e60,  15e60] ./ sc.σ                                        # Cohesion
-    materials.plasticity.ϕ   .= [36.13, 36.13,   36.13,  36.13]                                                       # Friction angle
+    materials.plasticity.C   .= [45e6,  C_gouge, 15e60,  15e60] ./ sc.σ                                        # Cohesion
+    materials.plasticity.ϕ   .= [36.13, ϕ_gouge, 36.13,  36.13]                                                       # Friction angle
     materials.plasticity.ψ   .= [0.0,   15.0,    0.0,    0.0]                                                        # Dilation angle
     materials.plasticity.Pt  .= [-10e6, -0.5e6, -1e60,  -1e60] ./ sc.σ                                         # Tensile strength (DruckerPragerCap), must be > -C/tanϕ
     materials.plasticity.ηvp .= [1e10,  1e8,    5e11,   5e11] .* 10/sc.σ ./ sc.t                                   # Viscoplastic regularisation
+    materials.plasticity.Δϕ  .= [0.0,   Δϕ_gouge, 0.0,  0.0]                                                       # Strain hardening: ϕ + Δϕ tanh(εp/εh) [°] (0: none)
+    materials.plasticity.ΔC  .= [0.0,   ΔC_gouge, 0.0,  0.0] ./ sc.σ                                              # Strain hardening: C + ΔC tanh(εp/εh) [Pa] (0: none)
+    materials.plasticity.εh  .= [1.0,   εh_gouge, 1.0,  1.0]                                                       # Plastic strain scale of the hardening
       # materials.plasticity.soft .= [0.0, 0.0, 0.0, 0.0]             # softening ?
     #                            rock   gouge   salt    plates
     preprocess!(materials)
@@ -361,7 +367,7 @@ end
         a.type.Vx[inx_Vx[argmin(abs.(a.X.v.x))], 2] = :Dirichlet_tangent
     end
     # additional Allocations
-    εp = (c=zeros(size_c...), v=zeros(size_v...))
+    εp = a.εp # accumulated plastic strain (∫λ̇dt), used by the solver for strain hardening
     sp = (c= ones(size_c...), v= ones(size_v...))
     C  = (c=zeros(size_c...), v=zeros(size_v...))
 
@@ -667,10 +673,11 @@ end
         # Everything the figure needs (also what is saved to disk)
         d = (; it, time, sc, Ly=L.y, θgouge, ε̇yy, Rot=Matrix(Rot), plates,
             xc=a.X.c.x, yc=a.X.c.y, xv_min=minimum(a.X.v.x), xv_max=maximum(a.X.v.x),
-            λ̇c=a.λ̇.c[inx_c, iny_c], phc=a.phases.c[inx_c, iny_c], θc=a.τ.θ[inx_c, iny_c],
+            λ̇c=a.λ̇.c[inx_c, iny_c], phc=a.phases.c[inx_c, iny_c], θc=a.τ.θ[inx_c, iny_c], εpc=a.εp.c[inx_c, iny_c],
             ind_mid_x, I_salt=𝐈_probe_salt, I_plate=𝐈_probe_plate, I_MC1=𝐈_probe_MC1, I_MC2=𝐈_probe_MC2, i1, i2, j1, j2,
             P_rock, τII_rock, λ̇_rock, P_gouge, τII_gouge, λ̇_gouge,
             plasticity=(C=materials.plasticity.C, ϕ=materials.plasticity.ϕ, ψ=materials.plasticity.ψ, sinϕ=materials.plasticity.sinϕ, cosϕ=materials.plasticity.cosϕ, ηvp=materials.plasticity.ηvp,
+                        Δϕ=materials.plasticity.Δϕ, ΔC=materials.plasticity.ΔC, εh=materials.plasticity.εh,
                         cap=materials.plasticity isa DruckerPragerCap ? (; (k => getfield(materials.plasticity, k) for k in (:Pt, :py, :Ry, :pd, :τd, :a))...) : nothing),
             probes, probe_salt, probe_plate, probe_MC1, probe_MC2)
 

@@ -63,6 +63,9 @@ Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
     pd::T   = Float64[]
     τd::T   = Float64[]
     pq::T   = Float64[]
+    Δϕ::T   = Float64[]  # Strain hardening: ϕ(εp) = ϕ + Δϕ tanh(εp/εh) [°], εp = ∫λ̇dt (0: no hardening)
+    ΔC::T   = Float64[]  # Strain hardening: C(εp) = C + ΔC tanh(εp/εh) (0: no hardening)
+    εh::T   = Float64[]  # Plastic strain scale of the hardening
 end
 
 Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
@@ -233,6 +236,9 @@ initialize(::Type{DruckerPragerCap}, n::Integer) = DruckerPragerCap(
     pd   = zeros(n),
     τd   = zeros(n),
     pq   = zeros(n),
+    Δϕ   = zeros(n),
+    ΔC   = zeros(n),
+    εh   = ones(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
