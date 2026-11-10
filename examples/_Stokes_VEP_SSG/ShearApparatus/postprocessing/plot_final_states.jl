@@ -7,8 +7,8 @@ load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
     root    = dirname(@__DIR__) # run folders are next to postprocessing/
-    prefix  = "ShearApparatus_v9"
-    θsel    = [15, 20, 30, 40, 50, 60, 70, 80] # gouge angles (one panel each)
+    prefix  = "_ShearApparatus_v9"
+    θsel    = [15, 20, 30, 40, 50, 60, 70, 80, 85] # gouge angles (one panel each)
     h       = 3                     # gouge thickness [mm] (folder _H..)
     λ̇range  = (-7, -3)              # colour range of log10(plastic strain rate [1/s]); lower values are clipped
     height  = 760                   # height of the panels [px]

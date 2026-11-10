@@ -43,6 +43,7 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT
     phases::PHNT
     phase_ratios::PRNT
     X::G
+    εp::FNT             # accumulated plastic strain ∫λ̇dt (c, v), for strain hardening; updated by the caller after each step
     gcr::StokesGCRCache # single-phase GCR solver storage (solver_type = :GCR)
 end
 struct Markers{P,G,X,PA,PR} <: AbstractAdvection
@@ -209,5 +210,5 @@ function Allocs(nc, config, x, y, Δ, nphases)
 
     return Allocs(type, number, pattern,
         M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X, StokesGCRCache())
+        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X, (c=zero(λ̇.c), v=zero(λ̇.v)), StokesGCRCache())
 end

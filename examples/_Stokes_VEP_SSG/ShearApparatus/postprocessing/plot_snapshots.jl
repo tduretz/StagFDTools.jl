@@ -8,7 +8,7 @@ load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
     root    = dirname(@__DIR__) # run folders are next to postprocessing/
-    prefix  = "ShearApparatus_v9"
+    prefix  = "_ShearApparatus_v9"
     θsel    = [30, 50, 70]          # gouge angles (one row each)
     h       = 3                     # gouge thickness [mm] (folder _H..)
     steps   = [20, 100, 500]        # snapshot steps (must have a step_XXXX.jld2)
@@ -16,7 +16,7 @@ let
     centre  = (0.0, 100.0)          # centre of the window (x, y) [mm]
     λ̇range  = (-7, -3)              # colour range of log10(plastic strain rate [1/s]); lower values are clipped
     nskip   = 5                     # σ1 ticks every nskip cells
-    θ_all   = [15, 20, 30, 40, 50, 60, 70, 80] # all gouge angles: fixes the colour of each angle as in plot_friction.jl
+    θ_all   = [15, 20, 30, 40, 50, 60, 70, 80, 85] # all gouge angles: fixes the colour of each angle as in plot_friction.jl
 
     cmap    = cgrad([colorant"#9ecae1", colorant"#4292c6", colorant"#08306b"], length(θ_all), categorical=true)
     colθ(θ) = cmap[findfirst(==(θ), θ_all)]
@@ -82,7 +82,7 @@ let
             Label(fig[row, col, TopLeft()], L"\mathrm{(%$('a' + (row - 1) * (ns + 1) + col - 1))}", fontsize=24, padding=(0, 6, 4, 0), halign=:right)
         end
         linkaxes!(axf...)
-        ylims!(axf[1], 0, 0.7)
+        ylims!(axf[1], 0, 0.85)
         xlims!(axf[1], 0, nothing)
         Colorbar(fig[length(θsel) + 1, 1:ns], hm, vertical=false, flipaxis=false, height=14, width=Relative(0.7),
                  label=L"\log_{10}\ \dot{\lambda}\ \mathrm{[s^{-1}]}\ \mathrm{(white:\ not\ plastic;\ black\ lines:\ gouge\ boundaries;\ grey:\ }\sigma_1\mathrm{\ orientation)}")

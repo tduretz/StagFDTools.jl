@@ -16,7 +16,7 @@ end
 
 let
     root   = dirname(@__DIR__) # run folders are next to postprocessing/
-    prefix = "ShearApparatus_v9"
+    prefix = "_ShearApparatus_v9"
     tail   = 0.2   # fraction of the axial shortening used for the end-of-run friction
 
     folders = filter(d -> isdir(d) && occursin(Regex("^$(prefix)_Tet\\d+_H\\d+\$"), basename(d)), readdir(root, join=true))
@@ -44,6 +44,10 @@ let
     styles = [:solid, :dash, :dot, :dashdot]
     ink, muted = colorant"#222222", colorant"#777777"
     θ_yield = (60, 70)              # gouge angles between which the rock starts to yield (panel b background)
+    # Lab end-of-run friction (apparatus mean over the last 20% of shortening) vs gouge angle, shown in panel (b).
+    # Values read from the lab figure (approximate): replace with the exact numbers. Set to nothing to hide.
+    lab     = (θ = [30, 40, 50, 60], μ = [0.82, 0.77, 0.68, 0.51])
+    c_lab   = colorant"#e66101"
     c_yield = colorant"#d6404e"
 
     fig = with_theme(theme_latexfonts()) do
@@ -52,7 +56,7 @@ let
 
         # (a) friction vs shortening
         ax1 = Axis(fig[1, 1]; xlabel=L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}", ylabel=L"\mu_\mathrm{app} = -\tau/\sigma_n",
-                   title=L"\mathrm{(a)\ Apparatus\ friction}", titlealign=:left, yticks=0:0.1:0.6, axkw...)
+                   title=L"\mathrm{(a)\ Apparatus\ friction}", titlealign=:left, yticks=0:0.1:0.8, axkw...)
         for r in runs
             lines!(ax1, r.δ, r.μ_app, color=colθ(r.θ), linewidth=2, linestyle=styles[findfirst(==(r.h), hs)])
         end
@@ -97,6 +101,11 @@ let
         end
         μ_true = mean(filter(!isnan, [r.μ_true for r in runs]))
         hlines!(ax2, μ_true, color=muted, linestyle=:dash, linewidth=2.5, label=L"\mathrm{gouge\ material}\ (\tan\phi)")
+        if lab !== nothing
+            lines!(ax2, lab.θ, lab.μ, color=c_lab, linewidth=2)
+            scatter!(ax2, lab.θ, lab.μ, color=c_lab, marker=:diamond, markersize=15, strokecolor=ink, strokewidth=1,
+                     label=L"\mathrm{lab}")
+        end
         axislegend(ax2, position=:lb, framevisible=false, unique=true, merge=true)
 
         colgap!(fig.layout, 1, 8)

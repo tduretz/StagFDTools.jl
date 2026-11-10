@@ -932,7 +932,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing, εp=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -944,7 +944,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -961,7 +961,7 @@ end
 # first α that reduces the residual. R must hold the residual of the current solution on entry.
 # Returns (α, success); the solution (V, Pt) is left unchanged, as in LineSearch!
 function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ;
-    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing)
+    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing, εp=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -979,7 +979,7 @@ function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -999,7 +999,8 @@ function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0
 end
 
 # T: optional temperature field (c, v) [K] for temperature-dependent creep
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing)
+# εp: optional accumulated plastic strain field (c, v) for strain hardening (nothing: no hardening)
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing, εp=nothing)
 
     _ones = @SVector ones(4)
     s = 1
@@ -1066,8 +1067,9 @@ end
 
                 # Tangent operator used for Newton Linearisation
                 Tk = T === nothing ? nothing : T.c[i, j]
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk)
+                εpk = εp === nothing ? 0.0 : εp.c[i, j]
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk)
+                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk)
                 _, η_local, λ̇_local, τII_local = stress_state
 
                 @views 𝐷_ctl.c[i, j] .= jac
@@ -1159,8 +1161,9 @@ end
 
             # Tangent operator used for Newton Linearisation
             Tk = T === nothing ? nothing : T.v[i, j]
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk)
+            εpk = εp === nothing ? 0.0 : εp.v[i, j]
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk)
+            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk)
             _, η_local, λ̇_local, = stress_state
 
             @views 𝐷_ctl.v[i, j] .= jac

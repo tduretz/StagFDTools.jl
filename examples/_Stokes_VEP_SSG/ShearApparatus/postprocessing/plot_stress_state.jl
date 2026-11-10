@@ -10,7 +10,7 @@ load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
     root    = dirname(@__DIR__) # run folders are next to postprocessing/
-    prefix  = "ShearApparatus_v9"
+    prefix  = "_ShearApparatus_v9"
     θ       = 30                    # gouge angle of the run
     h       = 3                     # gouge thickness [mm] (folder _H..)
     step    = nothing               # step to show (nothing: last checkpoint)

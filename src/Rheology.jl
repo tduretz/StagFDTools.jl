@@ -335,10 +335,38 @@ end
 # Return mapping --------------------------------------------
 return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, ::NoPlasticity, phases) = τII, P, 0.0
 
-function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases)
-    p = (k=pl.k[phases], kq=pl.kq[phases], c=pl.c[phases], a=pl.a[phases], b=pl.b[phases], py=pl.py[phases], Ry=pl.Ry[phases],
-         pd=pl.pd[phases], τd=pl.τd[phases], pq=pl.pq[phases], Pt=pl.Pt[phases], ηvp=pl.ηvp[phases])
-    return CapReturnMapping(τII, P, ηvep, comp, β, Δt, p)
+# εp: accumulated plastic strain (∫λ̇dt) of the cell, only used by plasticity models with strain hardening
+return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::AbstractPlasticity, phases, εp) =
+    return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl, phases)
+
+# Parameters of the cap model of phase ph. With strain hardening (Δϕ or ΔC ≠ 0), the friction angle is ϕ + Δϕ tanh(εp/εh)
+# and the cohesion C + ΔC tanh(εp/εh), and the quantities derived from them are recomputed (same as preprocess!);
+# εp is lagged (start of the time step)
+@inline function cap_parameters(pl::DruckerPragerCap, ph, εp)
+    # No hardening: εp = 0, hardening fields not set (DruckerPragerCap built without initialize) or Δϕ = ΔC = 0
+    if εp <= 0 || isempty(pl.Δϕ) || (iszero(pl.Δϕ[ph]) && iszero(pl.ΔC[ph]))
+        return (k=pl.k[ph], kq=pl.kq[ph], c=pl.c[ph], a=pl.a[ph], b=pl.b[ph], py=pl.py[ph], Ry=pl.Ry[ph],
+                pd=pl.pd[ph], τd=pl.τd[ph], pq=pl.pq[ph], Pt=pl.Pt[ph], ηvp=pl.ηvp[ph])
+    end
+    h  = tanh(εp / pl.εh[ph])
+    ϕ  = pl.ϕ[ph] + pl.Δϕ[ph] * h
+    k  = sind(ϕ)
+    c  = (pl.C[ph] + pl.ΔC[ph] * h) * cosd(ϕ)
+    a  = sqrt(1.0 + k^2)
+    Pt = pl.Pt[ph]
+    py = (Pt + c / a) / (1 - k / a)
+    Ry = py - Pt
+    pd = py - Ry * k / a
+    τd = k * pd + c
+    pq = pd + pl.kq[ph] * τd
+    return (k=k, kq=pl.kq[ph], c=c, a=a, b=pl.b[ph], py=py, Ry=Ry, pd=pd, τd=τd, pq=pq, Pt=Pt, ηvp=pl.ηvp[ph])
+end
+
+return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases) =
+    return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl, phases, 0.0)
+
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases, εp)
+    return CapReturnMapping(τII, P, ηvep, comp, β, Δt, cap_parameters(pl, phases, εp))
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
@@ -414,7 +442,8 @@ function PhaseAverage(a_average, averaging)
 end
 
 # Tk: temperature [K] for temperature-dependent creep (nothing: η0 used as is)
-function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing; phase_avg=:arithmetic)
+# εp: accumulated plastic strain (∫λ̇dt) for strain hardening (see cap_parameters)
+function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
     eps0 = 1e-17
@@ -468,7 +497,7 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
         ηvep = τII / 2 / ε̇II
 
         # Viscoplastic return mapping
-        τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases)
+        τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases, εp)
 
         # Effective viscosity
         ηvep = τII / (2 * ε̇II)
@@ -488,8 +517,8 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing) where {N,T}
-    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk)
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing, εp=0.0) where {N,T}
+    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
         2 * η * ε̇[3],

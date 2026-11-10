@@ -19,8 +19,9 @@ end
 
 let
     root   = dirname(@__DIR__) # run folders are next to postprocessing/
-    prefix = "ShearApparatus_v9"
+    prefix = "_ShearApparatus_v9"
     tail   = 0.2   # fraction of the axial shortening used for the end-of-run values
+    θskip  = [80]  # gouge angles not shown (keeps panel (a) on a 2 x 4 grid)
 
     folders = filter(d -> isdir(d) && occursin(Regex("^$(prefix)_Tet\\d+_H\\d+\$"), basename(d)), readdir(root, join=true))
     runs    = map(folders) do folder
@@ -38,12 +39,14 @@ let
            β_end = tail_mean(β(p.meanθ), t, tail), βmin_end = tail_mean(β(p.maxθ), t, tail), βmax_end = tail_mean(β(p.minθ), t, tail))
     end
     sort!(runs, by=r -> (r.h, r.θ))
+    θ_all  = sort(unique(r.θ for r in runs))      # all runs: fixes the colour of each angle as in plot_friction.jl
+    filter!(r -> r.θ ∉ θskip, runs)
     θs, hs = sort(unique(r.θ for r in runs)), sort(unique(r.h for r in runs))
     println("Runs: ", [(r.θ, r.h, r.it) for r in runs])
 
     # Same one-hue sequential ramp as plot_friction.jl
-    cmap   = cgrad([colorant"#9ecae1", colorant"#4292c6", colorant"#08306b"], length(θs), categorical=true)
-    colθ(θ) = cmap[findfirst(==(θ), θs)]
+    cmap   = cgrad([colorant"#9ecae1", colorant"#4292c6", colorant"#08306b"], length(θ_all), categorical=true)
+    colθ(θ) = cmap[findfirst(==(θ), θ_all)]
     styles = [:solid, :dash, :dot, :dashdot]
     ink, muted = colorant"#222222", colorant"#777777"
     θ_yield = (60, 70)              # gouge angles between which the rock starts to yield (panel b background)
