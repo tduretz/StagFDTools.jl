@@ -5,6 +5,7 @@
 *.jl2d
 
 # Figures, animations and movies: only those used by the README (results/, and the root folder) are tracked
+*.csv
 *.png
 *.gif
 *.mp4

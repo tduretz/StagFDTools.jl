@@ -1,0 +1,569 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage[colorlinks=true,linkcolor=blue!50!black,urlcolor=blue!50!black]{hyperref}
+\usepackage{enumitem}
+\usepackage{fontspec}
+\setmonofont{Menlo}[Scale=0.82]
+\setlist{itemsep=2pt,topsep=4pt}
+\setlength{\emergencystretch}{3em}
+
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\jump}[1]{[\![#1]\!]}
+
+\title{The extended ghost fluid method (xGFM) for Stokes flow in StagFDTools\\[2pt]
+\large Viscosity jumps, compressibility and free surfaces on an unfitted staggered grid,
+solved by GCR with a Cholesky preconditioner}
+\author{StagFDTools, branch \texttt{iim-discontinuous-viscosity}}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\noindent This note documents an alternative to the immersed interface method (IIM, see
+\code{docs/IIM\_notes}): an extended ghost fluid method (xGFM) in the spirit of
+Liu, Fedkiw \& Kang (2000, J.~Comput.\ Phys.\ 160) and Egan \& Gibou (2020, J.~Comput.\ Phys.\
+405). The question was whether a ghost-fluid type method gives $L^\infty$ convergence of the
+pressure across a viscosity jump on an unfitted Cartesian grid (first order is enough) with
+operators that are sparser and closer to symmetric than the IIM ones.
+\begin{itemize}
+  \item Section~\ref{sec:poisson}: a 2D Poisson prototype comparing GFM, xGFM and IIM.
+  \item Sections~\ref{sec:jumps}--\ref{sec:solver}: the Stokes xGFM (jump structure, local
+    closures, solver).
+  \item Sections~\ref{sec:schmid}--\ref{sec:fs}: tests (incompressible and compressible
+    inclusions, free surface).
+  \item Section~\ref{sec:discussion}: relation to the IIM and to the StagFDTools stress form,
+    open points.
+\end{itemize}
+The code is in \code{examples/\_Stokes\_IIM/xGFM\_Stokes.jl} (discretisation and solver) and
+in the test scripts named in each section. Everything is first order; the aim is a robust
+first-order sharp-interface method.
+
+%---------------------------------------------------------------
+\section{Poisson prototype}\label{sec:poisson}
+
+\code{examples/\_Poisson\_Interface/} solves $-\nabla\cdot(\beta\nabla u)=f$ with piecewise
+constant $\beta$ and jumps $\jump{u}=a$, $\jump{\beta\partial_n u}=b$ on a 5-point grid.
+\begin{itemize}
+  \item \textbf{GFM:} a face crossed by $\Gamma$ (fraction $\theta$ on the side of node $P$)
+    gets the series coefficient $\hat\beta=1/(\theta/\beta_P+(1-\theta)/\beta_K)$, from a 1D
+    model with continuous normal flux. The operator stays symmetric and 5-point, but the
+    tangential part of the flux jump is ignored: on an oblique interface the face flux is
+    $O(1)$ wrong.
+  \item \textbf{xGFM:} the 1D model is corrected by the tangential flux jump
+    $\jump{\beta}\,\partial_t u\,(\mathbf t\cdot\mathbf e)$, with $\partial_t u$ (continuous)
+    traced from one-sided fits. The correction is lagged (fixed point; the operator stays
+    the symmetric GFM one).
+  \item \textbf{IIM:} orders 1 and 2, in the $u$-form and in the $z$-form ($z=\beta u$, as for
+    Stokes).
+\end{itemize}
+Errors are measured per side and normalised by the field range on that side, otherwise the
+stiff-side fluxes hide the soft-side errors.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/Poisson_convergence.png}
+  \caption{Poisson prototype (\code{Poisson\_Interface\_Convergence.jl}). $L^\infty$ errors of
+  $u$ (top) and of the flux (bottom), worse side, for a circle in a uniform field (T1) and a
+  flower-shaped interface with jumps $a,b\neq0$ (T2), contrast $10^3$ either way.}
+  \label{fig:poisson}
+\end{figure}
+
+\noindent Results (Fig.~\ref{fig:poisson}):
+\begin{itemize}
+  \item GFM: flux error $O(1)$ (0.9--2.3 at all resolutions).
+  \item xGFM: flux error $\approx O(h^{0.7\text{--}1})$ (soft inclusion T1: $9.2\times10^{-2}$ at
+    $N=40$, $1.4\times10^{-2}$ at $N=640$) with the symmetric 5-point operator, after 25--55
+    fixed-point iterations. $\partial_t u$ must be weighted towards the stiff side; the
+    soft-side weighting diverges. For the stiff flower (T2) it is erratic up to $N=320$.
+  \item IIM2 is the most accurate (flux $10^{-4}$--$10^{-5}$ at $N=640$) with 28--29 entries per
+    row and an asymmetric operator. The $u$-form fails for a stiff inclusion, the $z$-form for
+    a soft one.
+\end{itemize}
+So the xGFM gives first-order flux convergence with a symmetric compact base operator. The
+lagged fixed point is not robust, which motivates the Krylov solver of Section~\ref{sec:solver}.
+
+%---------------------------------------------------------------
+\section{Stokes: jump structure}\label{sec:jumps}
+
+On each side $s$ of $\Gamma$, with constant viscosity $\eta_s$ and bulk viscosity $\xi_s$
+($\xi=\infty$: incompressible),
+\[
+\boldsymbol\sigma=-p\,\mathbf I+2\eta\left(\dot{\boldsymbol\varepsilon}-\tfrac13(\nabla\cdot\mathbf v)\mathbf I\right),\qquad
+p=-\xi\,\nabla\cdot\mathbf v .
+\]
+Across $\Gamma$ the velocity and the traction are continuous: $\jump{\mathbf v}=0$,
+$\jump{\boldsymbol\sigma}\mathbf n=0$. In the frame $(\mathbf t,\mathbf n)$ of $\Gamma$:
+\begin{itemize}
+  \item $\partial_t v_t$ and $\partial_t v_n$ are continuous (derivatives along $\Gamma$ of a
+    continuous field);
+  \item $\partial_n v_t$ and $\partial_n v_n$ jump: $\jump{\nabla\mathbf v}=\mathbf a\otimes\mathbf n$;
+  \item the normal and shear tractions $N=\mathbf n\cdot\boldsymbol\sigma\mathbf n$ and
+    $S=\mathbf t\cdot\boldsymbol\sigma\mathbf n$ are continuous.
+\end{itemize}
+With $M=\xi+\tfrac43\eta$ and $\lambda=\xi-\tfrac23\eta$, the constitutive law gives on each
+side
+\[
+\partial_n v_n=\frac{N-\lambda\,\partial_t v_t}{M},\qquad
+\partial_n v_t+\partial_t v_n=\frac{S}{\eta},
+\]
+and the full stress tensor
+\begin{equation}\label{eq:sides}
+\boldsymbol\sigma_s=N\,\mathbf n\otimes\mathbf n+S\,(\mathbf n\otimes\mathbf t+\mathbf t\otimes\mathbf n)
++\left(a_sN+b_s\,\partial_t v_t\right)\mathbf t\otimes\mathbf t,\qquad
+a=\frac{\lambda}{M}=1-\frac{2\eta}{M},\quad b=M-\frac{\lambda^2}{M}=4\eta\left(1-\frac{\eta}{M}\right),
+\end{equation}
+\[
+N=-\frac{M_s}{\xi_s}\,p_s-2\eta_s\,\partial_t v_t .
+\]
+In the incompressible limit $a=1$, $b=4\eta$, $M/\xi=1$, $1/M=0$:
+\[
+\boldsymbol\sigma_s=N\,\mathbf n\otimes\mathbf n+S\,(\mathbf n\otimes\mathbf t+\mathbf t\otimes\mathbf n)
++(N+4\eta_s\partial_t v_t)\,\mathbf t\otimes\mathbf t,\qquad p_s=-N-2\eta_s\partial_t v_t,
+\]
+so that $\jump{p}=-2\jump{\eta}\partial_t v_t$ and $\jump{\sigma_{tt}}=4\jump{\eta}\partial_t v_t$.
+
+\paragraph{Consequence.} Once $N$, $S$ and $\partial_t\mathbf v$ are known, the stress on
+\emph{either} side is known. $\partial_t\mathbf v$ is the only interface quantity that has to be
+traced (one-sided linear fits, Landry's $\eta$-weighted average, as in the IIM). $N$ and $S$ are
+the two ``fluxes'' that the ghost fluid method closes locally.
+
+%---------------------------------------------------------------
+\section{Discretisation}\label{sec:disc}
+
+The unknowns are the standard ones: $V_x$, $V_y$ on the faces, $p$ at the centroids. The
+stresses are evaluated once per centroid ($\sigma_{xx}$, $\sigma_{yy}$) and once per vertex
+($\sigma_{xy}$), as in the standard staggered scheme, and the momentum rows are their
+divergence. Where a stress location is not cut, the standard stencil is used. At cut locations
+the closures below give, for the side $r$ of the momentum row that uses it, the stress
+$\sigma^{(r)}$ as a linear form in the nodal unknowns. The two rows that share a stress
+location see $\sigma^{(r)}$ of their own side; the two values differ by the jump of
+Eq.~\eqref{eq:sides}, so that traction balance holds discretely.
+
+\subsection*{Segment model}
+
+Along a grid segment between two velocity nodes $a$, $b$ (a $V_x$ pair through a centroid or a
+vertex, or a $V_y$ pair), $\mathbf v$ is taken piecewise linear with a kink where the tangent
+line of $\Gamma$ (at the traced crossing) cuts the segment, at fraction $\ell$ from $a$. Each
+Cartesian velocity derivative is written in the $(\mathbf t,\mathbf n)$ frame, e.g.
+\[
+\partial_x v_x=t_x^2\,\partial_t v_t+n_x^2\,\partial_n v_n+t_xn_x\,\frac{S}{\eta},\qquad
+\partial_y v_x=t_xt_y\,\partial_t v_t+n_xn_y\,\partial_n v_n+t_xn_y\,\frac{S}{\eta}+(n_xt_y-t_xn_y)\,\partial_t v_n,
+\]
+and averaged over the segment with the side values:
+\[
+\frac{v_b-v_a}{h}=\ldots+t_xn_x\,\frac{S}{\hat\beta}+n_x^2\left(\frac{N}{\hat M}-\bar a\,\partial_tv_t\right),\qquad
+\hat\beta=\Big(\frac{\ell}{\eta_a}+\frac{1-\ell}{\eta_b}\Big)^{-1},\quad
+\frac1{\hat M}=\frac{\ell}{M_a}+\frac{1-\ell}{M_b},\quad \bar a=\ell a_a+(1-\ell)a_b .
+\]
+$\hat\beta$ is the series (harmonic) viscosity of the GFM; $\hat M$ and $\bar a$ only appear in
+the compressible case.
+
+\subsection*{Normal stresses at centroids}
+
+$N$ is taken from the centroid pressure, $N=-(M_c/\xi_c)\,p_c-2\eta_c\,\partial_tv_t$ (side $c$
+of the centroid). $S$ is eliminated with the segment relation of the $V_x$ pair (for
+$\sigma_{xx}$; the $V_y$ pair for $\sigma_{yy}$). Only the product $2t_dn_dS$ appears, so there
+is no division by $t_dn_d$:
+\[
+\sigma_{dd}^{(r)}=\left(n_d^2+t_d^2a_r-\frac{2\hat\beta n_d^2}{\hat M}\right)N
++2\hat\beta\,\frac{\Delta v_d}{h}
++\left(t_d^2b_r-2\hat\beta t_d^2+2\hat\beta n_d^2\bar a\right)\partial_tv_t .
+\]
+Incompressible: $\sigma_{dd}^{(r)}=-p_c+2\hat\beta\,\Delta v_d/h+\left(-2\eta_c-2\hat\beta(t_d^2-n_d^2)+4\eta_rt_d^2\right)\partial_tv_t$.
+Without a crossing ($\eta$ uniform) this reduces to $-(\lambda/\xi)p+2\eta\,\partial_xv_x$, which
+equals the standard deviatoric form $-p+2\eta(\partial_xv_x-\tfrac13\nabla\cdot\mathbf v)$ when
+$\nabla\cdot\mathbf v=-p/\xi$ holds at that centroid. The standard form is therefore kept wherever
+the four faces and the centroid are on one side.
+
+\subsection*{Shear stress at vertices}
+
+$\sigma_{xy}^{(r)}=n_xn_y\left(N(1-a_r)-b_r\,\partial_tv_t\right)+G\,S$ with
+$G=n_xt_y+n_yt_x$. $S$ comes from one segment through the vertex: the $V_x$ pair ($y$-segment,
+coefficient $t_xn_y$) if $n_y^2\ge n_x^2$, else the $V_y$ pair (coefficient $t_yn_x$). With this
+choice $G/(t_xn_y)$ or $G/(t_yn_x)$ stays in $[0,1]$. In the incompressible case $N$ drops out
+($1-a=0$, $1/M=0$). In the compressible case $N$ at the vertex is the mean of the $N$ of the
+surrounding centroids (exact for a straight $\Gamma$ and piecewise-linear velocity).
+
+\subsection*{Continuity at cut centroids}
+
+The two segments through a centroid share $S$: $\hat\beta_x(\Delta v_x/h-A_x)=t_xn_xS$ and
+$\hat\beta_y(\Delta v_y/h-A_y)=t_yn_yS=-t_xn_xS$, with
+$A_d=t_d^2\partial_tv_t+n_d^2(N/\hat M_d-\bar a_d\partial_tv_t)$. Their sum eliminates $S$:
+\[
+w\left[\hat\beta_x\Big(\frac{\Delta v_x}{h}-A_x\Big)+\hat\beta_y\Big(\frac{\Delta v_y}{h}-A_y\Big)\right]=0,\qquad
+w=\frac2{\hat\beta_x+\hat\beta_y}.
+\]
+Without a crossing this is $\nabla\cdot\mathbf v+p/\xi=0$.
+
+\subsection*{Gravity}
+
+With a body force $\rho_s\mathbf g$, $\partial_nN=-\rho\,\mathbf g\cdot\mathbf n$ differs on the two
+sides. $N$ taken from a centroid at signed distance $d_c$ from $\Gamma$ is corrected as
+$N^{(r)}=N_c+(\rho_c-\rho_r)\,(\mathbf g\cdot\mathbf n)\,d_c$ before it enters
+$\sigma_{dd}^{(r)}$. This makes hydrostatics exact (flat interface between grid lines,
+any position).
+
+\subsection*{Properties}
+
+\begin{itemize}
+  \item \textbf{Exact for piecewise-linear solutions} (straight $\Gamma$, constant $p$ per side).
+    Test (scratch scripts, $24\times20$ grid, $\Gamma$ at four orientations, LU):
+    incompressible with $\eta_-/\eta_+=50,10^{-3},10^{3}$: $|\mathbf v-\mathbf v_{ex}|\le10^{-10}$,
+    $|p-p_{ex}|\le5\times10^{-8}$; compressible with $(\eta,\xi)_-/(\eta,\xi)_+=(50,20)/(1,2)$,
+    $(1,2)/(10^3,10^5)$, $(10^{-3},5\times10^{-4})/(1,2)$: $\le4.5\times10^{-11}$ (relative).
+  \item \textbf{Width:} the $\partial_t\mathbf v$ forms come from fits of about 12 nodes, so cut rows
+    have about 26 (incompressible) to 30 (compressible) entries, as many as IIM order~1.
+  \item \textbf{Symmetric part:} without the $\partial_t\mathbf v$ terms and the compressible $N$ terms,
+    the operator is the standard staggered Stokes operator with series viscosities
+    $\hat\beta$ at cut centroids and vertices. Its velocity block is symmetric to
+    $10^{-17}$; it is the preconditioner.
+\end{itemize}
+
+%---------------------------------------------------------------
+\section{Solver}\label{sec:solver}
+
+The full operator is non-symmetric (lagging the $\partial_t\mathbf v$ terms as in the Poisson
+fixed point was not robust). It is solved by GCR (restarted, 30--100 directions), preconditioned
+by one Powell--Hestenes step with the Cholesky factor of the symmetric part:
+\[
+\mathbf K_f=\mathbf K_{uu}^{PC}+\mathbf G\,\mathbf P_b\,\mathbf G^{T},\qquad
+\mathbf P_b=(\mathbf C+\eta_b^{-1}\mathbf I)^{-1},\qquad
+\mathbf s_u=\mathbf K_f^{-1}(\mathbf f_u-\mathbf G\mathbf P_b\mathbf f_p),\quad
+\mathbf s_p=\mathbf P_b(\mathbf f_p+\mathbf G^T\mathbf s_u),
+\]
+with $\mathbf C=\mathrm{diag}(1/\xi)$ ($\mathbf P_b=\eta_b$ if incompressible, $\eta_b=10^3$).
+This is the scheme used for the non-symmetric Jacobians of plasticity. Three details matter:
+\begin{itemize}
+  \item \textbf{Symmetric diagonal scaling} by $1/\sqrt{\eta}$ (velocities) and $\sqrt\eta$
+    (pressures) of each node's side, so that all blocks are $O(1)$ whatever the contrast and the
+    preconditioner stays symmetric. Without it GCR stops early at high contrast.
+  \item \textbf{Lagrange multiplier} for the pressure level (incompressible, Dirichlet
+    velocities). The weighted continuity rows of cut cells change the left null vector, so the
+    singular system is slightly inconsistent and GCR stagnates near $10^{-9}$. With the
+    multiplier ($\sum p=0$, or the mean over one side, e.g.\ the air) it converges to
+    $10^{-12}$.
+  \item \textbf{Compressible:} no null space, no multiplier; the deviatoric term of the
+    preconditioner uses a common viscosity $\min(\hat\beta_x,\hat\beta_y)$ for $\sigma_{xx}$
+    and $\sigma_{yy}$ of a cut centroid, which keeps $\mathbf K_{uu}^{PC}$ symmetric positive
+    definite.
+\end{itemize}
+Iteration counts are nearly independent of $\eta_b$ ($10$--$10^5$). They are given with the
+results below.
+
+%---------------------------------------------------------------
+\section{Incompressible inclusion (Schmid \& Podladchikov 2003)}\label{sec:schmid}
+
+Circular inclusion of radius 2 in a box $[-5,5]^2$, pure shear, Dirichlet velocities from the
+exact solution, contrast $10^{3}$ (stiff) and $10^{-3}$ (soft) (\code{xGFM\_Schmid2003.jl}); pressure fields are compared in Fig.~\ref{fig:fields} (\code{xGFM\_Schmid2003\_fields.jl}).
+Pressure errors are taken after removing the mean.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_Schmid2003.png}
+  \caption{Incompressible inclusion: $L^1$ (top) and $L^\infty$ (bottom) pressure errors.}
+  \label{fig:schmid}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{llcccccc}
+\toprule
+case & method & $n=20$ & 40 & 80 & 160 & 320 & entries/row\\
+\midrule
+stiff & standard FD  & 1.33 & 1.72 & 7.06 & 9.54 & 8.38 & 11\\
+      & xGFM         & 2.93 & 1.34 & 0.91 & 0.44 & 0.28 & 24--27\\
+      & IIM stress 1 & 1.14 & 0.95 & 0.74 & 0.44 & 0.24$^*$ & 25--29\\
+      & IIM stress 2 & 0.89 & 0.39 & 0.19 & 0.056 & 0.017$^*$ & 57--61\\
+\midrule
+soft  & standard FD  & 0.91 & 1.55 & 2.30 & 2.50 & 2.69 & 11\\
+      & xGFM         & 1.04 & 0.70 & 1.28 & 0.46 & 0.27 & 24--27\\
+      & IIM stress 1 & 0.93 & 0.68 & 0.50 & 0.26 & 0.16$^*$ & 25--29\\
+      & IIM stress 2 & 0.25 & 0.19 & 0.066 & 0.042 & 0.0068$^*$ & 57--61\\
+\bottomrule
+\end{tabular}
+
+\smallskip
+$L^\infty(P)$. $^*$: solved by GCR with the xGFM preconditioner (Section~\ref{sec:iimpc}).
+\end{center}
+
+\noindent Discussion:
+\begin{itemize}
+  \item The xGFM converges in $L^\infty(P)$ where standard FD diverges, at about the level of
+    IIM order~1. The $L^1$ error is the lowest of the first-order methods for the stiff
+    inclusion ($n=160$: $3.9\times10^{-3}$ against $1.1\times10^{-2}$ for IIM stress~1).
+  \item The error consists of isolated one-cell spikes at cut cells plus a smooth $O(h)$ error
+    in the soft phase (Fig.~\ref{fig:errmaps}). The soft-inclusion bump at $n=80$ is one cell
+    whose centroid lies almost exactly one cell from $\Gamma$.
+  \item GCR iterations: 28--109, rising slowly with $n$, nearly independent of $\eta_b$.
+\end{itemize}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_Schmid2003_errormaps.png}
+  \caption{xGFM pressure error, soft (top) and stiff (bottom) inclusion, $n=40,80,160$.}
+  \label{fig:errmaps}
+\end{figure}
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_Schmid2003_fields.png}
+  \caption{Pressure at $n=80$, stiff (top) and soft (bottom) inclusion: analytical solution
+  (Schmid \& Podladchikov, 2003) against standard FD (phase-averaged viscosity), IIM (stress form, order 2) and xGFM,
+  on a common colour scale (black/magenta: above/below the analytical range); right, profile along the
+  cell row just above $y=0$. FD has spurious extrema all around the interface; the xGFM error is
+  confined to a few cut cells where the interface is tangent to the grid lines.}
+  \label{fig:fields}
+\end{figure}
+
+\subsection*{The xGFM preconditioner for the IIM}\label{sec:iimpc}
+
+The Cholesky factor of the symmetric xGFM part also preconditions GCR on the IIM stress-form
+matrices: the same unknowns and the same scaling, the sign of the momentum rows flipped.
+\begin{itemize}
+  \item It reproduces the direct IIM solutions in 170--500 iterations.
+  \item It makes $n=320$ affordable without 10~GB direct solves: IIM stress~2 gives
+    $L^\infty(P)=1.7\times10^{-2}$ (stiff) and $6.8\times10^{-3}$ (soft) in 16--26~s.
+  \item IIM stress~1 at $n=320$ (stiff) reached the 1000-iteration limit at a residual of
+    $1.7\times10^{-8}$.
+\end{itemize}
+Second-order accuracy and the usual Cholesky-preconditioned Krylov strategy are therefore
+compatible.
+
+%---------------------------------------------------------------
+\section{Compressible inclusion (Moutzouris 2026)}\label{sec:moutz}
+
+Same setup as IIM step~6 (\code{xGFM\_Moutzouris2026.jl}): circle and ellipse (aspect ratio 2,
+far field rotated by $\pi/6$), $\eta_m=1$, $\xi_m=2$, stiff inclusion
+($\eta_i=10^3$, $\xi_i=10^5$) and weak inclusion ($\eta_i=10^{-3}$, $\xi_i=5\times10^{-4}$, so
+$\lambda_i<0$), Dirichlet velocities from the exact solution. The pressure is determined, so
+errors are absolute. GCR restart 100.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_Moutzouris2026.png}
+  \caption{Compressible inclusion: $L^1$ (top) and $L^\infty$ (bottom) pressure errors.
+  IIM up to $n=160$ (direct solves).}
+  \label{fig:moutz}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{llccccc}
+\toprule
+case & method & $n=20$ & 40 & 80 & 160 & 320\\
+\midrule
+circle, stiff & standard FD & 1.29 & 1.65 & 4.44 & 6.01 & 5.38\\
+              & xGFM        & 1.71 & 1.26 & 0.77 & 0.34 & 0.27\\
+              & IIM stress 1& 0.98 & 0.79 & 0.51 & 0.25 & --\\
+              & IIM stress 2& 0.56 & 0.27 & 0.11 & 0.037 & --\\
+\midrule
+circle, weak  & standard FD & 1.38 & 2.66 & 3.35 & 3.51 & 3.70\\
+              & xGFM        & 0.83 & 0.90 & 0.52 & 0.37 & 0.23\\
+              & IIM stress 1& 0.61 & 0.60 & 0.42 & 0.22 & --\\
+              & IIM stress 2& 0.34 & 0.18 & 0.059 & 0.036 & --\\
+\midrule
+ellipse, stiff& standard FD & 6.26 & 6.08 & 6.57 & 6.55 & 8.04\\
+              & xGFM        & 1.29 & 1.14 & 0.68 & 0.43 & 0.28\\
+              & IIM stress 1& 0.58 & 0.76 & 0.48 & 0.40 & --\\
+              & IIM stress 2& 0.83 & 0.44 & 0.24 & 0.090 & --\\
+\midrule
+ellipse, weak & standard FD & 2.64 & 3.01 & 3.12 & 3.43 & 3.67\\
+              & xGFM        & 1.78 & 1.37 & 1.09 & 0.54 & 0.31\\
+              & IIM stress 1& 1.51 & 1.04 & 0.66 & 0.40 & --\\
+              & IIM stress 2& 0.55 & 0.28 & 0.099 & 0.050 & --\\
+\bottomrule
+\end{tabular}
+
+\smallskip
+$L^\infty(P)$, compressible inclusion.
+\end{center}
+
+\noindent Discussion:
+\begin{itemize}
+  \item Standard FD does not converge in $L^\infty$ (3--8). The xGFM converges at roughly
+    $O(h^{0.7})$ in all four cases, with errors 1.3--1.7 times those of IIM order~1.
+  \item $L^1(P)$ of the xGFM is the lowest of the first-order methods at $n\ge80$ in all four
+    cases (e.g.\ circle stiff, $n=160$: $1.8\times10^{-3}$ against $5.5\times10^{-3}$ for IIM1 and
+    $3.1\times10^{-2}$ for FD).
+  \item GCR iterations (to $10^{-12}$): 40--130 for the stiff inclusion, 40--235 for the weak
+    circle, but 260--900 for the weak ellipse. With restart 30 the weak ellipse did not converge
+    in 500 iterations. The compressible preconditioner is less close to the operator: the cut
+    centroids couple $p$ with the coefficient $(M/\xi)(n_d^2+t_d^2a-\ldots)$ (3.7 inside the weak
+    inclusion) while the preconditioner keeps $-1$.
+\end{itemize}
+
+%---------------------------------------------------------------
+\section{Free surface}\label{sec:fs}
+
+Two ways of using the xGFM for a free surface were tested (\code{xGFM\_FreeSurface.jl}), on
+the two free-surface tests of the IIM notes (steps~9 and~10).
+\begin{itemize}
+  \item \textbf{Sticky air:} the two-phase xGFM with a small $\eta_{air}$. The series viscosity
+    of a cut segment goes to zero with $\eta_{air}$, so no harmonic smearing.
+  \item \textbf{Void} (\code{AssembleXGFM(...; void=:pos)}): the limit $\eta_{air}=0$ of the
+    closures, with no unknowns in the void.
+    \begin{itemize}
+      \item $\hat\beta=0$ on cut segments, so no void velocity enters a fluid row (checked in
+        the assembly).
+      \item A void stress point carries the traction-free stress, $N=S=0$ in
+        Eq.~\eqref{eq:sides}, with the gravity correction $-\rho_f(\mathbf g\cdot\mathbf n)d$.
+      \item Every cut fluid centroid gets the pressure condition $N_\Gamma=0$ extended to the
+        centroid, $N_c+\rho(\mathbf g\cdot\mathbf n)d_c=0$, instead of the continuity row.
+        Keeping the weighted continuity row where only one face pair is cut leaves the pressure
+        of a column undetermined when $\Gamma$ runs just below a row of $V_y$ faces
+        (hydrostatic test with the surface between a centroid and the face above: $p$ error 4.0
+        with LU). This is the same failure as the IIM free surface without
+        \code{faces=:adjacent}.
+      \item No pressure null space, no Lagrange multiplier.
+    \end{itemize}
+    Hydrostatics is exact (round-off) for any position of a flat surface.
+\end{itemize}
+
+\subsection*{Inviscid inclusion (exact solution)}
+
+The Schmid \& Podladchikov inviscid inclusion seen through $[-0.25,0.25]\times[-0.75,-0.25]$
+(pure shear, Dirichlet sides, the top of the box is void or air), as in IIM step~10.
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_FreeSurface_Schmid.png}
+  \caption{Free surface, inviscid inclusion. Top: pressure ($L^1$, $L^\infty$) and velocity
+  errors in the matrix. Bottom: pressure error maps at $n=160$. Sticky-air pressures are
+  compared after removing the mean; void and IIM free-surface pressures are absolute.}
+  \label{fig:fsschmid}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{lcccccc}
+\toprule
+method & $n=20$ & 40 & 80 & 160 & 320 & 640\\
+\midrule
+xGFM void                     & 0.56 & 0.34 & 0.19 & 0.12 & 0.060 & 0.029\\
+xGFM sticky, $\eta_{air}=10^{-2}$ & 0.48 & 0.29 & 0.16 & 0.084 & 0.072 & \\
+xGFM sticky, $\eta_{air}=10^{-6}$ & 0.36 & 0.52 & 0.31 & 0.19 & 0.081 & \\
+FD sticky, $\eta_{air}=10^{-4}$   & 2.37 & 2.57 & 2.64 & 2.71 & 2.75 & \\
+IIM free surface (cubic fits) & 0.11 & 0.015 & $2.6\times10^{-3}$ & $6.8\times10^{-4}$ & $1.7\times10^{-4}$ & \\
+IIM sticky, $\eta_{air}=10^{-6}$  & 0.024 & $5.8\times10^{-3}$ & $7.5\times10^{-4}$ & $3.3\times10^{-4}$ & -- & \\
+\bottomrule
+\end{tabular}
+
+\smallskip
+$L^\infty(P)$ in the matrix, inviscid inclusion with a free surface.
+\end{center}
+
+\noindent Discussion:
+\begin{itemize}
+  \item \textbf{Void:} $L^\infty(P)$ converges at $O(h)$ (0.56 to 0.029 from $n=20$ to 640);
+    velocity $L^\infty$ at $O(h)$ ($1.1\times10^{-2}$ to $2.2\times10^{-4}$ at $n=320$). 12--19 GCR
+    iterations, independent of $n$. The error is concentrated in the cut cells (the pressure
+    condition extends $N_\Gamma$ to the centroid without its normal derivative), with a smooth
+    $10^{-3}$ background. The IIM free surface (cubic one-sided fits, ghost extension) is
+    $O(h^2)$ and 70--350 times more accurate ($n=80$--320).
+  \item \textbf{Sticky air does not converge uniformly in $\eta_{air}$.} The first-order
+    traction errors of cut cells act on the air as an $O(1)$ force that is not a gradient. Air
+    velocities grow like $1/\eta_{air}$ (190 at $\eta_{air}=10^{-6}$, $n=40$), and their
+    back-traction on the fluid, $\eta_{air}v_{air}/h$, does not decrease with $h$. The error
+    stalls at coarse grids ($\eta_{air}=10^{-6}$: $L^1(P)\approx0.05$ for $n\le80$) and
+    convergence resumes only when $h$ is small enough; GCR iterations grow to 900. With
+    $\eta_{air}=10^{-2}$ the method converges but saturates at the modelling error of the air
+    ($L^1\approx3.5\times10^{-3}$). It is still far better than FD sticky air, which does not
+    converge in $L^\infty$.
+\end{itemize}
+
+\subsection*{Gaussian topography under gravity}
+
+The relaxation test of IIM step~9: $\eta=\rho=1$, $g=-1$, box $[-3,3]\times[-5,1.5]$, no slip
+on all sides, surface $y=\exp(-x^2/0.25)$. Reference: the IIM free surface (cubic fits).
+
+\begin{figure}[h]
+  \centering
+  \includegraphics[width=\textwidth]{figures/xGFM_FreeSurface_Gaussian.png}
+  \caption{Gaussian topography, $n_x=192$: IIM free surface (top), xGFM void (middle) and their
+  difference (bottom).}
+  \label{fig:gauss}
+\end{figure}
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+& $n_x=48$ & 96 & 192 & 384\\
+\midrule
+$\min V_y$, IIM free surface & $-0.20025$ & $-0.20164$ & $-0.20186$ & $-0.20204$\\
+$\min V_y$, xGFM void        & $-0.21045$ & $-0.20662$ & $-0.20435$ & $-0.20292$\\
+$\max|V_x|$, IIM free surface & 0.05401 & 0.05442 & 0.05450 & 0.05459\\
+$\max|V_x|$, xGFM void        & 0.05536 & 0.05535 & 0.05502 & 0.05478\\
+GCR iterations, xGFM void     & 20 & 21 & 23 & 25\\
+GCR iterations, xGFM sticky $10^{-6}$ & 37 & 145 & 404 & 1292\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\noindent The xGFM void solution matches the IIM free surface (Fig.~\ref{fig:gauss}). The
+difference in the peak velocities decreases at $O(h)$: in $\min V_y$ it is $1.0\times10^{-2}$,
+$5.0\times10^{-3}$, $2.5\times10^{-3}$ and $9\times10^{-4}$. The field differences are
+concentrated in the surface cells. The sticky-air xGFM with $\eta_{air}=10^{-6}$ again has
+very large air velocities (up to 290 at $n_x=48$) and poor GCR convergence. With
+$\eta_{air}=10^{-3}$ it is close to the void solution at $n_x\ge192$.
+
+%---------------------------------------------------------------
+\section{Discussion}\label{sec:discussion}
+
+\subsection*{xGFM and IIM order 1}
+
+Both are first order and need the same trace, $\partial_t\mathbf v$ from one-sided fits. Both
+give rows of about 26--30 entries. The differences are:
+\begin{itemize}
+  \item \textbf{Flux form.} The xGFM evaluates one stress per centroid and per vertex, shared by
+    the two rows that use it. The IIM corrects each stencil pointwise from a Taylor extension of
+    the other side.
+  \item \textbf{Local closure.} The xGFM closes the normal fluxes $N$ and $S$ with a 1D series
+    model on one grid segment and needs no jump of $p$ or $\nabla p$. In the IIM these jumps
+    follow from the side equations.
+  \item \textbf{Symmetric part.} The xGFM operator without its trace terms is the standard
+    staggered operator with series viscosities. It is symmetric positive definite in the
+    velocity block, so it can be factorised once and used as a preconditioner. Its Cholesky
+    factor also preconditions the IIM matrices (Section~\ref{sec:iimpc}).
+\end{itemize}
+
+\subsection*{Stress form}
+
+The xGFM is already a stress form. It can be written as a kinematic reconstruction followed by
+the unchanged constitutive kernel:
+\begin{itemize}
+  \item From $(N, S, \partial_t\mathbf v)$, reconstruct the one-sided velocity gradient of the
+    row's side:
+    \[
+    \partial_n v_n=\frac{N-\lambda\partial_tv_t}{M},\qquad
+    \partial_n v_t=\frac{S}{\eta}-\partial_t v_n .
+    \]
+  \item Evaluate $\boldsymbol\tau=\mathbf D\,\dot{\boldsymbol\varepsilon}$ with the side's
+    material.
+\end{itemize}
+For isotropic linear viscosity this is identical to the formulas of Section~\ref{sec:disc}.
+For anisotropy or power-law creep, the series closure becomes a small local problem at each
+crossing: find the one-sided strain rates for which the tractions computed with both sides'
+constitutive laws are continuous. For anisotropy it couples $N$ and $S$ (a $2\times2$ system).
+It is local, so it can be differentiated by AD for a Newton Jacobian. One caveat: a general
+$\mathbf D$ needs $\dot\varepsilon_{xy}$ at centroids and $\dot\varepsilon_{xx}$,
+$\dot\varepsilon_{yy}$ at vertices, so $S$ must be taken from the segment closer to the normal
+at centroids as well. This is not implemented.
+
+\subsection*{Open points}
+\begin{itemize}
+  \item \textbf{Accuracy.} Everything is first order. IIM order~2 is 5--40 times more accurate
+    on the inclusions. A second-order xGFM would need the normal derivatives of $N$ and $S$
+    (curvature, $\jump{\nabla p}$) in the 1D closures.
+  \item \textbf{Free surface.} The void xGFM is $O(h)$ and robust: about 20 iterations,
+    exact hydrostatics. The pressure condition in cut cells extends $N_\Gamma$ without its normal
+    derivative; a linear extension (as the IIM \code{pghost=:linear}) should reduce the
+    cut-cell error.
+  \item \textbf{Sticky air with small $\eta_{air}$} needs consistent tractions on the air side.
+    The void formulation is preferable.
+  \item \textbf{Compressible preconditioner} (weak ellipse: up to 900 iterations).
+  \item The code is in \code{examples/}. Moving it to \code{src/StokesIIM} would share the
+    trace and numbering machinery with \code{AssembleIIMStress}.
+\end{itemize}
+
+\end{document}

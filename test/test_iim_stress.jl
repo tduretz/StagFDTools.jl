@@ -67,3 +67,25 @@ end
     @test err(SolveIIMStress(φ, X, Δ, η, nc, va; ξ, order=2, fit=:quadratic)) < 0.3                # 0.27
     @test err(SolveIIMStress(φ, X, Δ, η, nc, va; ξ, order=2, fit=:quadratic, extend=:v)) > 1.0     # 2.0
 end
+
+# Free-slip walls (mirrored tangential ghosts) and one-sided centroid stresses: pure shear
+# v = (x, -y) across a horizontal interface off the grid lines is exact (τxy = 0 on the walls)
+@testset "IIM stress form, free slip and CentroidStress" begin
+    nc = (x=20, y=24)
+    Δ  = (x=1.0 / nc.x, y=1.0 / nc.y)
+    X  = GenerateGrid((min=-0.5, max=0.5), (min=-0.5, max=0.5), Δ, nc)
+    η  = (neg=0.1, pos=3.0)
+    φ  = LevelSet((x, y) -> abs(y - 0.013) - 0.17, X)     # a layer of width 0.34 crossing both walls
+    vbc = (x=[x for x in X.vx_e.x, y in X.vx_e.y], y=[-y for x in X.vy_e.x, y in X.vy_e.y])
+    for (order, fit) in ((1, :linear), (2, :quadratic))
+        sol = SolveIIMStress(φ, X, Δ, η, nc, vbc; order, fit, bc=:free_slip)
+        ix, jx = 2:(nc.x+2), 3:(nc.y+2)
+        @test maximum(abs.(sol.v.x[ix, jx] .- vbc.x[ix, jx])) < 1e-9
+        @test maximum(abs.(sol.v.y[3:(nc.x+2), 2:(nc.y+2)] .- vbc.y[3:(nc.x+2), 2:(nc.y+2)])) < 1e-9
+        τ  = CentroidStress(sol.S, sol.v, sol.p)
+        ic, jc = 2:(nc.x+1), 2:(nc.y+1)
+        ηc = [side(φ.c[i, j]) < 0 ? η.neg : η.pos for i in ic, j in jc]
+        @test maximum(abs.(τ.xx[ic, jc] .- 2ηc)) < 1e-8
+        @test maximum(abs.(τ.xy[ic, jc])) < 1e-8
+    end
+end

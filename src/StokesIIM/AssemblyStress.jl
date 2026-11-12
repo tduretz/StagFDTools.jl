@@ -138,20 +138,97 @@ function StressJumpFunctionals(tr, η, ξ)
     end
 end
 
-"""
-    AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing)
+# Free-slip ghosts (`bc = :free_slip`): a tangential velocity ghost outside a wall takes the
+# value of its mirror node inside the domain (∂ₙvₜ = 0, zero tangential stress for a straight
+# wall with constant normal velocity). Returns the mirror index, or `nothing`.
+function mirror_ghost(f, I, type, nc)
+    if f == :x
+        i, j = Tuple(I)
+        j < 3 && type.Vx[i, 2] == :Neumann_tangent && return CartesianIndex(i, 5 - j)
+        j > nc.y + 2 && type.Vx[i, nc.y + 3] == :Neumann_tangent && return CartesianIndex(i, 2nc.y + 5 - j)
+    elseif f == :y
+        i, j = Tuple(I)
+        i < 3 && type.Vy[2, j] == :Neumann_tangent && return CartesianIndex(5 - i, j)
+        i > nc.x + 2 && type.Vy[nc.x + 3, j] == :Neumann_tangent && return CartesianIndex(2nc.x + 5 - i, j)
+    end
+    return nothing
+end
 
-Assemble the stress-form IIM system for v and p with Dirichlet velocities: `vbc = (x, y)` holds v
-on the full Vx/Vy arrays (values of the non-numbered nodes). `η`, `ξ` as in `AssembleIIM`;
-isotropic viscosity (𝐷 = 2η I). `extend`: `:z` or `:v` (see above). Diagnostic: `Jexact(p)`
-returns exact jumps at crossing `p` (fields of `InterfaceJumpsC` and of `InterfaceJumpsV`). Returns the matrix, right-hand side, numbering and interface data.
+# One-sided stencil of a kernel evaluated for a node of side `s0` at fine-lattice index `F0`.
+# `kernel(vx, vy, p)` reads node values through getters by position. Pass 1 records, for every
+# node it reads, a linear form Σ w u[loc] + c over local node values (`nodes`): the node itself
+# on side s0, its extension when it lies across Γ, its mirror node for a free-slip ghost.
+# Returns `value(u, f, x)`, the getter of those forms for local values `u`, and `nodes`.
+function onesided_forms(ctx, s0, F0, kernel)
+    (; X, Δ, φf, J, tr, lookup, ηof, order, extend, corrections, Jexact, type, nc) = ctx
+    loc   = Dict{Tuple{Symbol,CartesianIndex{2}},Int}()
+    nodes = Tuple{Symbol,CartesianIndex{2}}[]
+    local!(key) = get!(loc, key) do
+        push!(nodes, key); length(nodes)
+    end
+    forms = Dict{Tuple{Symbol,CartesianIndex{2}},Tuple{Vector{Int},Vector{Float64},Float64}}()
+    function member(f, x)
+        I   = node_index(f, x, X, Δ)
+        key = (f, I)
+        haskey(forms, key) && return 0.0
+        Im = mirror_ghost(f, I, type, nc)
+        if !isnothing(Im)
+            member(f, node_position(Val(f), Im, X))
+            forms[key] = forms[(f, Im)]
+            return 0.0
+        end
+        ids, ws, c0 = [local!(key)], [1.0], 0.0
+        if corrections && side(φf[f][I]) != s0
+            xk = node_position(Val(f), I, X)
+            c  = member_crossing(lookup, F0, fine_index(Val(f), I), xk, J)
+            Jc = J[c]
+            δ  = xk - Jc.xΓ
+            a  = f == :x ? 1 : 2
+            # z-extension: v = (η_k v_k + s(...)) / η_s, the jump terms scaled by 1/η_s
+            sc = f != :p && extend == :z ? 1 / ηof(s0) : 1.0
+            f != :p && extend == :z && (ws[1] = ηof(-s0) / ηof(s0))
+            jump(z, ∇z, ∇∇z, ∇v, ∇∇v, p, ∇p) = f == :p ? p + (order == 2 ? dot(∇p, δ) : 0.0) :
+                extend == :z ? z[a] + dot(∇z[a, :], δ) + (order == 2 ? dot(δ, ∇∇z[a, :, :] * δ) / 2 : 0.0) :
+                               dot(∇v[a, :], δ) + (order == 2 ? dot(δ, ∇∇v[a, :, :] * δ) / 2 : 0.0)
+            if !isnothing(Jexact)
+                Je = Jexact(tr[c].p)
+                c0 = s0 * sc * jump(Je.z, Je.∇z, Je.∇∇z, Je.∇v, Je.∇∇v, Je.p, Je.∇p)
+            else
+                for m in eachindex(Jc.p)
+                    wm = jump(view(Jc.z, :, m), view(Jc.∇z, :, :, m), view(Jc.∇∇z, :, :, :, m),
+                              view(Jc.∇v, :, :, m), view(Jc.∇∇v, :, :, :, m), Jc.p[m], view(Jc.∇p, :, m))
+                    push!(ids, local!((Jc.field[m], Jc.idx[m]))); push!(ws, s0 * sc * wm)
+                end
+            end
+        end
+        forms[key] = (ids, ws, c0)
+        return 0.0
+    end
+    kernel(x -> member(:x, x), x -> member(:y, x), x -> member(:p, x))
+    function value(u, f, x)
+        ids, ws, c0 = forms[(f, node_index(f, x, X, Δ))]
+        return sum(ws[i] * u[ids[i]] for i in eachindex(ids)) + c0
+    end
+    return value, nodes
+end
+
 """
-function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing)
+    AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing, bc=:all_Dirichlet)
+
+Assemble the stress-form IIM system for v and p. `vbc = (x, y)` holds v on the full Vx/Vy
+arrays (values of the non-numbered nodes). `bc`: `:all_Dirichlet` (ghost values from `vbc`) or
+`:free_slip` (normal velocities from `vbc`, tangential ghosts mirrored: zero shear stress).
+`η`, `ξ` as in `AssembleIIM`; isotropic viscosity (𝐷 = 2η I). `extend`: `:z` or `:v` (see above).
+Diagnostic: `Jexact(p)` returns exact jumps at crossing `p` (fields of `InterfaceJumpsC` and of
+`InterfaceJumpsV`). Returns the matrix, right-hand side, numbering, interface data and the
+context `ctx` used by `CentroidStress`.
+"""
+function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing, bc=:all_Dirichlet)
     order == 2 && fit == :linear && isnothing(Jexact) && error("order = 2 requires fit = :quadratic or :cubic")
     size_x, size_y, size_c = size(φ.x), size(φ.y), size(φ.c)
     type   = Fields(fill(:out, size_x...), fill(:out, size_y...), fill(:out, size_c...))
     number = Fields(zeros(Int, size_x...), zeros(Int, size_y...), zeros(Int, size_c...))
-    set_boundaries_template!(type, :all_Dirichlet, nc)
+    set_boundaries_template!(type, bc, nc)
     Numbering!(number, type, nc)
     nVx, nVy, nPt = maximum(number.Vx), maximum(number.Vy), maximum(number.Pt)
     off  = (x=0, y=nVx, p=nVx + nVy)
@@ -165,63 +242,22 @@ function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:lin
             pos=(𝐷=2η.pos * SMatrix{3,3}(1.0I), ξ=comp ? ξ.pos : Inf))
 
     Γ  = InterfaceCrossings(FineLattice(φ, X, Δ))
-    tr = InterfaceTraces(Γ, φ, X, Δ, η, nc; fit, pressure=true)
+    tr = InterfaceTraces(Γ, φ, X, Δ, η, nc; fit, pressure=true, borrow=true)
     J  = StressJumpFunctionals(tr, η, ξ)
     lookup = Dict((T.p.I, T.p.J, T.p.dir == :x ? 1 : 2) => c for (c, T) in enumerate(tr))
+    ctx = (; X, Δ, φ, φf, J, tr, lookup, ηof, mats, order, extend, corrections, Jexact, type, nc)
 
     Is, Js, Vs = Int[], Int[], Float64[]
     b = zeros(ndof)
     for f0 in (:x, :y, :p), I0 in CartesianIndices(num[f0])
         (row = num[f0][I0]) > 0 || continue
-        s0 = side(φf[f0][I0])
-        x0 = node_position(Val(f0), I0, X)
-        F0 = fine_index(Val(f0), I0)
-        # Pass 1: stencil members, each as a linear form Σ w u[loc] + c over local node values
-        loc   = Dict{Tuple{Symbol,CartesianIndex{2}},Int}()
-        nodes = Tuple{Symbol,CartesianIndex{2}}[]
-        local!(key) = get!(loc, key) do
-            push!(nodes, key); length(nodes)
-        end
-        forms = Dict{Tuple{Symbol,CartesianIndex{2}},Tuple{Vector{Int},Vector{Float64},Float64}}()
-        function member(f, x)
-            I   = node_index(f, x, X, Δ)
-            key = (f, I)
-            haskey(forms, key) && return 0.0
-            ids, ws, c0 = [local!(key)], [1.0], 0.0
-            if corrections && side(φf[f][I]) != s0
-                xk = node_position(Val(f), I, X)
-                c  = member_crossing(lookup, F0, fine_index(Val(f), I), xk, J)
-                Jc = J[c]
-                δ  = xk - Jc.xΓ
-                a  = f == :x ? 1 : 2
-                # z-extension: v = (η_k v_k + s(...)) / η_s, the jump terms scaled by 1/η_s
-                sc = f != :p && extend == :z ? 1 / ηof(s0) : 1.0
-                f != :p && extend == :z && (ws[1] = ηof(-s0) / ηof(s0))
-                jump(z, ∇z, ∇∇z, ∇v, ∇∇v, p, ∇p) = f == :p ? p + (order == 2 ? dot(∇p, δ) : 0.0) :
-                    extend == :z ? z[a] + dot(∇z[a, :], δ) + (order == 2 ? dot(δ, ∇∇z[a, :, :] * δ) / 2 : 0.0) :
-                                   dot(∇v[a, :], δ) + (order == 2 ? dot(δ, ∇∇v[a, :, :] * δ) / 2 : 0.0)
-                if !isnothing(Jexact)
-                    Je = Jexact(tr[c].p)
-                    c0 = s0 * sc * jump(Je.z, Je.∇z, Je.∇∇z, Je.∇v, Je.∇∇v, Je.p, Je.∇p)
-                else
-                    for m in eachindex(Jc.p)
-                        wm = jump(view(Jc.z, :, m), view(Jc.∇z, :, :, m), view(Jc.∇∇z, :, :, :, m),
-                                  view(Jc.∇v, :, :, m), view(Jc.∇∇v, :, :, :, m), Jc.p[m], view(Jc.∇p, :, m))
-                        push!(ids, local!((Jc.field[m], Jc.idx[m]))); push!(ws, s0 * sc * wm)
-                    end
-                end
-            end
-            forms[key] = (ids, ws, c0)
-            return 0.0
-        end
+        s0  = side(φf[f0][I0])
+        x0  = node_position(Val(f0), I0, X)
         mat = s0 < 0 ? mats.neg : mats.pos
-        residual(Val(f0), x -> member(:x, x), x -> member(:y, x), x -> member(:p, x), x0, Δ, mat)
-        # Pass 2: residual as a function of the local node values, differentiated by AD
-        function value(u, f, x)
-            ids, ws, c0 = forms[(f, node_index(f, x, X, Δ))]
-            return sum(ws[i] * u[ids[i]] for i in eachindex(ids)) + c0
-        end
-        R(u) = residual(Val(f0), x -> value(u, :x, x), x -> value(u, :y, x), x -> value(u, :p, x), x0, Δ, mat)
+        kernel(vx, vy, p) = residual(Val(f0), vx, vy, p, x0, Δ, mat)
+        value, nodes = onesided_forms(ctx, s0, fine_index(Val(f0), I0), kernel)
+        # residual as a function of the local node values, differentiated by AD
+        R(u) = kernel(x -> value(u, :x, x), x -> value(u, :y, x), x -> value(u, :p, x))
         u0 = [num[f][I] > 0 ? 0.0 : val0[f][I] for (f, I) in nodes]
         g  = ForwardDiff.gradient(R, u0)
         r  = off[f0] + row
@@ -232,7 +268,38 @@ function AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:lin
         f0 == :p && !comp && (push!(Is, r, ndof); push!(Js, ndof, r); push!(Vs, 1.0, 1.0))
     end
     K = sparse(Is, Js, Vs, ndof, ndof)
-    return (K=K, b=b, num=num, off=off, Γ=Γ, tr=tr, J=J, lookup=lookup)
+    return (K=K, b=b, num=num, off=off, Γ=Γ, tr=tr, J=J, lookup=lookup, ctx=ctx)
+end
+
+"""
+    CentroidStress(S, v, p)
+
+Deviatoric stress (τxx, τyy, τxy) at the centroids (grid `c_e`) of a stress-form solution, with
+the one-sided stencils of the equations: every velocity of the centroid's strain-rate stencil
+that lies across Γ is replaced by the extension of the centroid side's field (jumps evaluated on
+the solution), and τ = 𝐷 ε̇ uses the centroid side's material. τxy uses the Vx/Vy interpolations
+of the Stokes module (no vertex averaging), so the field contains no mixed-phase strain rates.
+`S` is the output of `AssembleIIMStress` (`SolveIIMStress(...).S`). Returns three arrays on `c_e`
+(NaN on the ghost centroids).
+"""
+function CentroidStress(S, v, p)
+    (; X, Δ, φ, mats) = S.ctx
+    val = (x=v.x, y=v.y, p=p)
+    τ   = ntuple(_ -> fill(NaN, size(φ.c)), 3)
+    for j in 2:(size(φ.c, 2) - 1), i in 2:(size(φ.c, 1) - 1)
+        I0  = CartesianIndex(i, j)
+        s0  = side(φ.c[I0])
+        x0  = node_position(Val(:p), I0, X)
+        mat = s0 < 0 ? mats.neg : mats.pos
+        kernel(vx, vy, pp) = deviatoric_stress(velocity_gradient(vx, vy, x0, Δ, Val(:c)), mat.𝐷)
+        value, nodes = onesided_forms(S.ctx, s0, fine_index(Val(:p), I0), kernel)
+        u  = [val[f][I] for (f, I) in nodes]
+        τc = kernel(x -> value(u, :x, x), x -> value(u, :y, x), x -> value(u, :p, x))
+        for k in 1:3
+            τ[k][I0] = τc[k]
+        end
+    end
+    return (xx=τ[1], yy=τ[2], xy=τ[3])
 end
 
 """
@@ -264,15 +331,15 @@ function VertexPressure(S, v, p, φ, X; onesided=true, order=2)
 end
 
 """
-    SolveIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing)
+    SolveIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing, bc=:all_Dirichlet)
 
 Assemble the stress-form system and solve with a sparse direct solver. Returns v (with the
 boundary values of `vbc`) and p on the full staggered arrays. The solver sees the velocity
 columns scaled by η and the momentum rows by 1/η (η of each node's side), i.e. unknowns z = ηv:
 without it, the fill-in of the LU factors grows with the contrast (2.4 times more at 10³).
 """
-function SolveIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing)
-    S   = AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ, order, fit, extend, corrections, Jexact)
+function SolveIIMStress(φ, X, Δ, η, nc, vbc; ξ=nothing, order=1, fit=:linear, extend=:z, corrections=true, Jexact=nothing, bc=:all_Dirichlet)
+    S   = AssembleIIMStress(φ, X, Δ, η, nc, vbc; ξ, order, fit, extend, corrections, Jexact, bc)
     dη  = ones(size(S.K, 1))
     for (f, φf) in ((:x, φ.x), (:y, φ.y)), I in CartesianIndices(φf)
         S.num[f][I] > 0 && (dη[S.off[f] + S.num[f][I]] = side(φf[I]) < 0 ? η.neg : η.pos)
