@@ -7,7 +7,7 @@ using CairoMakie, JLD2, Printf
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
-    root    = dirname(@__DIR__) # run folders are next to postprocessing/
+    root    = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
     prefix  = "_ShearApparatus_v9"
     θsel    = [30, 50, 70]          # gouge angles (one row each)
     h       = 3                     # gouge thickness [mm] (folder _H..)
@@ -67,7 +67,7 @@ let
 
             # Friction vs shortening, with the snapshot steps
             ax = Axis(fig[row, ns + 1]; axkw..., topspinevisible=false, rightspinevisible=false,
-                      xlabel=row == length(θsel) ? L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}" : "", ylabel=L"\mu_\mathrm{app}",
+                      xlabel=row == length(θsel) ? L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}" : "", ylabel=L"\mu_\mathrm{app}", yticks=0:0.2:0.8,
                       xticklabelsvisible=row == length(θsel))
             push!(axf, ax)
             lines!(ax, δ, dl.probes.app_fric_lab[1:dl.it], color=colθ(θ), linewidth=2)
@@ -82,7 +82,7 @@ let
             Label(fig[row, col, TopLeft()], L"\mathrm{(%$('a' + (row - 1) * (ns + 1) + col - 1))}", fontsize=24, padding=(0, 6, 4, 0), halign=:right)
         end
         linkaxes!(axf...)
-        ylims!(axf[1], 0, 0.85)
+        ylims!(axf[1], 0, 0.9)
         xlims!(axf[1], 0, nothing)
         Colorbar(fig[length(θsel) + 1, 1:ns], hm, vertical=false, flipaxis=false, height=14, width=Relative(0.7),
                  label=L"\log_{10}\ \dot{\lambda}\ \mathrm{[s^{-1}]}\ \mathrm{(white:\ not\ plastic;\ black\ lines:\ gouge\ boundaries;\ grey:\ }\sigma_1\mathrm{\ orientation)}")

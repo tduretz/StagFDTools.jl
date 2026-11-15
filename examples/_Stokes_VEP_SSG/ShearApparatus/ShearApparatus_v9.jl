@@ -258,6 +258,8 @@ function restore_state!(dst, src)
     for k in keys(src)
         if src[k] isa Union{NamedTuple, Tuple}
             restore_state!(dst[k], src[k])
+        elseif src[k] isa AbstractVector{<:AbstractArray} # per-phase fields (mixing = :voigt): copy each array, not the references
+            foreach(copyto!, dst[k], src[k])
         else
             n = min(length(dst[k]), length(src[k])) # probes: nt may differ between runs
             copyto!(dst[k], 1, src[k], 1, n)
@@ -278,11 +280,15 @@ end
 # Adaptive time stepping: if a step fails, it is restarted from the start of the step with Δt/Δt_red_fac, at most ntry times (then the run stops);
 #         after a successful step, Δt is multiplied by Δt_inc_fac, up to Δt_max (nothing: Δt0). Δt is also limited by the CFL condition
 # nt, time_max: the run stops after nt steps or at time_max [s], whichever comes first (time_max = Inf: nt steps)
-# Gouge plasticity: friction angle ϕ_gouge + Δϕ_gouge tanh(εp/εh_gouge) [°] and cohesion C_gouge + ΔC_gouge tanh(εp/εh_gouge) [Pa], εp = ∫λ̇dt.
-#         Defaults: cohesion hardening fitted to the lab apparent friction (30-50°, low-res runs). No hardening (previous defaults):
-#         ϕ_gouge=36.13, C_gouge=0.67e6, ΔC_gouge=0.0
+# Gouge plasticity: friction angle ϕ_gouge + Δϕ_gouge tanh(εp/εh_gouge) [°] and cohesion C_gouge + ΔC_gouge tanh(εp/εh_gouge) [Pa], εp = ∫ε̇II_pl dt (plastic deviatoric strain rate invariant, carried by the markers).
+#         Defaults (refit 2026-11-15, _hardening_refit): ϕ_gouge = 34° (measured, not fitted), C = 1.25 + 2.8 tanh(εp/0.5) MPa,
+#         dilatancy ψ_gouge = 12° (fitted 11.7° at LR, 12° to compensate the slightly lower MR friction), with mixing = :voigt and
+#         plastic_strain = :phase. Earlier defaults (ψ = 15°, mixing = :default) were fitted with the ghost-cell and dilatancy bugs.
+#         No hardening (older defaults): ϕ_gouge=36.13, C_gouge=0.67e6, ΔC_gouge=0.0
+# mixing: averaging of the rheology in interface cells (:voigt = iso-strain rate, recommended; see
+#         ../MixingSchemesReport); plastic_strain = :phase: one εp per phase (grid), carried by the markers
 @views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false, ϵ_nl_last=1e-5,
-                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=1.0)
+                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=0.5, ψ_gouge=12.0, mixing=:voigt, plastic_strain=:phase)
     #--------------------------------------------#
 
     # Scaling
@@ -323,14 +329,14 @@ end
       # Material parameters
     nphases                   = 4
     plasticity                = DruckerPragerCap # DruckerPrager: no tension cap (then comment the Pt line below)
-    materials                 = initialize_materials(nphases; compressible=true, plasticity)  #Dzz=-0.0*ε̇yy
+    materials                 = initialize_materials(nphases; compressible=true, plasticity, mixing, plastic_strain)  # mixing: phase averaging in interface cells (:default, :voigt, :reuss, :isowork); plastic_strain: :mixed or :phase
     materials.n              .= [1.0,   1.0,    1.0,    1.0]                                                        # Power law exponent
     materials.η0             .= [1e48,  1e28,   1e10,   1e48]  ./ sc.σ ./ sc.t                                    # Reference viscosity 
     materials.G              .= [3e10,  1e9,    1e60,   1e12]  ./ sc.σ                                             # Shear modulus
     materials.β              .= [1e-11, 1e-10,  1e-12,  1e-12] .* sc.σ                                        # Compressibility
     materials.plasticity.C   .= [45e6,  C_gouge, 15e60,  15e60] ./ sc.σ                                        # Cohesion
     materials.plasticity.ϕ   .= [36.13, ϕ_gouge, 36.13,  36.13]                                                       # Friction angle
-    materials.plasticity.ψ   .= [0.0,   15.0,    0.0,    0.0]                                                        # Dilation angle
+    materials.plasticity.ψ   .= [0.0,   ψ_gouge, 0.0,    0.0]                                                        # Dilation angle
     materials.plasticity.Pt  .= [-10e6, -0.5e6, -1e60,  -1e60] ./ sc.σ                                         # Tensile strength (DruckerPragerCap), must be > -C/tanϕ
     materials.plasticity.ηvp .= [1e10,  1e8,    5e11,   5e11] .* 10/sc.σ ./ sc.t                                   # Viscoplastic regularisation
     materials.plasticity.Δϕ  .= [0.0,   Δϕ_gouge, 0.0,  0.0]                                                       # Strain hardening: ϕ + Δϕ tanh(εp/εh) [°] (0: none)
@@ -367,7 +373,7 @@ end
         a.type.Vx[inx_Vx[argmin(abs.(a.X.v.x))], 2] = :Dirichlet_tangent
     end
     # additional Allocations
-    εp = a.εp # accumulated plastic strain (∫λ̇dt), used by the solver for strain hardening
+    εp = a.εp # accumulated plastic strain (∫ε̇II_pl dt, mean of the markers), used by the solver for strain hardening
     sp = (c= ones(size_c...), v= ones(size_v...))
     C  = (c=zeros(size_c...), v=zeros(size_v...))
 
@@ -469,7 +475,7 @@ end
     # Checkpointing: everything carried from one step to the next (grid fields, markers incl. stresses, probes).
     # Markers are CellArrays: their underlying data arrays are saved/restored in place.
     state = (;
-        grid    = (; V=a.V, Pt=a.Pt, Pt0=a.Pt0, Pti=a.Pti, τ=a.τ, τ0=a.τ0, λ̇=a.λ̇, ε̇=a.ε̇, ΔPt=a.ΔPt, εp, sp),
+        grid    = (; V=a.V, Pt=a.Pt, Pt0=a.Pt0, Pti=a.Pti, τ=a.τ, τ0=a.τ0, λ̇=a.λ̇, ε̇=a.ε̇, ΔPt=a.ΔPt, εp, εp_ph=a.εp_ph, sp),
         markers = (; coords=map(c -> c.data, particles.coords), index=particles.index.data,
                      args=map(c -> c.data, adv.particle_args), probes=probe_markers.coords),
         history = (; probes, probe_salt, probe_plate, probe_MC1, probe_MC2),
@@ -518,9 +524,7 @@ end
         Δt = min(Δ.t * iter_params.Δt_inc_fac, Δt_max) # try a larger time step for the next one
         Set_Grid_Phases!(a)
 
-        # Update platic strain
-        εp.c .+= Δ.t .* a.λ̇.c
-        εp.v .+= Δ.t .* a.λ̇.v
+        # Plastic strain: integrated on the markers and advected with them, grid εp (and per-phase εp) set by main_loop
 
         # Softening
         sp.c .= softening.(εp.c, 1.0, 0.2, 0.0, 0.1)
@@ -674,6 +678,7 @@ end
         d = (; it, time, sc, Ly=L.y, θgouge, ε̇yy, Rot=Matrix(Rot), plates,
             xc=a.X.c.x, yc=a.X.c.y, xv_min=minimum(a.X.v.x), xv_max=maximum(a.X.v.x),
             λ̇c=a.λ̇.c[inx_c, iny_c], phc=a.phases.c[inx_c, iny_c], θc=a.τ.θ[inx_c, iny_c], εpc=a.εp.c[inx_c, iny_c],
+            εpc_gouge=a.εp_ph.εp.c[2][inx_c, iny_c], mixing=materials.mixing, plastic_strain=materials.plastic_strain, # gouge εp (plastic_strain = :phase; zeros otherwise)
             ind_mid_x, I_salt=𝐈_probe_salt, I_plate=𝐈_probe_plate, I_MC1=𝐈_probe_MC1, I_MC2=𝐈_probe_MC2, i1, i2, j1, j2,
             P_rock, τII_rock, λ̇_rock, P_gouge, τII_gouge, λ̇_gouge,
             plasticity=(C=materials.plasticity.C, ϕ=materials.plasticity.ϕ, ψ=materials.plasticity.ψ, sinϕ=materials.plasticity.sinϕ, cosϕ=materials.plasticity.cosϕ, ηvp=materials.plasticity.ηvp,
@@ -713,6 +718,8 @@ end
 #     main((x = 280, y = 1000), nt, Δt, θ, h) # matches friction
 # end
 
+# Launcher (only when run as a script, so that the file can be included by drivers)
+if abspath(PROGRAM_FILE) == @__FILE__
 let
     # n  = (x = 280, y = 1000)
     n  = (x = 140, y = 500)
@@ -734,4 +741,6 @@ let
         Pic2Newt=1.8, niter_KSP=40, ϵ_nl_last=1e-10, 
         Δt_red_fac=1.75, Δt_inc_fac=1.25, ntry=4)
     end
+end
+
 end

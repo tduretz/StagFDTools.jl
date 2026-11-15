@@ -828,6 +828,26 @@ function UpdateSolution!(V, Pt, dx, number, type, nc)
         end
     end
 
+    # Non-periodic sides: zero-gradient pressure ghosts (the vertex pressure P̄ of boundary vertices averages them)
+    fill_centroid_ghosts!(Pt, type.Pt)
+end
+
+# Ghost cells of a centroid field (size nc .+ 2): copy of the opposite side where periodic (type.Pt ghost = :periodic),
+# zero gradient otherwise. The rheology only fills the inner centroids; the ghosts are read by the vertex averages and by the
+# bilinear grid → marker interpolation of markers within half a cell of a boundary.
+function fill_centroid_ghosts!(A, typePt)
+    nx, ny = size(A)
+    px = any(==(:periodic), view(typePt, nx, 2:(ny-1)))
+    py = any(==(:periodic), view(typePt, 2:(nx-1), ny))
+    @inbounds for j in 1:ny
+        A[1, j]  = px ? A[nx-1, j] : A[2, j]
+        A[nx, j] = px ? A[2, j]    : A[nx-1, j]
+    end
+    @inbounds for i in 1:nx
+        A[i, 1]  = py ? A[i, ny-1] : A[i, 2]
+        A[i, ny] = py ? A[i, 2]    : A[i, ny-1]
+    end
+    return nothing
 end
 
 function Numbering!(N, type, nc)
@@ -932,7 +952,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing, εp=nothing)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -944,7 +964,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp, Ω, εp_ph, mk)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -961,7 +981,7 @@ end
 # first α that reduces the residual. R must hold the residual of the current solution on entry.
 # Returns (α, success); the solution (V, Pt) is left unchanged, as in LineSearch!
 function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ;
-    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing, εp=nothing)
+    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -979,7 +999,7 @@ function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp, Ω, εp_ph, mk)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -1000,7 +1020,17 @@ end
 
 # T: optional temperature field (c, v) [K] for temperature-dependent creep
 # εp: optional accumulated plastic strain field (c, v) for strain hardening (nothing: no hardening)
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing, εp=nothing)
+# Ω: optional rate-and-state variable field (c, v) for rate-and-state friction (nothing: Ω = 0)
+# εp_ph: optional per-phase plastic strain and plastic strain rate fields, (εp=(c, v), ε̇pl=(c, v)) with per-phase vectors
+#        of arrays (see Allocs.jl); εp used when materials.plastic_strain = :phase (each phase hardens with its own εp),
+#        ε̇pl (invariant of the plastic deviatoric strain rate of each phase) filled in both modes
+# mk: marker engine (materials.mixing = :markers, Rheology_Markers.jl): the rheology is evaluated on the markers
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
+
+    prates  = εp !== nothing && εp_ph !== nothing # per-phase plastic strain rates ε̇IIplᵢ (plastic strain accumulation, both modes)
+    pstrain = prates && _plastic_strain(materials) === :phase
+    εph_c   = εp_ph === nothing ? nothing : εp_ph.εp.c
+    εph_v   = εp_ph === nothing ? nothing : εp_ph.εp.v
 
     _ones = @SVector ones(4)
     s = 1
@@ -1060,17 +1090,29 @@ end
                 # Deviatoric strain rate
                 ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
 
+                Tk = T === nothing ? nothing : T.c[i, j]
+                εpk = εp === nothing ? 0.0 : PhaseStrain(εp.c[i, j], εph_c, CartesianIndex(i, j), pstrain)
+                Ωk  = Ω === nothing ? 0.0 : Ω.c[i, j]
+                if mk !== nothing
+                    τ_vec, jac, η_local, λ̇_local, τII_local = TangentOperator_Markers!(mk, τ0, i, j, :c, SVector{4}(ε̇xx, ε̇yy, ε̇xy, Pt[i, j]), ε̇kk, Pt0[i, j], G.c[i, j], materials, Δ, Tk, Ωk)
+                elseif _per_phase_stress(materials)
+                    # Per-phase old stresses (Rheology_Voigt.jl); also writes the equivalent τ0 used by the momentum residual
+                    ε̇true = SVector{4}(ε̇xx, ε̇yy, ε̇xy, Pt[i, j])
+                    τ_vec, jac, η_local, λ̇_local, τII_local = prates ?
+                        TangentOperator_Voigt!(τ0, τ, i, j, :c, ε̇true, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk, εp_ph.ε̇pl.c) :
+                        TangentOperator_Voigt!(τ0, τ, i, j, :c, ε̇true, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                else
                 # Effective visco-elastic strain rate
                 _2GΔt = inv(2 * G.c[i, j] * Δ.t)
                 ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
                 ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, Pt[i, j])
 
                 # Tangent operator used for Newton Linearisation
-                Tk = T === nothing ? nothing : T.c[i, j]
-                εpk = εp === nothing ? 0.0 : εp.c[i, j]
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk)
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                τ_vec, jac = fd_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
                 _, η_local, λ̇_local, τII_local = stress_state
+                prates && phase_plastic_rates!(εp_ph.ε̇pl.c, CartesianIndex(i, j), ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                end
 
                 @views 𝐷_ctl.c[i, j] .= jac
 
@@ -1154,17 +1196,28 @@ end
             # Deviatoric strain rate
             ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
 
+            Tk = T === nothing ? nothing : T.v[i, j]
+            εpk = εp === nothing ? 0.0 : PhaseStrain(εp.v[i, j], εph_v, CartesianIndex(i, j), pstrain)
+            Ωk  = Ω === nothing ? 0.0 : Ω.v[i, j]
+            if mk !== nothing
+                τ_vec, jac, η_local, λ̇_local, _ = TangentOperator_Markers!(mk, τ0, i, j, :v, SVector{4}(ε̇xx, ε̇yy, ε̇xy, P̄), ε̇kk, P̄0, G.v[i, j], materials, Δ, Tk, Ωk)
+            elseif _per_phase_stress(materials)
+                ε̇true = SVector{4}(ε̇xx, ε̇yy, ε̇xy, P̄)
+                τ_vec, jac, η_local, λ̇_local, _ = prates ?
+                    TangentOperator_Voigt!(τ0, τ, i, j, :v, ε̇true, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk, εp_ph.ε̇pl.v) :
+                    TangentOperator_Voigt!(τ0, τ, i, j, :v, ε̇true, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            else
             # Effective visco-elastic strain rate
             _2GΔt = inv(2 * G.v[i, j] * Δ.t)
             ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            Tk = T === nothing ? nothing : T.v[i, j]
-            εpk = εp === nothing ? 0.0 : εp.v[i, j]
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            τ_vec, jac = fd_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
             _, η_local, λ̇_local, = stress_state
+            prates && phase_plastic_rates!(εp_ph.ε̇pl.v, CartesianIndex(i, j), ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            end
 
             @views 𝐷_ctl.v[i, j] .= jac
 

@@ -15,7 +15,7 @@ function tail_mean(v, t, tail)
 end
 
 let
-    root   = dirname(@__DIR__) # run folders are next to postprocessing/
+    root   = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
     prefix = "_ShearApparatus_v9"
     tail   = 0.2   # fraction of the axial shortening used for the end-of-run friction
 
@@ -31,7 +31,6 @@ let
            δ       = t * d.ε̇yy * d.Ly * d.sc.L * 1e3,            # axial shortening [mm]
            μ_app   = p.app_fric_lab[1:it],                       # apparatus (lab) apparent friction
            μ_end   = tail_mean(p.app_fric_lab[1:it], t, tail),
-           μg_end  = tail_mean(p.app_fric[1:it], t, tail),       # gouge-mean apparent friction
            μ_true  = tail_mean(p.true_fric[1:it], t, 1.0))       # gouge material friction (plastic points), whole run
     end
     sort!(runs, by=r -> (r.h, r.θ))
@@ -56,7 +55,7 @@ let
 
         # (a) friction vs shortening
         ax1 = Axis(fig[1, 1]; xlabel=L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}", ylabel=L"\mu_\mathrm{app} = -\tau/\sigma_n",
-                   title=L"\mathrm{(a)\ Apparatus\ friction}", titlealign=:left, yticks=0:0.1:0.8, axkw...)
+                   title=L"\mathrm{(a)\ Apparent\ friction\ vs.\ shortening}", titlealign=:left, yticks=0:0.1:0.8, axkw...)
         for r in runs
             lines!(ax1, r.δ, r.μ_app, color=colθ(r.θ), linewidth=2, linestyle=styles[findfirst(==(r.h), hs)])
         end
@@ -80,36 +79,32 @@ let
         end
 
         # (b) end-of-run friction vs θ
-        ax2 = Axis(fig[1, 3]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mu\ \mathrm{(last\ %$(round(Int, 100tail))\%\ of\ shortening)}",
-                   title=L"\mathrm{(b)\ Friction\ at\ the\ end\ of\ the\ runs}", titlealign=:left, xticks=10:10:90, axkw...)
+        ax2 = Axis(fig[1, 3]; xlabel=L"\mathrm{Gouge\ angle}\ \theta\ [^\circ]", ylabel=L"\mu_\mathrm{app}\ \mathrm{(mean\ over\ last\ %$(round(Int, 100tail))\%\ of\ shortening)}",
+                   title=L"\mathrm{(b)\ Apparent\ friction\ vs.\ gouge\ angle}", titlealign=:left, xticks=10:10:90, axkw...)
         # Rock yields for large gouge angles: shaded background, fading in between θ_yield[1] and θ_yield[2]
         xr = (θs[1] - 4, θs[end] + 4)
         for k in 1:20
             vspan!(ax2, θ_yield[1] + (k - 1) / 20 * (θ_yield[2] - θ_yield[1]), θ_yield[1] + k / 20 * (θ_yield[2] - θ_yield[1]), color=(c_yield, 0.18 * (k - 0.5) / 20))
         end
-        vspan!(ax2, θ_yield[2], xr[2], color=(c_yield, 0.18), label=L"\mathrm{rock\ yields}")
+        vspan!(ax2, θ_yield[2], xr[2], color=(c_yield, 0.18), label=L"\mathrm{sample\ yields}")
         xlims!(ax2, xr...)
+        if lab !== nothing # drawn first: behind the model results
+            scatter!(ax2, lab.θ, lab.μ, color=c_lab, marker=:diamond, markersize=15, strokecolor=ink, strokewidth=1,
+                     label=L"\mu_\mathrm{app}\ \mathrm{experiments}")
+        end
         for (k, h) in enumerate(hs)
             rh = filter(r -> r.h == h, runs)
             θh = [r.θ for r in rh]
             lines!(ax2, θh, [r.μ_end for r in rh], color=ink, linewidth=2, linestyle=styles[k])
             scatter!(ax2, θh, [r.μ_end for r in rh], color=[colθ(θ) for θ in θh], markersize=12, strokecolor=ink, strokewidth=1,
-                     label=L"\mathrm{apparatus}")
-            lines!(ax2, θh, [r.μg_end for r in rh], color=muted, linewidth=2, linestyle=styles[k])
-            scatter!(ax2, θh, [r.μg_end for r in rh], color=:white, marker=:rect, markersize=10, strokecolor=muted, strokewidth=1.5,
-                     label=L"\mathrm{gouge\ mean}")
+                     label=L"\mu_\mathrm{app}\ \mathrm{models}")
         end
         μ_true = mean(filter(!isnan, [r.μ_true for r in runs]))
-        hlines!(ax2, μ_true, color=muted, linestyle=:dash, linewidth=2.5, label=L"\mathrm{gouge\ material}\ (\tan\phi)")
-        if lab !== nothing
-            lines!(ax2, lab.θ, lab.μ, color=c_lab, linewidth=2)
-            scatter!(ax2, lab.θ, lab.μ, color=c_lab, marker=:diamond, markersize=15, strokecolor=ink, strokewidth=1,
-                     label=L"\mathrm{lab}")
-        end
+        hlines!(ax2, μ_true, color=muted, linestyle=:dash, linewidth=2.5, label=L"\mu_\mathrm{true}\ \mathrm{gouge}\ (\tan\phi)")
         axislegend(ax2, position=:lb, framevisible=false, unique=true, merge=true)
 
         colgap!(fig.layout, 1, 8)
-        colsize!(fig.layout, 3, Relative(0.38))
+        colsize!(fig.layout, 3, Relative(0.42))
         fig
     end
     save(joinpath(mkpath(joinpath(@__DIR__, "png")), "apparent_friction.png"), fig, px_per_unit=3)

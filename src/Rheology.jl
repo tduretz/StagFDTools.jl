@@ -311,6 +311,10 @@ end
 # Backtracking line search on |R|: full Newton steps can cycle between the cap and the Drucker-Prager branches
 # (e.g. trial stress far in tension)
 function CapReturnMapping(τII, P, ηve, comp, β, Δt, p; α_min=1e-8)
+    # Common number type of the unknowns and of the parameters (implicit hardening: p depends on dual numbers), so that the
+    # local jacobian nests its dual numbers outside those of p
+    Tp = promote_type(typeof(τII), typeof(P), typeof(ηve), typeof(p.k), typeof(p.c), typeof(p.py), typeof(p.pq))
+    τII, P, ηve = Tp(τII), Tp(P), Tp(ηve)
     yield_Cap(τII, P, p) <= 0 && return τII, P, zero(τII)
     KΔt = comp * Δt / β
     x   = SVector(τII, P, zero(τII))
@@ -341,14 +345,19 @@ return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::AbstractPlast
 
 # Parameters of the cap model of phase ph. With strain hardening (Δϕ or ΔC ≠ 0), the friction angle is ϕ + Δϕ tanh(εp/εh)
 # and the cohesion C + ΔC tanh(εp/εh), and the quantities derived from them are recomputed (same as preprocess!);
-# εp is lagged (start of the time step)
+# εp: start-of-step value (lagged); see HardeningReturnMapping for the implicit (end-of-step) update
 @inline function cap_parameters(pl::DruckerPragerCap, ph, εp)
     # No hardening: εp = 0, hardening fields not set (DruckerPragerCap built without initialize) or Δϕ = ΔC = 0
     if εp <= 0 || isempty(pl.Δϕ) || (iszero(pl.Δϕ[ph]) && iszero(pl.ΔC[ph]))
         return (k=pl.k[ph], kq=pl.kq[ph], c=pl.c[ph], a=pl.a[ph], b=pl.b[ph], py=pl.py[ph], Ry=pl.Ry[ph],
                 pd=pl.pd[ph], τd=pl.τd[ph], pq=pl.pq[ph], Pt=pl.Pt[ph], ηvp=pl.ηvp[ph])
     end
-    h  = tanh(εp / pl.εh[ph])
+    return hardened_parameters(pl, ph, εp)
+end
+
+# Cap parameters for the plastic strain εp (strain hardening/softening active)
+@inline function hardened_parameters(pl::DruckerPragerCap, ph, εp)
+    h  = tanh(max(εp, zero(εp)) / pl.εh[ph])
     ϕ  = pl.ϕ[ph] + pl.Δϕ[ph] * h
     k  = sind(ϕ)
     c  = (pl.C[ph] + pl.ΔC[ph] * h) * cosd(ϕ)
@@ -365,8 +374,132 @@ end
 return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases) =
     return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl, phases, 0.0)
 
+# Strain hardening/softening: implicit (end-of-step εp, default) or lagged (start-of-step εp)
+const implicit_hardening = Ref(true)
+@inline hardening_on(pl::DruckerPragerCap, ph) = !isempty(pl.Δϕ) && !(iszero(pl.Δϕ[ph]) && iszero(pl.ΔC[ph]))
+
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases, εp)
+    if implicit_hardening[] && hardening_on(pl, phases)
+        return HardeningReturnMapping(τII, P, ηvep, comp, β, Δt, pl, phases, εp)
+    end
     return CapReturnMapping(τII, P, ηvep, comp, β, Δt, cap_parameters(pl, phases, εp))
+end
+
+# Implicit strain hardening/softening: the cap parameters are those of the end-of-step plastic strain εp, solution of
+#     g(εp) = εp - εp0 - Δt ε̇II_pl(εp) = 0,   ε̇II_pl(εp) = (τ_trial - τ(εp)) / (2ηve)
+# where τ(εp) is the return mapping (CapReturnMapping, unchanged) with the parameters of εp, and ε̇II_pl the plastic part of
+# the deviatoric strain rate invariant (as phase_vep). Since 0 ≤ ε̇II_pl ≤ τ_trial/(2ηve), the root is bracketed by
+# [εp0, εp0 + Δt τ_trial/(2ηve)]: safeguarded Newton (bisection when the Newton step leaves the bracket, e.g. strong
+# softening). A last Newton step makes the derivatives (dual numbers) those of the implicit function: the AD tangent of the
+# global Newton is consistent.
+_hardening_g(ε, εp0, τII, P, ηve, comp, β, Δt, pl, ph) =
+    ε - εp0 - Δt * (τII - CapReturnMapping(τII, P, ηve, comp, β, Δt, hardened_parameters(pl, ph, ε))[1]) / (2ηve)
+
+function HardeningReturnMapping(τII, P, ηve, comp, β, Δt, pl, ph, εp0; tol=1e-12, niter=50)
+    p0 = cap_parameters(pl, ph, εp0)
+    yield_Cap(τII, P, p0) <= 0 && return τII, P, zero(τII) # elastic trial with the start-of-step parameters
+    lo, hi = εp0, εp0 + Δt * τII / (2ηve)
+    ε = εp0 + Δt * (τII - CapReturnMapping(τII, P, ηve, comp, β, Δt, p0)[1]) / (2ηve) # lagged estimate
+    scale = Δt * τII / (2ηve) + 1e-30
+    for _ in 1:niter
+        g, dg = fd_value_and_derivative(_hardening_g, ε, εp0, τII, P, ηve, comp, β, Δt, pl, ph)
+        abs(g) < tol * scale && break
+        g > 0 ? (hi = ε) : (lo = ε)
+        εn = ε - g / dg
+        ε = (dg > 0 && lo < εn < hi) ? εn : (lo + hi) / 2
+    end
+    g, dg = fd_value_and_derivative(_hardening_g, ε, εp0, τII, P, ηve, comp, β, Δt, pl, ph)
+    dg > 0 && (ε -= g / dg) # implicit-function derivatives
+    return CapReturnMapping(τII, P, ηve, comp, β, Δt, hardened_parameters(pl, ph, ε))
+end
+
+# Ω: rate-and-state variable of the cell, only used by plasticity models with rate-and-state friction
+return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::AbstractPlasticity, phases, εp, Ω) =
+    return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl, phases, εp)
+
+rate_state_on(pl::DruckerPragerCap, ph) = !isempty(pl.aRS) && pl.aRS[ph] > 0
+
+function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::DruckerPragerCap, phases, εp, Ω)
+    p = cap_parameters(pl, phases, εp)
+    # Rate-and-state on the Drucker-Prager branch (mode 2); the tension cap (mode 1) keeps the static parameters
+    if rate_state_on(pl, phases) && τII * (p.py - p.pd) >= p.τd * (p.py - P)
+        rs = (a=pl.aRS[phases], b=pl.bRS[phases], V0=pl.V0RS[phases], D=pl.DRS[phases], η=pl.ηRS[phases])
+        return RateStateReturnMapping(τII, P, ηvep, comp, β, Δt, p, rs, Ω)
+    end
+    return return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl, phases, εp) # (implicit) hardening
+end
+
+# Rate-and-state friction coefficient: μ = a asinh(A λ̇), A = D/(2V0) exp((μ0 + bΩ)/a), V = Dλ̇.
+# Steady state (Ω = ln(V0/V)): μ ≈ μ0 + (a - b) ln(V/V0)
+@inline rate_state_A(μ0, rs, Ω) = rs.D / (2 * rs.V0) * exp((μ0 + rs.b * Ω) / rs.a)
+
+# Weight of the static regularisation ηvp: 1 for P ≤ 0, smoothly → 0 at P = c (smoothstep)
+@inline function rate_state_wvp(P, c)
+    x = clamp(1 - P / c, zero(P), one(P))
+    return x^2 * (3 - 2x)
+end
+
+# Return mapping with the rate-and-state friction coefficient in place of k = sinϕ (Drucker-Prager branch, flow potential slope kq):
+#   τ = τII - ηve λ̇,  P = P_trial + KΔt kq λ̇,  f(λ̇) = τ - c - F(P, λ̇) - η λ̇ = 0,
+#   F = P a asinh(A λ̇) for P ≥ 0, k P for P < 0 (static Drucker-Prager in tension: continuous at P = 0),
+#   η = ηRS + w(P_trial) ηvp: radiation damping in compression, static regularisation for P_trial ≤ 0 (w = 1, smooth up to P_trial = c),
+#   so that the mapping is continuous with the static cap at the mode 1/2 boundary.
+# There is no yield check: λ̇ > 0 as soon as f(0) > 0 (hypoplastic, the creep rate is negligible well below μ0 P + c).
+# f is decreasing in λ̇ and bracketed by f(0) > 0, f(f(0)/ηve) < 0: safeguarded Newton on s = ln λ̇,
+# then plain Newton steps so that the derivatives (dual numbers of the global tangent) are converged as well.
+function RateStateReturnMapping(τII, P, ηve, comp, β, Δt, p, rs, Ω)
+    (; c, k, kq) = p
+    KΔt = comp * Δt / β
+    A   = rate_state_A(k, rs, Ω)
+    η   = rs.η + rate_state_wvp(P, c) * p.ηvp
+    Pλ(λ̇) = P + KΔt * kq * λ̇
+    F(λ̇)  = (Pl = Pλ(λ̇); Pl >= 0 ? Pl * rs.a * asinh(A * λ̇) : k * Pl)
+    dF(λ̇) = (Pl = Pλ(λ̇); Pl >= 0 ? KΔt * kq * rs.a * asinh(A * λ̇) + Pl * rs.a * A / sqrt(1 + (A * λ̇)^2) : k * KΔt * kq)
+    f(λ̇)  = (τII - ηve * λ̇) - c - F(λ̇) - η * λ̇
+    df(λ̇) = -ηve - dF(λ̇) - η
+    f0 = f(zero(τII))
+    f0 <= 0 && return τII, P, zero(τII)
+    g(s)  = f(exp(s))
+    dg(s) = df(exp(s)) * exp(s)
+    s_hi = log(f0 / ηve)                      # f < 0
+    # μ ≈ aAλ̇ ≪ 1: f ≈ f0 - (ηve + aA|P| + η + kKΔt kq) λ̇ ≥ f0/2 > 0 (f0 can be tiny)
+    s_lo = min(s_hi - 1, log(1e-3 / A), log(f0 / (2 * (ηve + rs.a * A * abs(P) + η + k * KΔt * kq))))
+    for _ in 1:20
+        g(s_lo) > 0 && break
+        s_lo -= 5
+    end
+    # Initial guess: λ̇ at the trial stress, sinh(f0/(aP))/A ≈ exp(f0/(aP))/(2A)
+    s   = P > 0 ? clamp(f0 / (rs.a * P) - log(2A), s_lo, s_hi) : (s_lo + s_hi) / 2
+    tol = 1e-13 * (abs(τII) + abs(P) + abs(c))
+    for _ in 1:200
+        gs = g(s)
+        abs(gs) < tol && break
+        gs > 0 ? (s_lo = s) : (s_hi = s)
+        s_new = s - gs / dg(s)
+        s = (s_lo < s_new < s_hi) ? s_new : (s_lo + s_hi) / 2
+        s_hi - s_lo < 1e-15 * max(1, abs(s)) && break
+    end
+    for _ in 1:2 # derivative propagation
+        s -= g(s) / dg(s)
+    end
+    abs(g(s)) < 1e3 * tol || error("Failed rate-and-state return mapping: τII = $τII, P = $P, Ω = $Ω, f = $(g(s))")
+    λ̇ = exp(s)
+    return τII - ηve * λ̇, Pλ(λ̇), λ̇
+end
+
+"""
+    Ω = update_rate_state(Ω_old, V, Δt, L, V0)
+
+Aging-law update of the rate-and-state variable Ω = ln(V0θ/L) over Δt at constant slip rate V (exact integration of
+dθ/dt = 1 - Vθ/L, as `update_Ω` in RheologyCalculator.jl).
+"""
+@inline function update_rate_state(Ω_old, V, Δt, L, V0)
+    if V * Δt / L <= 1e-6
+        Θ = exp(Ω_old) * (1 - V * Δt / L) + V0 * Δt / L
+    else
+        Θ = V0 / V + (exp(Ω_old) - V0 / V) * exp(-V * Δt / L)
+    end
+    return log(max(Θ, 1e-300))
 end
 
 function return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δt, comp, pl::VonMises, phases)
@@ -412,6 +545,52 @@ function StrainRateTrial(τII, G, Δt, B, n)
     return ε̇II_trial
 end
 
+# Phase mixing in interface cells (materials.mixing): :default, :voigt (Rheology_Voigt.jl), :reuss (Rheology_Reuss.jl),
+# :isowork (Rheology_IsoWork.jl, per-phase stresses as Voigt)
+@inline _mixing(materials) = hasproperty(materials, :mixing) ? materials.mixing : :default
+# Schemes with per-phase stresses (τ0 per phase on the grid and on the markers, Rheology_Voigt.jl)
+@inline _per_phase_stress(materials) = _mixing(materials) === :voigt || _mixing(materials) === :isowork
+# Per-phase old pressure (materials.pressure = :phase, with per-phase stresses only)
+@inline _phase_pressure(materials) = hasproperty(materials, :pressure) && materials.pressure === :phase
+
+# Plastic strain (strain hardening) in interface cells (materials.plastic_strain):
+#   :mixed  one εp per grid point, εp += Δt Σᵢφᵢε̇IIplᵢ, used by all phases
+#   :phase  one εpᵢ per phase,     εpᵢ += Δt ε̇IIplᵢ,     phase i hardens with its own εpᵢ
+# εp = ∫ε̇II_pl dt: invariant of the plastic part of the deviatoric strain rate (phase_vep), carried by the markers
+# (plastic_strain_ToParticles!, plastic_strain_ToGrid!)
+@inline _plastic_strain(materials) = hasproperty(materials, :plastic_strain) ? materials.plastic_strain : :mixed
+
+# Plastic strain seen by the phases at a grid point: the local rheology gets either a number (shared by all phases) or
+# a PhaseStrain, and phase p reads _εp(εp, p). One concrete type for both modes (no type instability in the kernels).
+struct PhaseStrain{V}
+    mix::Float64            # :mixed: value of the grid point
+    ph::V                   # :phase: per-phase fields (Vector of arrays)
+    I::CartesianIndex{2}
+    phase::Bool
+end
+@inline _εp(εp::Real, p) = εp
+@inline _εp(εp::PhaseStrain, p) = εp.phase ? εp.ph[p][εp.I] : εp.mix
+
+# Per-phase plastic strain rates ε̇IIplᵢ at a grid point (default mixing: each phase sees the effective strain rate built with
+# the grid G), written to ε̇plph[p][I] (0 where phase p is absent). ε̇: effective strain rate (ϵ̇xx, ϵ̇yy, ϵ̇xy, P).
+function phase_plastic_rates_default!(ε̇plph, I, ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0)
+    ε̇II = sqrt((ε̇[1]^2 + ε̇[2]^2 + (-ε̇[1] - ε̇[2])^2) / 2 + ε̇[3]^2) + 1e-17
+    for p in eachindex(materials.n)
+        ε̇plph[p][I] = phase_ratios[p] < eps() ? 0.0 : phase_vep(ε̇II, ε̇[4], Dkk, P0, Ggrid, materials, p, Δ, Tk, _εp(εp, p), Ω)[4]
+    end
+    return nothing
+end
+
+# Dispatch on materials.mixing (shared-τ0 schemes; :voigt and :isowork: see TangentOperator_Voigt!)
+function phase_plastic_rates!(ε̇plph, I, ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0)
+    if _mixing(materials) === :reuss
+        phase_plastic_rates_partition!(ε̇plph, I, ReussRule(), ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk, εp, Ω)
+    else
+        phase_plastic_rates_default!(ε̇plph, I, ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk, εp, Ω)
+    end
+    return nothing
+end
+
 # Phase average ----------------------------------------------
 function PhaseAverage_summand(a, phase_ratio, averaging)
     if averaging === :harmonic && a != 0.0
@@ -443,7 +622,8 @@ end
 
 # Tk: temperature [K] for temperature-dependent creep (nothing: η0 used as is)
 # εp: accumulated plastic strain (∫λ̇dt) for strain hardening (see cap_parameters)
-function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0; phase_avg=:arithmetic)
+# Ω: rate-and-state variable (see RateStateReturnMapping)
+function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0; phase_avg=:arithmetic)
 
     nphases = length(materials.n)
     eps0 = 1e-17
@@ -487,7 +667,7 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
             r = ε̇II - StrainRateTrial(τII, G, Δ.t, B, n)
             # @show abs(r)
             (abs(r) < ϵ) && break
-            ∂ε̇II∂τII = ad_derivative(StrainRateTrial, τII, G, Δ.t, B, n)
+            _, ∂ε̇II∂τII = fd_value_and_derivative(StrainRateTrial, τII, G, Δ.t, B, n)
             ∂τII∂ε̇II = inv(∂ε̇II∂τII)
             τII += ∂τII∂ε̇II * r
         end
@@ -496,15 +676,16 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
         # ηvep for analytical solution
         ηvep = τII / 2 / ε̇II
 
-        # Viscoplastic return mapping
-        τII, P, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases, εp)
+        # Viscoplastic return mapping (from the trial pressure P of the cell: Pp is the corrected pressure of this phase only;
+        # overwriting P would make the next phases start from it and compound the dilatancy correction in mixed cells)
+        τII, Pp, λ̇ = return_mapping(τII, P, ε̇II, Dkk, P0, ηvep, β, Δ.t, comp, materials.plasticity, phases, _εp(εp, phases), Ω)
 
         # Effective viscosity
         ηvep = τII / (2 * ε̇II)
 
         # Phase averaging
         η_average += PhaseAverage_summand(ηvep, phase_ratios[phases], phase_avg)
-        P_average += PhaseAverage_summand(P, phase_ratios[phases], phase_avg)
+        P_average += PhaseAverage_summand(Pp, phase_ratios[phases], phase_avg)
         λ̇_average += PhaseAverage_summand(λ̇, phase_ratios[phases], phase_avg)
         τ_average += PhaseAverage_summand(τII, phase_ratios[phases], phase_avg)
     end
@@ -517,8 +698,10 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
     return η_average, λ̇_average, P_average, τ_average
 end
 
-function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing, εp=0.0) where {N,T}
-    η, λ̇, P, τII = LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp)
+function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0) where {N,T}
+    η, λ̇, P, τII = _mixing(materials) === :reuss ?
+        LocalRheology_Reuss(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω) :
+        LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω)
     τ = @SVector([2 * η * ε̇[1],
         2 * η * ε̇[2],
         2 * η * ε̇[3],

@@ -66,6 +66,15 @@ Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
     Δϕ::T   = Float64[]  # Strain hardening: ϕ(εp) = ϕ + Δϕ tanh(εp/εh) [°], εp = ∫λ̇dt (0: no hardening)
     ΔC::T   = Float64[]  # Strain hardening: C(εp) = C + ΔC tanh(εp/εh) (0: no hardening)
     εh::T   = Float64[]  # Plastic strain scale of the hardening
+    # Rate-and-state friction (Herrendörfer et al., 2018; as RateStateFriction in RheologyCalculator.jl), off where aRS = 0:
+    # the Drucker-Prager slope k = sinϕ is replaced by μ(V, Ω) = aRS asinh(V/(2V0RS) exp((sinϕ + bRS Ω)/aRS)),
+    # V = DRS λ̇ (slip rate of a band of width DRS), Ω = ln(V0RS θ/LRS) (lagged, start of the time step)
+    aRS::T  = Float64[]  # direct effect
+    bRS::T  = Float64[]  # evolution effect
+    LRS::T  = Float64[]  # characteristic slip distance
+    V0RS::T = Float64[]  # reference slip rate (μ = sinϕ at V = V0RS in steady state)
+    DRS::T  = Float64[]  # width of the slipping band (usually the cell size)
+    ηRS::T  = Float64[]  # viscoplastic regularisation of the rate-and-state branch (e.g. radiation damping DRS G/(2cs)); ηvp is kept for the cap
 end
 
 Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
@@ -164,6 +173,9 @@ Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
     plasticity::P = NoPlasticity()
     compressible::Bool = false
     phase_avg::Symbol  = :harmonic
+    mixing::Symbol     = :default # interface cells: :default (each phase sees the cell strain rate, shared τ0), :voigt (iso-strain rate, τ0 per phase), :reuss (iso-stress), :isowork (iso-work rate), :markers, :markers_stress, :markers_work (rheology on the markers: iso-strain, iso-stress, iso-work between phases; needs TensorMarkers)
+    plastic_strain::Symbol = :mixed # strain hardening: :mixed (one εp per cell, += Δt Σφᵢλ̇ᵢ, seen by all phases), :phase (εpᵢ += Δt λ̇ᵢ per phase)
+    pressure::Symbol   = :shared # old pressure: :shared (one P0 per cell), :phase (P0ᵢ per phase; only with mixing = :voigt or :isowork)
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -239,6 +251,12 @@ initialize(::Type{DruckerPragerCap}, n::Integer) = DruckerPragerCap(
     Δϕ   = zeros(n),
     ΔC   = zeros(n),
     εh   = ones(n),
+    aRS  = zeros(n),
+    bRS  = zeros(n),
+    LRS  = ones(n),
+    V0RS = ones(n),
+    DRS  = ones(n),
+    ηRS  = zeros(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
@@ -328,7 +346,17 @@ initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 function initialize_materials(nphases::Integer;
     plasticity         = NoPlasticity(),
     compressible::Bool = false,
-    phase_avg::Symbol  = :harmonic)
+    phase_avg::Symbol  = :harmonic,
+    mixing::Symbol     = :default,
+    plastic_strain::Symbol = :mixed,
+    pressure::Union{Symbol,Nothing} = nothing)
+    mixing in (:default, :voigt, :reuss, :isowork, :markers, :markers_stress, :markers_work) ||
+        error("mixing must be :default, :voigt, :reuss, :isowork, :markers, :markers_stress or :markers_work (got :$mixing)")
+    plastic_strain in (:mixed, :phase) || error("plastic_strain must be :mixed or :phase (got :$plastic_strain)")
+    # Per-phase old pressure: default for the schemes with per-phase stresses (Voigt, iso-work)
+    pressure = something(pressure, mixing in (:voigt, :isowork) ? :phase : :shared)
+    pressure in (:shared, :phase) || error("pressure must be :shared or :phase (got :$pressure)")
+    pressure === :phase && !(mixing in (:voigt, :isowork)) && error("pressure = :phase requires mixing = :voigt or :isowork")
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials(
         ρ            = ones(nphases),
@@ -342,7 +370,10 @@ function initialize_materials(nphases::Integer;
         B            = ones(nphases),
         plasticity   = initialize(P, nphases),
         compressible = compressible,
-        phase_avg    = phase_avg
+        phase_avg    = phase_avg,
+        mixing       = mixing,
+        plastic_strain = plastic_strain,
+        pressure       = pressure
     )
 end
 

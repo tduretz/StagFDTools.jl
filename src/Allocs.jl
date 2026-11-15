@@ -1,5 +1,5 @@
 abstract type AbstractAdvection end
-struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT,G}
+struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT,G,EPH}
     type::t
     number::n
     pattern::p
@@ -44,6 +44,8 @@ struct Allocs{t,n,p,M,RNT,VNT,FNT,SNT,TNT,TAUNT,DENT,ONT,PNT,DNT,DC,DV,PHNT,PRNT
     phase_ratios::PRNT
     X::G
     εp::FNT             # accumulated plastic strain ∫λ̇dt (c, v), for strain hardening; updated by the caller after each step
+    Ω::FNT              # rate-and-state variable Ω = ln(V₀θ/L) (c, v), for rate-and-state friction; updated by the caller after each step
+    εp_ph::EPH          # per-phase plastic strain εp=(c, v) and plastic strain rate ε̇pl=(c, v) (vectors of arrays, ε̇pl: invariant of the plastic deviatoric strain rate); see plastic_strain_ToParticles!
     gcr::StokesGCRCache # single-phase GCR solver storage (solver_type = :GCR)
 end
 struct Markers{P,G,X,PA,PR} <: AbstractAdvection
@@ -98,7 +100,7 @@ end
 cell_fields(particles, names::Symbol...) = NamedTuple{names}(init_cell_arrays(particles, Val(length(names))))
 
 function TensorConstructor(particles)
-    p = cell_fields(particles, :τxx, :τyy, :τxy, :P)
+    p = cell_fields(particles, :τxx, :τyy, :τxy, :P, :εp) # εp: marker plastic strain (mixing = :markers)
     Δ = cell_fields(particles, :τxx, :τyy, :τxy, :P)
     Δ_sub = cell_fields(particles, :τxx, :τyy, :τxy, :P)
     t = cell_fields(particles, :τxx, :τyy, :τxy, :P, :ω,
@@ -154,9 +156,14 @@ function allocate(nc, config, x, y, Δ, nphases)
     ρ = (c=zeros(size_c...), v=zeros(size_v...))
     ε̇ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
         II=zeros(size_c...), θ=zeros(size_c...))
-    τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...))
+    # ph: per-phase stresses (and pressures P_c, P_v) at centroids (_c) and vertices (_v), only used by materials.mixing = :voigt, :isowork (see Rheology_Voigt.jl)
+    phc() = [zeros(size_c...) for _ in 1:nphases]
+    phv() = [zeros(size_v...) for _ in 1:nphases]
+    τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
+        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), P_c=phc(), P_v=phv()))
     τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), xy_c=zeros(size_c...),
-        II=zeros(size_c...), θ=zeros(size_c...))
+        II=zeros(size_c...), θ=zeros(size_c...),
+        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), η_c=phc(), η_v=phv(), P_c=phc(), P_v=phv()))
     D = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
         Pt=zeros(size_c...))
     D_sub = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
@@ -210,5 +217,8 @@ function Allocs(nc, config, x, y, Δ, nphases)
 
     return Allocs(type, number, pattern,
         M, M_PC, 𝐊, 𝐊_PC, 𝐐, 𝐐_PC, 𝐐ᵀ, 𝐐ᵀ_PC, 𝐏, 𝐏_PC, dx, r, R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
-        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X, (c=zero(λ̇.c), v=zero(λ̇.v)), StokesGCRCache())
+        Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X, (c=zero(λ̇.c), v=zero(λ̇.v)), (c=zero(λ̇.c), v=zero(λ̇.v)),
+        (εp=(c=[zero(λ̇.c) for _ in 1:nphases], v=[zero(λ̇.v) for _ in 1:nphases]),
+         ε̇pl=(c=[zero(λ̇.c) for _ in 1:nphases], v=[zero(λ̇.v) for _ in 1:nphases])),
+        StokesGCRCache())
 end

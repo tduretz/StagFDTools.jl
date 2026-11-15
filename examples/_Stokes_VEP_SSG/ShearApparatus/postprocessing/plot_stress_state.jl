@@ -4,19 +4,20 @@
 # (c) stress points (P, τII) of the rock and gouge cells with the yield surfaces (as in ShearApparatus_v9.jl)
 # The P and τII fields are only stored in the checkpoints: the step must have a checkpoint_XXXX.jld2 (by default the last one).
 # All text is typeset with LaTeX fonts.
-using CairoMakie, JLD2, Printf
+using CairoMakie, JLD2, Printf, Statistics
 
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
-    root    = dirname(@__DIR__) # run folders are next to postprocessing/
+    root    = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
     prefix  = "_ShearApparatus_v9"
     θ       = 30                    # gouge angle of the run
     h       = 3                     # gouge thickness [mm] (folder _H..)
     step    = nothing               # step to show (nothing: last checkpoint)
     margin  = 8.0                   # y range of panel (a): gouge extent ± margin [mm]
-    Prange  = nothing               # colour ranges [MPa] (nothing: from the data shown)
-    τrange  = nothing
+    Prange  = nothing               # colour ranges [MPa] (nothing: percentiles `pclip` of the data shown, so that a few
+    τrange  = nothing               #   stress concentrations at corners do not flatten the rest of the map)
+    pclip   = (0.02, 0.98)
     nskip   = 10                    # σ1 ticks in (a) every nskip cells
     hmap    = 900                   # height of the map in (a) [px]...
     wmax    = 800                   # ...unless that makes it wider than wmax [px]
@@ -45,10 +46,47 @@ let
     yw   = (ygouge[1] - margin, ygouge[2] + margin)
     J    = findall(yj -> yw[1] <= yj <= yw[2], y)
     IW, IE = findall(<(0), x), findall(>=(0), x)
-    Prange = something(Prange, extrema(filter(!isnan, P[IW, J])))
-    τrange = something(τrange, (0.0, maximum(filter(!isnan, τII[IE, J]))))
+    Prange = something(Prange, Tuple(quantile(filter(!isnan, vec(P[IW, J])), pclip)))
+    τrange = something(τrange, Tuple(quantile(filter(!isnan, vec(τII[IE, J])), pclip)))
     δ    = d.probes.t[it] * d.ε̇yy * d.Ly * mm                                    # axial shortening [mm]
     δs   = @sprintf("%.2f", δ)
+
+    # Yield parameters of phase ph at accumulated plastic strain εp, with strain hardening ϕ + Δϕ tanh(εp/εh), C + ΔC tanh(εp/εh)
+    # (as cap_parameters in src/Rheology.jl). k = sinϕ, c = C cosϕ: Drucker-Prager τII = c + kP; cap: circle (centre py, radius Ry) for P < pd
+    cap = get(pl, :cap, nothing)
+    function yparams(ph, εp)
+        h  = isempty(pl.Δϕ) ? 0.0 : tanh(εp / pl.εh[ph])
+        ϕ  = pl.ϕ[ph] + (isempty(pl.Δϕ) ? 0.0 : pl.Δϕ[ph]) * h
+        k  = sind(ϕ)
+        c  = (pl.C[ph] + (isempty(pl.ΔC) ? 0.0 : pl.ΔC[ph]) * h) * cosd(ϕ)
+        cap === nothing && return (; k, c)
+        a  = sqrt(1 + k^2)
+        Pt = cap.Pt[ph]
+        py = (Pt + c / a) / (1 - k / a)
+        Ry = py - Pt
+        pd = py - Ry * k / a
+        return (; k, c, a, Pt, py, Ry, pd, τd = k * pd + c)
+    end
+    τ_yield(P, y) = cap === nothing || P >= y.pd ? y.c + y.k * P : P >= y.Pt ? sqrt(max(y.Ry^2 - (P - y.py)^2, 0.0)) : NaN # not drawn below Pt
+    # Stress state without the viscoplastic overstress ηvp λ̇ (the return mapping solves F = ηvp λ̇): along τII on the Drucker-Prager
+    # branch, radially (by ηvp λ̇ / a) on the cap
+    function on_yield(P, τ, λ̇, ph, y)
+        ηλ = λ̇ * pl.ηvp[ph]
+        (cap === nothing || τ * (y.py - y.pd) >= y.τd * (y.py - P)) && return P, τ - ηλ
+        Rf = sqrt(τ^2 + (P - y.py)^2)
+        f  = (Rf - ηλ / y.a) / Rf
+        return y.py + f * (P - y.py), f * τ
+    end
+    # Rock and gouge cells (one cell away from any other phase, to skip mixed cells), with their εp at the start of the step
+    # (hardening is explicit: εp is lagged by one step)
+    Pc, τc, λ̇c = g.Pt[2:end-1, 2:end-1], g.τ.II[2:end-1, 2:end-1], g.λ̇.c[2:end-1, 2:end-1]
+    εpc = g.εp.c[2:end-1, 2:end-1] .- d.probes.Δt[it] .* λ̇c
+    nx, ny = size(d.phc)
+    pure(i, j) = all(d.phc[ii, jj] == d.phc[i, j] for ii in max(i-1, 1):min(i+1, nx), jj in max(j-1, 1):min(j+1, ny))
+    cells(ph) = [I for I in CartesianIndices(d.phc) if d.phc[I] == ph && pure(I[1], I[2])]
+    Irock, Igouge = cells(1), cells(2)
+    εg  = [εpc[I] for I in Igouge if λ̇c[I] > 0]                       # εp of the plastic gouge cells
+    εq  = quantile(εg, (0.1, 0.5, 0.9))
 
     # Colours: rock probe, gouge probe, apparatus
     c_rock, c_gouge, c_app = colorant"#e66101", colorant"#5e3c99", colorant"#222222"
@@ -91,15 +129,21 @@ let
                    xgridcolor=(:black, 0.08), ygridcolor=(:black, 0.08))
         φ   = LinRange(0, π, 200)
         Mohr(c, R) = (c .+ R .* cos.(φ), R .* sin.(φ))
-        circ(p) = (-(p.σxx[it] + p.σyy[it])/2, sqrt(((p.σxx[it] - p.σyy[it])/2)^2 + p.σxy[it]^2))
-        c1, R1  = circ(d.probe_MC1)
-        c2, R2  = circ(d.probe_MC2)
+        # Probe circles without the viscoplastic overstress: radius reduced by ηvp λ̇ of the probe cell (Drucker-Prager branch)
+        cell(p) = (argmin(abs.(d.xc .- p.x[it])), argmin(abs.(d.yc .- p.y[it])))
+        circ(p, ph) = (I = cell(p); (-(p.σxx[it] + p.σyy[it])/2, sqrt(((p.σxx[it] - p.σyy[it])/2)^2 + p.σxy[it]^2) - pl.ηvp[ph] * λ̇c[I...]))
+        c1, R1  = circ(d.probe_MC1, 1)
+        c2, R2  = circ(d.probe_MC2, 2)
+        y1, y2  = yparams(1, εpc[cell(d.probe_MC1)...]), yparams(2, εpc[cell(d.probe_MC2)...]) # yield parameters at the probes
         R3      = -(d.probe_plate.σyy[it] - d.probe_salt.σxx[it])/2
         c3      = -(d.probe_plate.σyy[it] + d.probe_salt.σxx[it])/2
         σn_lim  = (0.0, 1.1 * maximum((c1 + R1, c2 + R2, c3 + R3)))
         σn_ax   = LinRange(σn_lim..., 100)
-        lines!(ax, σn_ax .* MPa, (pl.C[1] .+ σn_ax .* pl.sinϕ[1] ./ pl.cosϕ[1]) .* MPa, color=ink, linewidth=1.5, label=L"\mathrm{yield\ rock}")
-        lines!(ax, σn_ax .* MPa, (pl.C[2] .+ σn_ax .* pl.sinϕ[2] ./ pl.cosϕ[2]) .* MPa, color=ink, linewidth=1.5, linestyle=:dash, label=L"\mathrm{yield\ gouge}")
+        # Mohr-Coulomb lines τ = C + σn tanϕ (tangent to the circle of radius c + kP: plane-strain Drucker-Prager), at the probe εp
+        MC(y) = (y.c .+ σn_ax .* y.k) ./ sqrt(1 - y.k^2)
+        lines!(ax, σn_ax .* MPa, MC(y1) .* MPa, color=ink, linewidth=1.5, label=L"\mathrm{yield\ rock}")
+        lines!(ax, σn_ax .* MPa, MC(yparams(2, 0.0)) .* MPa, color=muted, linewidth=1.2, linestyle=:dot, label=L"\mathrm{yield\ gouge},\ \varepsilon_p = 0")
+        lines!(ax, σn_ax .* MPa, MC(y2) .* MPa, color=ink, linewidth=1.5, linestyle=:dash, label=L"\mathrm{yield\ gouge\ at\ probe\ 2}")
         for (c, R, col, lab) in ((c1, R1, c_rock, L"\mathrm{probe\ 1\ (rock)}"), (c2, R2, c_gouge, L"\mathrm{probe\ 2\ (gouge)}"), (c3, R3, c_app, L"\mathrm{apparatus}"))
             lines!(ax, (Mohr(c, R) .* MPa)..., color=col, linewidth=2.5, label=lab)
         end
@@ -113,26 +157,28 @@ let
         ax  = Axis(fig[2, 2]; width=wright, height=0.75wright, xlabel=L"P\ \mathrm{[MPa]}", ylabel=L"\tau_\mathrm{II}\ \mathrm{[MPa]}",
                    title=L"\mathrm{(c)\ Stress\ space}", titlealign=:left, titlefont=:regular, topspinevisible=false, rightspinevisible=false,
                    xgridcolor=(:black, 0.08), ygridcolor=(:black, 0.08))
-        cap = get(pl, :cap, nothing)
-        incap(P, τ, ph) = cap !== nothing && τ * (cap.py[ph] - cap.pd[ph]) < cap.τd[ph] * (cap.py[ph] - P)
-        τ_yield(P, ph) = cap === nothing || P >= cap.pd[ph] ? pl.C[ph] * pl.cosϕ[ph] + P * pl.sinϕ[ph] :
-                         P >= cap.Pt[ph] ? sqrt(max(cap.Ry[ph]^2 - (P - cap.py[ph])^2, 0.0)) : NaN # not drawn below Pt
-        # Stress state without the viscoplastic overstress (λ̇ηvp): along τ for Drucker-Prager, radial (by λ̇ηvp/a) on the cap
-        function on_yield(P, τ, λ̇, ph)
-            incap(P, τ, ph) || return P, τ - λ̇ * pl.ηvp[ph]
-            Rf = sqrt(τ^2 + (P - cap.py[ph])^2)
-            s  = (Rf - λ̇ * pl.ηvp[ph] / cap.a[ph]) / Rf
-            return cap.py[ph] + s * (P - cap.py[ph]), s * τ
-        end
-        Pmin = cap === nothing ? minimum(d.P_rock) : min(minimum(d.P_rock), cap.Pt[1], cap.Pt[2])
-        P_ax = LinRange(Pmin, maximum(d.P_rock), 300)
-        lines!(ax, P_ax .* MPa, τ_yield.(P_ax, 1) .* MPa, color=ink, linewidth=1.5, label=L"\mathrm{yield\ rock}")
-        lines!(ax, P_ax .* MPa, τ_yield.(P_ax, 2) .* MPa, color=ink, linewidth=1.5, linestyle=:dash, label=L"\mathrm{yield\ gouge}")
-        ir  = length(d.P_rock) > nrock ? round.(Int, LinRange(1, length(d.P_rock), nrock)) : eachindex(d.P_rock)
-        for (P_ph, τ_ph, λ̇_ph, ph, col, lab) in ((d.P_rock[ir], d.τII_rock[ir], d.λ̇_rock[ir], 1, c_rock, L"\mathrm{rock\ cells}"),
-                                                 (d.P_gouge, d.τII_gouge, d.λ̇_gouge, 2, c_gouge, L"\mathrm{gouge\ cells}"))
-            pts = on_yield.(P_ph, τ_ph, λ̇_ph, ph)
+        # Cells (viscoplastic overstress removed, each with its own hardening state)
+        ir   = length(Irock) > nrock ? Irock[round.(Int, LinRange(1, length(Irock), nrock))] : Irock
+        prock  = [on_yield(Pc[I], τc[I], λ̇c[I], 1, yparams(1, εpc[I])) for I in ir]
+        pgouge = [on_yield(Pc[I], τc[I], λ̇c[I], 2, yparams(2, εpc[I])) for I in Igouge]
+        Pall = [first.(prock); first.(pgouge)]
+        Pmin = cap === nothing ? minimum(Pall) : min(minimum(Pall), cap.Pt[1], cap.Pt[2])
+        P_ax = LinRange(Pmin, maximum(Pall), 300)
+        # Yield surfaces: rock (no hardening), gouge at εp = 0 and over the εp range of the plastic gouge cells (10-90 %, line: median)
+        lines!(ax, P_ax .* MPa, τ_yield.(P_ax, Ref(yparams(1, 0.0))) .* MPa, color=ink, linewidth=1.5, label=L"\mathrm{yield\ rock}")
+        lines!(ax, P_ax .* MPa, τ_yield.(P_ax, Ref(yparams(2, 0.0))) .* MPa, color=muted, linewidth=1.2, linestyle=:dot, label=L"\mathrm{yield\ gouge},\ \varepsilon_p = 0")
+        band!(ax, P_ax .* MPa, τ_yield.(P_ax, Ref(yparams(2, εq[1]))) .* MPa, τ_yield.(P_ax, Ref(yparams(2, εq[3]))) .* MPa, color=(c_gouge, 0.15))
+        εs = @sprintf("%.2f", εq[2])
+        lines!(ax, P_ax .* MPa, τ_yield.(P_ax, Ref(yparams(2, εq[2]))) .* MPa, color=ink, linewidth=1.5, linestyle=:dash,
+               label=L"\mathrm{yield\ gouge},\ \varepsilon_p = %$(εs)")
+        for (pts, col, lab) in ((prock, c_rock, L"\mathrm{rock\ cells}"), (pgouge, c_gouge, L"\mathrm{gouge\ cells}"))
             scatter!(ax, first.(pts) .* MPa, last.(pts) .* MPa, color=(col, 0.5), markersize=5, label=lab, rasterize=3)
+        end
+        # Check: largest distance above the local yield surface (should be ~0 after removing the overstress)
+        for (I, ph, nm) in ((ir, 1, "rock"), (Igouge, 2, "gouge"))
+            ex = [(q = on_yield(Pc[i], τc[i], λ̇c[i], ph, yparams(ph, εpc[i])); q[2] - τ_yield(q[1], yparams(ph, εpc[i]))) for i in I]
+            @printf("%s cells: max τII above local yield %.3f MPa (before overstress removal: %.3f MPa)\n", nm, maximum(filter(!isnan, ex)) * MPa,
+                    maximum(filter(!isnan, [τc[i] - τ_yield(Pc[i], yparams(ph, εpc[i])) for i in I])) * MPa)
         end
         axislegend(ax, position=:lt, framevisible=true, framecolor=(:white, 0.0), backgroundcolor=(:white, 0.85), labelsize=20, rowgap=0)
 

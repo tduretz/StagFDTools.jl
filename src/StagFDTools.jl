@@ -6,7 +6,7 @@ using DifferentiationInterface, ForwardDiff
 include("AD.jl")
 export ad_gradient, ad_value_and_gradient, ad_derivative, ad_value_and_derivative
 export ad_jacobian, ad_value_and_jacobian, ad_partial_gradients, ad_value_and_jacobian_first
-export fd_value_and_jacobian, fd_value_and_derivative
+export fd_value_and_jacobian, fd_value_and_derivative, fd_jacobian_first
 export Const, Duplicated, forwarddiff_gradients!, forwarddiff_gradient, forwarddiff_jacobian
 
 include("operators.jl")
@@ -34,7 +34,9 @@ export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 module Rheology
 using StaticArrays, StagFDTools, LinearAlgebra
 include("Rheology.jl")
-export LocalRheology, StressVector!
+include("Rheology_Reuss.jl")
+export _mixing, _per_phase_stress, _phase_pressure, _plastic_strain, _εp, PhaseStrain, phase_plastic_rates!, phase_vep, LocalRheology_Reuss, reuss_max_phases
+export LocalRheology, StressVector!, update_rate_state
 export LocalRheology_div, StressVector_div!
 export Yield, Potential, invII
 end
@@ -63,12 +65,17 @@ include("Markers.jl")
 export InitialiseMarkerField, FillPhaseRatios!, update_JustPIC!
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
 include("StressMarkers.jl")
+include("Rheology_Voigt.jl")
+include("Rheology_IsoWork.jl")
+include("Rheology_Markers.jl")
+export phase_multipliers, marker_engine, stress_ToGrid_Markers!, stress_ToParticles_Markers!
+export StressVector_Voigt!, stress_ToGrid_Voigt!, stress_ToParticles_Voigt!
 export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
     update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_convected!,
     rotation_increments!, constitutive_increments!,
     stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")
-export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!
+export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!, update_plastic_strain!
 export assemble_jacobian!, set_block_matrices!
 export compute_vorticity!
 end
