@@ -82,8 +82,12 @@ function upper_convected!(tm::TensorMarkers, particles, dt)
     return nothing
 end
 
-function rotation_increments!(tm::TensorMarkers, particles, dt)
-    return upper_convected!(tm, particles, dt)
+# Objective stress rate on the markers: :upper_convected (default), :jaumann, :none
+function rotation_increments!(tm::TensorMarkers, particles, dt; rotation::Symbol=:upper_convected)
+    rotation === :upper_convected && return upper_convected!(tm, particles, dt)
+    rotation === :jaumann && return Jaumann_rate!(tm, particles, dt)
+    rotation === :none && return nothing
+    error("rotation must be :upper_convected, :jaumann or :none (got :$rotation)")
 end
 
 function constitutive_increments!(allocs::Allocs)
@@ -216,20 +220,21 @@ function add_increments!(tm::TensorMarkers, allocs::Allocs, particles)
 end
 
 # Compute stress increments on markers 
-function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt, comp)
+function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt, comp; d=1.0)
     constitutive_increments!(allocs)
-    stress_subgrid_diffusion!(tm, allocs, particles, Δt, comp)
+    stress_subgrid_diffusion!(tm, allocs, particles, Δt, comp; d)
     subgrid_toGrid!(tm, allocs, particles)
     add_increments!(tm, allocs, particles)
     return nothing
 end
 
-function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Materials, particles, Δ)
+# d: subgrid diffusion coefficient (0: none)
+function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Materials, particles, Δ; d=1.0, rotation::Symbol=:upper_convected)
 
     # Interpolate stress increments
     comp = materials.compressible
     compute_vorticity!(allocs, Δ)
-    increment_stress!(allocs, tm, particles, Δ.t, comp)
+    increment_stress!(allocs, tm, particles, Δ.t, comp; d)
 
     # temporary τ and ε̇ interpolaton
     centroid2particle!(tm.t.τxx, allocs.τ.xx, particles)
@@ -242,7 +247,7 @@ function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Mater
     grid2particle!(tm.t.ε̇xy, allocs.ε̇.xy, particles)
 
     # update increments with rotation and add them to marker stresses
-    rotation_increments!(tm, particles, Δ.t)
+    rotation_increments!(tm, particles, Δ.t; rotation)
     update_stress_markers!(tm, particles)
 
     return nothing

@@ -6,7 +6,7 @@ using CairoMakie, JLD2, Printf
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
-    root    = dirname(@__DIR__) # run folders are next to postprocessing/
+    root    = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
     prefix  = "_ShearApparatus_v9"
     θsel    = [15, 20, 30, 40, 50, 60, 70, 80, 85] # gouge angles (one panel each)
     h       = 3                     # gouge thickness [mm] (folder _H..)

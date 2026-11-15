@@ -5,6 +5,7 @@
 *.jl2d
 
 # Figures, animations and movies: only those used by the README (results/, and the root folder) are tracked
+/examples/_Stokes_VEP_SSG/ShearApparatus/_*
 *.png
 *.gif
 *.mp4
@@ -12,6 +13,7 @@
 !/*.png
 !/*.gif
 !/*.mp4
+!/docs/MixingSchemesReport/figures/*.png
 !/results/*.png
 !/results/*.gif
 !/results/*.mp4
@@ -23,3 +25,9 @@
 *.aux
 *_latexmk
 
+*.sh
+*.csv
+*.log
+*.json
+.main_pid
+*.txt

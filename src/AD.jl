@@ -2,7 +2,7 @@ using DifferentiationInterface
 using ForwardDiff: Dual, Partials, Tag, value, partials
 
 const AUTO_DIFF_BACKEND = AutoForwardDiff()
-export ad_jacobian_first, gradient, gradient!, prepare_gradient, prepare_jacobian, jacobian!, Constant, AUTO_DIFF_BACKEND
+export ad_jacobian_first, fd_jacobian_first, gradient, gradient!, prepare_gradient, prepare_jacobian, jacobian!, Constant, AUTO_DIFF_BACKEND
 
 struct ConstArg{T}
     value::T
@@ -41,6 +41,20 @@ Duplicated(x, grad) = DuplicatedArg(x, grad)
     return val, jac
 end
 
+# Same as fd_value_and_jacobian for a function returning a tuple: jacobian of its first output
+# (allocation-free counterpart of ad_jacobian_first)
+@inline function fd_jacobian_first(f::F, x::SVector{N, T}, args...) where {F, N, T}
+    Tg  = typeof(Tag(f, T))
+    D   = Dual{Tg, T, N}
+    xd  = SVector{N, D}(ntuple(
+        i -> D(x[i], Partials(ntuple(j -> ifelse(i == j, one(T), zero(T)), Val(N)))),
+        Val(N)))
+    yd  = first(f(xd, args...))
+    val = map(value, yd)
+    jac = hcat(ntuple(j -> map(yi -> partials(yi)[j], yd), Val(N))...)
+    return val, jac
+end
+
 # Allocation-free value+derivative for scalar → scalar (or scalar → Dual).
 @inline function fd_value_and_derivative(f::F, x::T, args...) where {F, T <: Real}
     Tg = typeof(Tag(f, T))
@@ -49,13 +63,20 @@ end
     return value(yd), partials(yd)[1]
 end
 
-@inline function _replace_tuple_entry(xs::Tuple, idx::Int, x)
-    return ntuple(i -> i == idx ? x : xs[i], length(xs))
+# Gradient of f with respect to each entry of xs (the other entries held fixed). Unrolled at compile time: with a runtime
+# entry index the substituted tuple (one entry Dual) has no inferable type, and the assembly then allocates in every cell.
+@generated function _replace_tuple_entry(xs::Tuple{Vararg{Any,N}}, ::Val{I}, x) where {N, I}
+    return :(tuple($((k == I ? :x : :(xs[$k]) for k in 1:N)...)))
 end
 
-function ad_partial_gradients(f::F, xs::Tuple, args...) where F
-    promoted_xs = map(_ad_promote_arg, xs)
-    return ntuple(i -> gradient(x -> f(_replace_tuple_entry(promoted_xs, i, x)..., args...), AUTO_DIFF_BACKEND, promoted_xs[i]), length(xs))
+@inline _partial_gradient(f::F, xs, ::Val{I}, args...) where {F, I} =
+    gradient(x -> f(_replace_tuple_entry(xs, Val(I), x)..., args...), AUTO_DIFF_BACKEND, xs[I])
+
+@generated function ad_partial_gradients(f::F, xs::Tuple{Vararg{Any,N}}, args...) where {F, N}
+    return quote
+        promoted_xs = map(_ad_promote_arg, xs)
+        tuple($((:(_partial_gradient(f, promoted_xs, Val($k), args...)) for k in 1:N)...))
+    end
 end
 
 function ad_value_and_jacobian_first(f::F, x, args...) where F
