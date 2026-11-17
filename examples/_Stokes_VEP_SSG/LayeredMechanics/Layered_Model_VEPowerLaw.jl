@@ -4,9 +4,24 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 using ForwardDiff: ForwardDiff
+using JustPIC
+using CellArraysIndexing: @index
 const save = false
-const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/VEVP_Layered_Model/power_law/"
-const backend = AutoForwardDiff()
+const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/I_manuscript_runs/power_law"
+const ad_backend = AutoForwardDiff()
+const backend = JustPIC.CPU
+
+function set_phases!(phases, particles, layering)
+    Threads.@threads for j in axes(phases, 2)
+        for i in axes(phases, 1)
+            for ip in cellaxes(phases)
+                @index(particles.index[ip, i, j]) == 0 && continue
+                𝐱 = SVector(@index(particles.coords[1][ip, i, j]), @index(particles.coords[2][ip, i, j]))
+                @index phases[ip, i, j] = inside(𝐱, layering) ? 2.0 : 1.0
+            end
+        end
+    end
+end
 
 function Analyticalviscous(θ, η, δ, D_BC)
     #= define velocity gradient components and resulting deviatoric strain rate components
@@ -99,15 +114,11 @@ end
 
     preprocess!(materials)
 
-    # MARKERS: markers-per-cell / position jitter (uncomment to use markers)
-    nmpc = (x=4, y=4)
-    noise = false
-
     # Time steps
-    Δt0 = 0.1
+    Δt0 = 0.02
 
     # Newton solver
-    iter_params = IterParams(niter=20, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
+    iter_params = IterParams(niter=50, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
 
     # Intialise field
     Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
@@ -115,9 +126,11 @@ end
     y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
-    a = Allocs(nc, config, x, y, Δ, nphases, nmpc, noise) # markers
-    # a = Allocs(nc, config, x, y, Δ, nphases) # no markers
+    a = Allocs(nc, config, x, y, Δ, nphases)
     Τev = (II=ones(nt), xx=ones(nt), yy=ones(nt), xy=ones(nt))
+    # Nonlinear residual history (NaN after convergence)
+    Err = (x=fill(NaN, iter_params.niter, nt), y=fill(NaN, iter_params.niter, nt),
+        p=fill(NaN, iter_params.niter, nt), iter=zeros(Int, nt))
     α2 = 1 - α1
 
     # Grid bounds
@@ -151,13 +164,14 @@ end
     end
 
     # MARKERS ------------------------------------------------------------
-    for I in CartesianIndices(a.m.phase)
-        xm = a.m.Xm[I]
-        ym = a.m.Ym[I]
-        isin = inside(@SVector([xm, ym]), layering)
-        a.m.phase[I] = isin ? 2 : 1
-    end
-    SetPhaseRatios!(a.phase_ratios, a.m, a.X.c_e.x, a.X.c_e.y, a.X.v_e.x, a.X.v_e.y, Δ, nphases)
+    nxcell = (4, 4)
+    max_xcell = 25
+    min_xcell = 10
+    adv = Markers(backend, a, nxcell, max_xcell, min_xcell, nc, nphases; args=1)
+    phases, = adv.particle_args
+    set_phases!(phases, adv.particles, layering)
+    Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, phases)
+    Set_Grid_Phases!(a)
 
     # NO MARKERS -----------------------------------------------------------
     # for i in inx_c, j in iny_c
@@ -170,7 +184,7 @@ end
     #     isin = inside(𝐱, layering)
     #     a.phases.v[i, j] = isin ? 2 : 1
     # end
-    # FillPhaseRatios!(a)
+    # Set_PhaseRatios!(a)
 
     #--------------------------------------------#
 
@@ -186,6 +200,10 @@ end
     for it = 1:nt
 
         iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+        Err.x[1:iter, it] .= err.x[1:iter]
+        Err.y[1:iter, it] .= err.y[1:iter]
+        Err.p[1:iter, it] .= err.p[1:iter]
+        Err.iter[it] = iter
 
         #--------------------------------------------#
 
@@ -291,7 +309,7 @@ end
 
     display(to)
 
-    return Τev, Macro
+    return Τev, Macro, Err
     # return mean(a.τ.II[inner_x, inner_y]), τIIev, τIIanS, τIIanE, τIIsec, τIIanDis, τxxev, τyyev, τxyev
 
 end
@@ -311,13 +329,13 @@ let
     D_BCs = @SMatrix([1 0; 0 -1])
 
     nc = (x=100, y=100)
-    nt = 30
+    nt = 20
     L = 2.0
 
     # Discretise angle of layer 
     # nθ = 2
     nθ = 15
-    θ = LinRange(0, π/2, nθ)
+    θ = LinRange(0, π/4, nθ)
     # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
     τ_II_mean = zeros(nθ)
@@ -332,16 +350,16 @@ let
     m = 4
     # η2 = 1e10
     # η1 = η2
-    η2 = 10
+    η2 = 1000
     η1 = η2/m
 
-    G2 = 1e6
+    G2 = 1
     G1 = G2 / m
 
     C2 = 1000.
     C1 = C2 / 1 #m
 
-    α2 = 0.7
+    α2 = 0.5
     α1 = 1 - α2
 
     ηn = α1 * η1 + α2 * η2
@@ -355,7 +373,7 @@ let
 
     # Single output file holding all power-law exponents, one subgroup per n
     # (e.g. "n5/τ_II", "n5/τ_xx", ...)
-    jld2path = joinpath(@__DIR__, "Layered_pwl_7.jld2")
+    jld2path = joinpath(@__DIR__, "Layered_pwl_nc100_astrong025.jld2")
     jld2file = save ? jldopen(jld2path, "w") : nothing
 
     # Run them all
@@ -374,7 +392,17 @@ let
 
                 println("**Layering $(rad2deg(θ[iθ]))°, n = $n**")
 
-                Τev, Macro = main(nc, nt, (x=L, y=L), layering, BCs[1], D_BCs, α1, η1, η2, G1, G2, C1, C2, n; fabric_angle=θ[iθ])
+                Τev, Macro, Err = main(nc, nt, (x=L, y=L), layering, BCs[1], D_BCs, α1, η1, η2, G1, G2, C1, C2, n; fabric_angle=θ[iθ])
+
+                # Nonlinear residuals of each timestep (niter × nt)
+                if save
+                    run = "n$(n)/err/θ$(iθ)"
+                    jld2file["$run/θ"] = θ[iθ]
+                    jld2file["$run/x"] = Err.x
+                    jld2file["$run/y"] = Err.y
+                    jld2file["$run/p"] = Err.p
+                    jld2file["$run/iter"] = Err.iter
+                end
 
                 # Evolutions of full fields
                 Τ_time.II_mean[iθ, :] .= Τev.II
@@ -465,7 +493,7 @@ let
 
             cm.Legend(fig2[1, 2], ax2, "quantity", labelsize=14, titlesize=13)
         end
-        # display(fig2)
+        display(fig2)
 
         # # FIGURE 3 -------------------------------------------------------------
         # fig3 = cm.Figure(size=(800, 650), px_per_unit=2)
@@ -477,7 +505,7 @@ let
 
         # FIGURE 4 -------------------------------------------------------------
         fig4 = cm.Figure(size=(800, 650), px_per_unit=2)
-        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=$(n)", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect(), limits=(-17, 17, -10, 10))
+        ax4 = cm.Axis(fig4[1, 1], title="stress-space trajectory (direct model) n=$(n_range[])", xlabel=cm.L"$\tau_{xx}' \ [-]$", ylabel=cm.L"$\tau_{xy}' \ [-]$", aspect=cm.DataAspect())
         τ_yield = zeros(2, nθ)
         local sc
         for Iθ in eachindex(θ)
