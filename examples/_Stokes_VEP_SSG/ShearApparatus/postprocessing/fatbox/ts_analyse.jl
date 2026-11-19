@@ -1,5 +1,5 @@
 # Time series of the shear band families (Fatbox segments classified by the nearest expected plane: R1, R2 at the Arthur angle, P, Y;
-# band_analysis.jl, fatbox_bands with planes = true) in the HR runs at θ = 30-60°, every saved step (10, 20, …, 500).
+# band_analysis.jl, fatbox_bands with planes = true) in the HR runs at θ = 15-85°, every saved step (10, 20, …, 500).
 # Weighting: plastic strain rate λ̇ (τII is only stored at the checkpoints); at step 500 the λ̇-weighted shares are compared with the
 # work-rate (λ̇ τII) shares from the checkpoint.
 # Output (timeseries/): bands_timeseries.jld2 (named tuples, see below), families.csv, segments.csv.
@@ -20,7 +20,7 @@ function axmean(α, w)
 end
 fam_names = (:R1, :R2, :P, :Y)
 rows_f = String[]; rows_s = String[]; data = []
-for θ in (30, 50, 60), step in 10:10:500
+for θ in (15, 20, 30, 40, 50, 60, 70, 80, 85), step in 10:10:500
     folder = joinpath(root, @sprintf("_ShearApparatus_v9_Tet%02d_H03", θ))
     prefix = @sprintf("Tet%d_s%04d", θ, step)
     isfile(joinpath(ts, prefix * "_nodes.csv")) || continue
