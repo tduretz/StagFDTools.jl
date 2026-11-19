@@ -3,6 +3,8 @@
 .DS_Store
 *.jld2
 *.jl2d
+*.bin
+*.m
 
 # Figures, animations and movies: only those used by the README (results/, and the root folder) are tracked
 /examples/_Stokes_VEP_SSG/ShearApparatus/_*

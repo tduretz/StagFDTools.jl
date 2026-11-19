@@ -1,5 +1,6 @@
 # Apparent friction vs axial shortening for all <prefix>_Tet*_H* runs, read from the last step_XXXX.jld2 of each run.
-# (a) apparatus friction vs shortening, colour = gouge angle θ (one-hue ramp, light = small θ), line style = gouge thickness
+# (a) apparatus friction vs shortening, colour = gouge angle θ (one-hue ramp, light = small θ), line style = gouge thickness;
+#     numbered markers 1-3: stages shown in plot_snapshots.jl
 # (b) friction at the end of the runs (mean over the last 20% of the axial shortening) vs θ
 # All text is typeset with LaTeX fonts.
 using CairoMakie, JLD2, Statistics
@@ -15,7 +16,7 @@ function tail_mean(v, t, tail)
 end
 
 let
-    root   = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
+    root   = joinpath(dirname(@__DIR__), "_HR_hardening_2") # run folder
     prefix = "_ShearApparatus_v9"
     tail   = 0.2   # fraction of the axial shortening used for the end-of-run friction
 
@@ -48,6 +49,7 @@ let
     lab     = (θ = [30, 40, 50, 60], μ = [0.82, 0.77, 0.68, 0.51])
     c_lab   = colorant"#e66101"
     c_yield = colorant"#d6404e"
+    stage_θ, stage_h, stage_steps = (30, 50, 60), 3, (20, 100, 500) # snapshot stages of plot_snapshots.jl (θsel, h, steps)
 
     fig = with_theme(theme_latexfonts()) do
         fig = Figure(size=(1150, 500), fontsize=22)
@@ -55,9 +57,18 @@ let
 
         # (a) friction vs shortening
         ax1 = Axis(fig[1, 1]; xlabel=L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}", ylabel=L"\mu_\mathrm{app} = -\tau/\sigma_n",
-                   title=L"\mathrm{(a)\ Apparent\ friction\ vs.\ shortening}", titlealign=:left, yticks=0:0.1:0.8, axkw...)
+                   title=L"\mathrm{(a)\ Apparent\ friction\ vs.\ shortening}", titlealign=:left, yticks=0:0.1:0.9, axkw...)
         for r in runs
             lines!(ax1, r.δ, r.μ_app, color=colθ(r.θ), linewidth=2, linestyle=styles[findfirst(==(r.h), hs)])
+        end
+        # Stages shown in plot_snapshots.jl (keep in sync): numbered markers on the curves of the snapshot angles
+        for r in runs
+            (r.θ in stage_θ && r.h == stage_h) || continue
+            for (k, s) in enumerate(stage_steps)
+                s <= r.it || continue
+                scatter!(ax1, r.δ[s], r.μ_app[s], color=:white, strokecolor=colθ(r.θ), strokewidth=2, markersize=24)
+                text!(ax1, r.δ[s], r.μ_app[s], text=L"\mathbf{%$(k)}", color=ink, fontsize=15, align=(:center, :center))
+            end
         end
         # Direct labels at the curve ends, pushed apart vertically where curves end close to each other
         ylab = [r.μ_app[end] for r in runs]
@@ -67,9 +78,9 @@ let
             abs(runs[l].δ[end] - runs[k].δ[end]) < 0.3 && (ylab[k] = max(ylab[k], ylab[l] + dy))
         end
         for (r, y) in zip(runs, ylab)
-            text!(ax1, r.δ[end], y, text=L"%$(r.θ)^\circ", color=ink, fontsize=17, align=(:left, :center), offset=(4, 0))
+            text!(ax1, r.δ[end], y, text=L"%$(r.θ)^\circ", color=ink, fontsize=17, align=(:left, :center), offset=(16, 0))
         end
-        xlims!(ax1, 0, 1.08 * maximum(r.δ[end] for r in runs))
+        xlims!(ax1, 0, 1.11 * maximum(r.δ[end] for r in runs))
         ylims!(ax1, 0, nothing)
         Colorbar(fig[1, 2], colormap=cmap, limits=(0.5, length(θs) + 0.5), ticks=(1:length(θs), [L"%$(θ)^\circ" for θ in θs]),
                  label=L"\mathrm{Gouge\ angle}\ \theta", width=12)
@@ -89,7 +100,7 @@ let
         vspan!(ax2, θ_yield[2], xr[2], color=(c_yield, 0.18), label=L"\mathrm{sample\ yields}")
         xlims!(ax2, xr...)
         if lab !== nothing # drawn first: behind the model results
-            scatter!(ax2, lab.θ, lab.μ, color=c_lab, marker=:diamond, markersize=15, strokecolor=ink, strokewidth=1,
+            scatter!(ax2, lab.θ, lab.μ, color=c_lab, marker=:diamond, markersize=24, strokecolor=ink, strokewidth=1.5,
                      label=L"\mu_\mathrm{app}\ \mathrm{experiments}")
         end
         for (k, h) in enumerate(hs)

@@ -1,6 +1,7 @@
 # How the gouge strain hardening was fitted to the lab data.
 # (a-d) Apparatus friction vs axial shortening for the four lab tests (30, 40, 50 (x2), 60°): digitised lab curves vs the runs
-#       without hardening (HR_no_hardening: ϕ = 36.13°, C = 0.67 MPa) and with hardening (HR_hardening: ϕ = 34°, C(εp) below).
+#       with hardening (_HR_hardening_2: ϕ = 34°, C(εp) below) and, if the folder still exists, without hardening
+#       (HR_no_hardening: ϕ = 36.13°, C = 0.67 MPa).
 #       The lab shortening axis is loosely constrained (corrections): the lab curves are shifted by a single offset b for all tests,
 #       chosen (with C(εp)) to minimise the rms misfit over model δ ≥ 0.5 mm. The misfit of each run is printed in its panel.
 # (e) The fitted law C(εp) = C0 + ΔC tanh(εp/εh) and the plastic strain reached in the gouge at the end of each run
@@ -46,8 +47,11 @@ let
         return isempty(e) ? NaN : sqrt(mean(abs2, e))
     end
 
-    runs0 = Dict(θ => readrun("HR_no_hardening", θ) for (θ, _) in tests)
-    runs1 = Dict(θ => readrun("HR_hardening", θ) for (θ, _) in tests)
+    set0, set1 = "HR_no_hardening", "_HR_hardening_2"   # reference runs without hardening (optional), runs with hardening
+    has0  = isdir(joinpath(root, set0))
+    has0 || println("No $set0 folder: the runs without hardening are not shown")
+    runs0 = has0 ? Dict(θ => readrun(set0, θ) for (θ, _) in tests) : nothing
+    runs1 = Dict(θ => readrun(set1, θ) for (θ, _) in tests)
 
     # Hardening law, from the run parameters (scaled -> MPa)
     d1  = runs1[30].d
@@ -55,8 +59,10 @@ let
     MPa = d1.sc.σ / 1e6
     C0, ΔC, εh, ϕ = pl.C[gouge] * MPa, pl.ΔC[gouge] * MPa, pl.εh[gouge], pl.ϕ[gouge]
     Claw(ε) = C0 + ΔC * tanh(ε / εh)
-    pl0 = runs0[30].d.plasticity
-    C00, ϕ0 = pl0.C[gouge] * runs0[30].d.sc.σ / 1e6, pl0.ϕ[gouge]
+    if has0
+        pl0 = runs0[30].d.plasticity
+        C00, ϕ0 = pl0.C[gouge] * runs0[30].d.sc.σ / 1e6, pl0.ϕ[gouge]
+    end
 
     fig = with_theme(theme_latexfonts()) do
         fig  = Figure(size=(2000, 480), fontsize=20)
@@ -69,15 +75,16 @@ let
                 xs, ys = LAB[t]
                 lines!(ax, xs .- b, ys, color=c_lab, linewidth=3.5, label=L"\mu_\mathrm{app}\ \mathrm{experiments}\ (\delta_\mathrm{lab} - %$(b)\ \mathrm{mm})")
             end
-            r0, r1 = runs0[θ], runs1[θ]
-            lines!(ax, r0.δ, r0.μ, color=muted, linewidth=2, linestyle=:dash,
-                   label=L"\mathrm{no\ hardening}\ (\phi = %$(ϕ0)^\circ,\ C = %$(round(C00, digits=2))\ \mathrm{MPa})")
+            r1 = runs1[θ]
+            has0 && lines!(ax, runs0[θ].δ, runs0[θ].μ, color=muted, linewidth=2, linestyle=:dash,
+                           label=L"\mathrm{no\ hardening}\ (\phi = %$(ϕ0)^\circ,\ C = %$(round(C00, digits=2))\ \mathrm{MPa})")
             lines!(ax, r1.δ, r1.μ, color=c_hard, linewidth=2.5, label=L"\mathrm{hardening}\ (\phi = %$(round(Int, ϕ))^\circ,\ C(\varepsilon_p))")
-            m0, m1 = misfit(r0, tags), misfit(r1, tags)
+            m0, m1 = has0 ? misfit(runs0[θ], tags) : NaN, misfit(r1, tags)
             @printf("θ = %d°: rms misfit  no hardening %.3f  hardening %.3f\n", θ, m0, m1)
             s0, s1 = @sprintf("%.3f", m0), @sprintf("%.3f", m1)
             text!(ax, 0.97, 0.04, space=:relative, align=(:right, :bottom), fontsize=16, color=ink,
-                  text=isnan(m1) ? L"\mathrm{lab\ test\ too\ short:\ not\ used\ in\ the\ fit}" : L"\mathrm{rms:}\ %$(s0)\ \rightarrow\ %$(s1)")
+                  text=isnan(m1) ? L"\mathrm{lab\ test\ too\ short:\ not\ used\ in\ the\ fit}" :
+                       has0 ? L"\mathrm{rms:}\ %$(s0)\ \rightarrow\ %$(s1)" : L"\mathrm{rms:}\ %$(s1)")
             xlims!(ax, 0, δmax)
             ylims!(ax, θ == 60 ? (0.35, 0.65) : (0.5, 0.9))
             k == 1 && axislegend(ax, position=:lt, labelsize=14, framevisible=false, unique=true, padding=(0, 0, 0, 0))

@@ -134,4 +134,14 @@ include("Markers.jl")
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields_two_phases!
 end
 
+module PhaseFieldMechanics
+using StagFDTools, StaticArrays, SparseArrays, LinearAlgebra, Printf
+include("PhaseFieldMechanics/PhaseFieldMechanics.jl")
+include("PhaseFieldMechanics/PhaseFieldMechanics_GCR.jl")
+export set_BC_template, Fields, Ranges, Numbering!, SetRHS!, UpdateSolution!
+export Momentum_x, Momentum_y, Continuity, PhaseField, Residuals!, Assemble!, residual_norms, BackTrackingLineSearch!
+export pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!
+export UpdateStress!, total_stress, degradation, JacobianCache, solve!, jacobian_blocks, GCRWorkspace, gcr_solve!, lagged_gcr_solve!, set_ghosts!
+end
+
 end # module StagFDTools

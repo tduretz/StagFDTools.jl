@@ -18,7 +18,7 @@ function tail_mean(v, t, tail)
 end
 
 let
-    root   = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
+    root   = joinpath(dirname(@__DIR__), "_HR_hardening_2") # run folder
     prefix = "_ShearApparatus_v9"
     tail   = 0.2   # fraction of the axial shortening used for the end-of-run values
     θskip  = [80]  # gouge angles not shown (keeps panel (a) on a 2 x 4 grid)
