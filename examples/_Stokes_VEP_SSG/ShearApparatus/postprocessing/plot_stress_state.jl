@@ -9,7 +9,7 @@ using CairoMakie, JLD2, Printf, Statistics
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
-    root    = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
+    root    = joinpath(dirname(@__DIR__), "_HR_hardening_2") # run folder
     prefix  = "_ShearApparatus_v9"
     θ       = 30                    # gouge angle of the run
     h       = 3                     # gouge thickness [mm] (folder _H..)

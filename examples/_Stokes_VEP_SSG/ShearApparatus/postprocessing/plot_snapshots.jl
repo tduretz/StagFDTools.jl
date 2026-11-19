@@ -1,15 +1,15 @@
 # Evolution of selected <prefix>_Tet*_H* runs: one row per gouge angle, with snapshots of the plastic strain rate
-# (white where λ̇ = 0, black phase contours, grey σ1 orientation, zoom on the centre of the gouge) at a few steps, and the apparatus friction
-# vs axial shortening with markers at the snapshot steps. Same colours as plot_friction.jl.
+# (white where λ̇ = 0, black phase contours, grey σ1 orientation, zoom on the centre of the gouge) at a few steps.
+# The snapshot steps are marked (1, 2, 3) on the friction curves of plot_friction.jl (panel a): keep `steps` and `θsel` in sync.
 # All text is typeset with LaTeX fonts.
 using CairoMakie, JLD2, Printf
 
 load_step(file) = (; (Symbol(k) => v for (k, v) in load(file))...)
 
 let
-    root    = joinpath(dirname(@__DIR__), "HR_hardening") # run folders (HR_hardening or HR_no_hardening)
+    root    = joinpath(dirname(@__DIR__), "_HR_hardening_2") # run folder
     prefix  = "_ShearApparatus_v9"
-    θsel    = [30, 50, 70]          # gouge angles (one row each)
+    θsel    = [30, 50, 60]          # gouge angles (one row each)
     h       = 3                     # gouge thickness [mm] (folder _H..)
     steps   = [20, 100, 500]        # snapshot steps (must have a step_XXXX.jld2)
     window  = 20.0                  # side of the square visualisation window [mm]
@@ -33,14 +33,13 @@ let
     shortening(d, it) = d.probes.t[1:it] * d.ε̇yy * d.Ly * d.sc.L * 1e3 # [mm]
 
     fig = with_theme(theme_latexfonts()) do
-        fig  = Figure(size=(1450, 380 * length(θsel) + 120), fontsize=22)
+        fig  = Figure(size=(1100, 380 * length(θsel) + 120), fontsize=22)
         axkw = (xgridcolor=(:black, 0.08), ygridcolor=(:black, 0.08))
         ns   = length(steps)
         hm   = nothing
-        axf  = Axis[]
         for (row, θ) in enumerate(θsel)
             dl = load_step(lastfile(θ))
-            δ  = shortening(dl, dl.it)
+            δ  = shortening(dl, dl.it)               # [mm], for the panel titles
 
             # Snapshots
             for (col, s) in enumerate(steps)
@@ -65,30 +64,15 @@ let
                 limits!(ax, xw..., yw...)
             end
 
-            # Friction vs shortening, with the snapshot steps
-            ax = Axis(fig[row, ns + 1]; axkw..., topspinevisible=false, rightspinevisible=false,
-                      xlabel=row == length(θsel) ? L"\mathrm{Axial\ shortening}\ \delta\ \mathrm{[mm]}" : "", ylabel=L"\mu_\mathrm{app}", yticks=0:0.2:0.8,
-                      xticklabelsvisible=row == length(θsel))
-            push!(axf, ax)
-            lines!(ax, δ, dl.probes.app_fric_lab[1:dl.it], color=colθ(θ), linewidth=2)
-            for (k, s) in enumerate(steps)
-                scatter!(ax, δ[s], dl.probes.app_fric_lab[s], color=:white, strokecolor=ink, strokewidth=1.5, markersize=34)
-                text!(ax, δ[s], dl.probes.app_fric_lab[s], text=L"\mathbf{%$(k)}", color=ink, fontsize=20, align=(:center, :center))
-            end
             Label(fig[row, 0], L"\theta = %$(θ)^\circ", rotation=π/2, fontsize=26, tellheight=false)
         end
         # Panel letters, row by row
-        for row in eachindex(θsel), col in 1:ns+1
-            Label(fig[row, col, TopLeft()], L"\mathrm{(%$('a' + (row - 1) * (ns + 1) + col - 1))}", fontsize=24, padding=(0, 6, 4, 0), halign=:right)
+        for row in eachindex(θsel), col in 1:ns
+            Label(fig[row, col, TopLeft()], L"\mathrm{(%$('a' + (row - 1) * ns + col - 1))}", fontsize=24, padding=(0, 6, 4, 0), halign=:right)
         end
-        linkaxes!(axf...)
-        ylims!(axf[1], 0, 0.9)
-        xlims!(axf[1], 0, nothing)
         Colorbar(fig[length(θsel) + 1, 1:ns], hm, vertical=false, flipaxis=false, height=14, width=Relative(0.7),
                  label=L"\log_{10}\ \dot{\lambda}\ \mathrm{[s^{-1}]}\ \mathrm{(white:\ not\ plastic;\ black\ lines:\ gouge\ boundaries;\ grey:\ }\sigma_1\mathrm{\ orientation)}")
-        colsize!(fig.layout, ns + 1, Relative(0.27))
         colgap!(fig.layout, 8)
-        colgap!(fig.layout, ns, 30)
         rowgap!(fig.layout, 8)
         resize_to_layout!(fig)
         fig

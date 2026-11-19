@@ -378,11 +378,11 @@ end
 # ==============================================================================
 @views function KSP_GCR_TwoPhases_setup( M; restart::Int=25, maxit::Int=2000, ηb=1e5)
 
-    # Construct PC
-    VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
-    VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
-    PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
-    PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
+    # Construct PC (blocks indexed as M[a][b]: works for TwoPhases and PhaseFieldMechanics Fields)
+    VxVx = M[1][1]; VxVy = M[1][2]; VxPt = M[1][3]
+    VyVx = M[2][1]; VyVy = M[2][2]; VyPt = M[2][3]
+    PtVx = M[3][1]; PtVy = M[3][2]; PtPt = M[3][3]; PtPf = M[3][4]
+    PfVx = M[4][1]; PfVy = M[4][2]; PfPt = M[4][3]; PfPf = M[4][4]
     
     Jvv = [VxVx VxVy; VyVx VyVy]
     Jvp = [VxPt; VyPt]
@@ -409,9 +409,10 @@ end
     Jqq_f_sym = cholesky(Hermitian(SparseMatrixCSC(Jqq)), check=false)
     Jvv_f_sym = cholesky(Hermitian(SparseMatrixCSC(J̃vv)), check=false)
 
-    ndofu = size(M.Vx.Vx, 1) + size(M.Vy.Vy, 1)
-    ndofp = size(M.Pt.Pt, 2)
-    N     = ndofu + ndofp + ndofp
+    ndofu = size(M[1][1], 1) + size(M[2][2], 1)
+    ndofp = size(M[3][3], 2)
+    ndofq = size(M[4][4], 2)   # Pf (TwoPhases) or d (PhaseFieldMechanics): may differ from ndofp
+    N     = ndofu + ndofp + ndofq
 
     f = zeros(Float64, N)
     v = zeros(Float64, N)
@@ -430,9 +431,9 @@ end
         su=view(s, iu), sp=view(s, ip), sq=view(s, iq),
         VV, SS, VVcols=[view(VV, :, i) for i in 1:restart], SScols=[view(SS, :, i) for i in 1:restart],
         Vnorm2=zeros(Float64, restart),
-        du=zeros(Float64, ndofu), dp=zeros(Float64, ndofp), dq=zeros(Float64, ndofp),
+        du=zeros(Float64, ndofu), dp=zeros(Float64, ndofp), dq=zeros(Float64, ndofq),
         r̃u=zeros(Float64, ndofu), r̃p=zeros(Float64, ndofp),
-        tmpp=zeros(Float64, ndofp), tmpq=zeros(Float64, ndofp), tmpq2=zeros(Float64, ndofp),
+        tmpp=zeros(Float64, ndofp), tmpq=zeros(Float64, ndofq), tmpq2=zeros(Float64, ndofq),
     )
 end
 
@@ -444,10 +445,10 @@ end
         du, dp, dq, r̃u, r̃p, tmpp, tmpq, tmpq2) = cache
 
     # Construct PC
-    VxVx = M.Vx.Vx; VxVy = M.Vx.Vy; VxPt = M.Vx.Pt
-    VyVx = M.Vy.Vx; VyVy = M.Vy.Vy; VyPt = M.Vy.Pt
-    PtVx = M.Pt.Vx; PtVy = M.Pt.Vy; PtPt = M.Pt.Pt; PtPf = M.Pt.Pf
-    PfVx = M.Pf.Vx; PfVy = M.Pf.Vy; PfPt = M.Pf.Pt; PfPf = M.Pf.Pf
+    VxVx = M[1][1]; VxVy = M[1][2]; VxPt = M[1][3]
+    VyVx = M[2][1]; VyVy = M[2][2]; VyPt = M[2][3]
+    PtVx = M[3][1]; PtVy = M[3][2]; PtPt = M[3][3]; PtPf = M[3][4]
+    PfVx = M[4][1]; PfVy = M[4][2]; PfPt = M[4][3]; PfPf = M[4][4]
     
     Jvv = [VxVx VxVy; VyVx VyVy]
     Jvp = [VxPt; VyPt]
@@ -569,12 +570,12 @@ end
 function two_phases_mechanical_solver!(dx, M, r, M_PC;
     solver=:PH, solver_cache=0, ηb=1e5, ϵ_l=1e-9, niter_l=10, restart=20, noisy=true
 )
-    # Two-phases operator as block matrix
+    # 4×4 block operator (Vx, Vy, Pt, Pf) - or (Vx, Vy, Pt, d) for PhaseFieldMechanics
     𝑀 = [
-        M.Vx.Vx M.Vx.Vy M.Vx.Pt M.Vx.Pf;
-        M.Vy.Vx M.Vy.Vy M.Vy.Pt M.Vy.Pf;
-        M.Pt.Vx M.Pt.Vy M.Pt.Pt M.Pt.Pf;
-        M.Pf.Vx M.Pf.Vy M.Pf.Pt M.Pf.Pf;
+        M[1][1] M[1][2] M[1][3] M[1][4];
+        M[2][1] M[2][2] M[2][3] M[2][4];
+        M[3][1] M[3][2] M[3][3] M[3][4];
+        M[4][1] M[4][2] M[4][3] M[4][4];
     ]
     if solver == :LU
         # Backslash 

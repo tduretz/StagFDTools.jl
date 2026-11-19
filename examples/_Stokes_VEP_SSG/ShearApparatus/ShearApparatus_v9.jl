@@ -280,6 +280,7 @@ end
 # Adaptive time stepping: if a step fails, it is restarted from the start of the step with Δt/Δt_red_fac, at most ntry times (then the run stops);
 #         after a successful step, Δt is multiplied by Δt_inc_fac, up to Δt_max (nothing: Δt0). Δt is also limited by the CFL condition
 # nt, time_max: the run stops after nt steps or at time_max [s], whichever comes first (time_max = Inf: nt steps)
+# G_gouge: shear modulus of the gouge [Pa] (default 1 GPa)
 # Gouge plasticity: friction angle ϕ_gouge + Δϕ_gouge tanh(εp/εh_gouge) [°] and cohesion C_gouge + ΔC_gouge tanh(εp/εh_gouge) [Pa], εp = ∫ε̇II_pl dt (plastic deviatoric strain rate invariant, carried by the markers).
 #         Defaults (refit 2026-11-15, _hardening_refit): ϕ_gouge = 34° (measured, not fitted), C = 1.25 + 2.8 tanh(εp/0.5) MPa,
 #         dilatancy ψ_gouge = 12° (fitted 11.7° at LR, 12° to compensate the slightly lower MR friction), with mixing = :voigt and
@@ -288,7 +289,7 @@ end
 # mixing: averaging of the rheology in interface cells (:voigt = iso-strain rate, recommended; see
 #         ../MixingSchemesReport); plastic_strain = :phase: one εp per phase (grid), carried by the markers
 @views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false, ϵ_nl_last=1e-5,
-                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=0.5, ψ_gouge=12.0, mixing=:voigt, plastic_strain=:phase)
+                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=0.5, ψ_gouge=12.0, G_gouge=1e9, mixing=:voigt, plastic_strain=:phase)
     #--------------------------------------------#
 
     # Scaling
@@ -332,7 +333,7 @@ end
     materials                 = initialize_materials(nphases; compressible=true, plasticity, mixing, plastic_strain)  # mixing: phase averaging in interface cells (:default, :voigt, :reuss, :isowork); plastic_strain: :mixed or :phase
     materials.n              .= [1.0,   1.0,    1.0,    1.0]                                                        # Power law exponent
     materials.η0             .= [1e48,  1e28,   1e10,   1e48]  ./ sc.σ ./ sc.t                                    # Reference viscosity 
-    materials.G              .= [3e10,  1e9,    1e60,   1e12]  ./ sc.σ                                             # Shear modulus
+    materials.G              .= [3e10,  G_gouge, 1e60,  1e12]  ./ sc.σ                                             # Shear modulus
     materials.β              .= [1e-11, 1e-10,  1e-12,  1e-12] .* sc.σ                                        # Compressibility
     materials.plasticity.C   .= [45e6,  C_gouge, 15e60,  15e60] ./ sc.σ                                        # Cohesion
     materials.plasticity.ϕ   .= [36.13, ϕ_gouge, 36.13,  36.13]                                                       # Friction angle
