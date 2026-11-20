@@ -298,6 +298,10 @@ end
 @inline _ψc(materials)         = hasproperty(materials, :ψc) ? materials.ψc : 0.0
 @inline _damage(materials)     = hasproperty(materials, :damage) ? materials.damage : true
 @inline _Kd(materials)         = hasproperty(materials, :Kd) ? materials.Kd : 0.0
+@inline _hsoft(materials)      = hasproperty(materials, :h) ? materials.h : 0.0
+@inline _Cmin(materials)       = hasproperty(materials, :C_min) ? materials.C_min : 0.0
+# Accumulated plastic strain εp = √(2/3) ∫ λ̇ dt (cohesion softening); without old.εp, Wp is a placeholder (h = 0)
+@inline _εp_hist(old)          = hasproperty(old, :εp) ? old.εp : old.Wp
 
 # Stiffness degradation, g = 1 if the damage coupling is switched off (materials.damage = false)
 @inline stiffness_degradation(d, materials) = _damage(materials) ? degradation(d, materials.k_res) : one(d)
@@ -325,7 +329,7 @@ Returns the degraded τxx, τyy, τxy, corrected pressure, λ̇, τII and the ra
         return τxx, τyy, τxy, Pd, z, second_invariant(τxx, τyy, τxy), one(z)
     end
     τII_t = second_invariant(τxx, τyy, τxy)
-    if _Kd(materials) > 0
+    if _Kd(materials) > 0 || _hsoft(materials) != 0
         τII, Pc, λ̇ = gradient_return_mapping(τII_t, Pd, g * ηve, g * K, pl, ph, nl, materials, Δt)
     else
         # Common (Dual) type for the return mapping: with a single Dual input, λ̇ = zero(τII) would change type
@@ -346,7 +350,7 @@ Drucker-Prager return mapping (parameters of `pl` for phase `ph`) with the gradi
 ∇²d is expressed with the phase-field equation at the point, gc l ∇²d = gc/l d - 2(1-d)(H⁰ + βp Wp) + ηd ḋ,
 with the current plastic work Wp = Wp⁰ + τII λ̇ Δt: the local plastic work hardens, the (non-local) phase field
 promotes yielding around existing bands. F(λ̇) is quadratic, its smallest positive root is used.
-`nl = (d, d0, H, Wp0, gc, l, ηd)` at the point (vertex: means of the 4 centroid values).
+`nl = (d, d0, H, Wp0, εp0, gc, l, ηd)` at the point (vertex: means of the 4 centroid values).
 """
 @inline function gradient_return_mapping(τII_t, Pd, ηe, Ke, pl, ph, nl, materials, Δt)
     C, cosϕ, sinϕ, sinψ, ηvp = pl.C[ph], pl.cosϕ[ph], pl.sinϕ[ph], pl.sinψ[ph], pl.ηvp[ph]
@@ -354,13 +358,22 @@ promotes yielding around existing bands. F(λ̇) is quadratic, its smallest posi
     A   = _Kd(materials) / (nl.gc * nl.l)
     Fg0 = A * (nl.gc / nl.l * nl.d - 2 * (1 - nl.d) * (nl.H + βp * nl.Wp0) + nl.ηd * (nl.d - nl.d0) / Δt)
     κ   = 2 * A * (1 - nl.d) * βp * Δt
-    c   = τII_t - Pd * sinϕ - C * cosϕ + Fg0
-    b   = -(ηe + sinψ * Δt * Ke * sinϕ + ηvp + κ * τII_t)
-    a   = κ * ηe
-    # no real root (F > 0 for all λ̇, e.g. far from equilibrium during the Newton iterations): discriminant clipped
-    λ̇t  = 2c / (-b + sqrt(max(b^2 - 4 * a * c, zero(c)) + 1e-40))
-    λ̇   = ifelse(c > 0, λ̇t, zero(λ̇t))
+    # Linear cohesion softening C = C⁰ + h εp, εp = εp⁰ + √(2/3) λ̇ Δt (Duretz et al., 2023), bounded below by C_min
+    h, Cmin = _hsoft(materials), _Cmin(materials)
+    Cs  = C + h * nl.εp0
+    λ̇s  = _quadratic_λ̇(τII_t - Pd * sinϕ - Cs * cosϕ + Fg0, ηe, sinψ * Δt * Ke * sinϕ + ηvp + h * sqrt(2/3) * cosϕ * Δt, κ, τII_t)
+    λ̇m  = _quadratic_λ̇(τII_t - Pd * sinϕ - Cmin * cosϕ + Fg0, ηe, sinψ * Δt * Ke * sinϕ + ηvp, κ, τII_t)
+    λ̇   = ifelse(Cs + h * sqrt(2/3) * λ̇s * Δt > Cmin, λ̇s, λ̇m)
     return τII_t - ηe * λ̇, Pd + λ̇ * sinψ * Δt * Ke, λ̇
+end
+
+# Smallest positive root of F(λ̇) = c - (ηe + η₁ + κ τII_t) λ̇ + κ ηe λ̇² (λ̇ = 0 if c ≤ 0); no real root (F > 0 for
+# all λ̇, e.g. far from equilibrium during the Newton iterations): discriminant clipped
+@inline function _quadratic_λ̇(c, ηe, η₁, κ, τII_t)
+    b  = -(ηe + η₁ + κ * τII_t)
+    a  = κ * ηe
+    λ̇t = 2c / (-b + sqrt(max(b^2 - 4 * a * c, zero(c)) + 1e-40))
+    return ifelse(c > 0, λ̇t, zero(λ̇t))
 end
 
 # Elastic strain energy (tensile part if amor) at a centroid; τxy² is the mean of the 4 vertex values / (2G)
@@ -382,7 +395,7 @@ end
     τ0c  = (xx = τ0.xx[k,2], yy = τ0.yy[k,2], xy = loc(τ0.xy, k, 1, v2, v2))
     matc = (Gc = mat.Gc[k,2], ηc = mat.ηc[k,2], K = mat.K[k,2], phc = mat.phc[k,2],
             Gv = loc(mat.Gv, k, 1, v2, v2), ηv = loc(mat.ηv, k, 1, v2, v2))
-    nl   = (d = d[k,2], d0 = mat.d0[k,2], H = mat.H[k,2], Wp0 = mat.Wp[k,2], gc = mat.gc[k,2], l = mat.l[k,2], ηd = mat.ηd[k,2])
+    nl   = (d = d[k,2], d0 = mat.d0[k,2], H = mat.H[k,2], Wp0 = mat.Wp[k,2], εp0 = mat.εp[k,2], gc = mat.gc[k,2], l = mat.l[k,2], ηd = mat.ηd[k,2])
     st = centroid_vep(loc(Vx, k, 1, v2, v3), loc(Vy, k, 2, v3, v2), Pt[k,2], d[k,2], τ0c, matc, nl, materials, Δ)
     return st.τxx - st.Pc
 end
@@ -392,7 +405,7 @@ end
     τ0v  = (xx = loc(τ0.xx, 1, k, v2, v2), yy = loc(τ0.yy, 1, k, v2, v2), xy = τ0.xy[2,k])
     matv = (Gc = loc(mat.Gc, 1, k, v2, v2), ηc = loc(mat.ηc, 1, k, v2, v2), K = loc(mat.K, 1, k, v2, v2),
             Gv = mat.Gv[2,k], ηv = mat.ηv[2,k], phv = mat.phv[2,k],
-            d0 = loc(mat.d0, 1, k, v2, v2), H = loc(mat.H, 1, k, v2, v2), Wp = loc(mat.Wp, 1, k, v2, v2),
+            d0 = loc(mat.d0, 1, k, v2, v2), H = loc(mat.H, 1, k, v2, v2), Wp = loc(mat.Wp, 1, k, v2, v2), εp = loc(mat.εp, 1, k, v2, v2),
             gc = loc(mat.gc, 1, k, v2, v2), l = loc(mat.l, 1, k, v2, v2), ηd = loc(mat.ηd, 1, k, v2, v2))
     return first(vertex_vep(loc(Vx, 1, k, v3, v2), loc(Vy, 2, k, v2, v3), loc(Pt, 1, k, v2, v2), loc(d, 1, k, v2, v2), τ0v, matv, materials, Δ))
 end
@@ -404,7 +417,7 @@ end
     τ0c  = (xx = τ0.xx[2,k], yy = τ0.yy[2,k], xy = loc(τ0.xy, 1, k, v2, v2))
     matc = (Gc = mat.Gc[2,k], ηc = mat.ηc[2,k], K = mat.K[2,k], phc = mat.phc[2,k],
             Gv = loc(mat.Gv, 1, k, v2, v2), ηv = loc(mat.ηv, 1, k, v2, v2))
-    nl   = (d = d[2,k], d0 = mat.d0[2,k], H = mat.H[2,k], Wp0 = mat.Wp[2,k], gc = mat.gc[2,k], l = mat.l[2,k], ηd = mat.ηd[2,k])
+    nl   = (d = d[2,k], d0 = mat.d0[2,k], H = mat.H[2,k], Wp0 = mat.Wp[2,k], εp0 = mat.εp[2,k], gc = mat.gc[2,k], l = mat.l[2,k], ηd = mat.ηd[2,k])
     st = centroid_vep(loc(Vx, 2, k, v2, v3), loc(Vy, 1, k, v3, v2), Pt[2,k], d[2,k], τ0c, matc, nl, materials, Δ)
     return st.τyy - st.Pc
 end
@@ -414,7 +427,7 @@ end
     τ0v  = (xx = loc(τ0.xx, k, 1, v2, v2), yy = loc(τ0.yy, k, 1, v2, v2), xy = τ0.xy[k,2])
     matv = (Gc = loc(mat.Gc, k, 1, v2, v2), ηc = loc(mat.ηc, k, 1, v2, v2), K = loc(mat.K, k, 1, v2, v2),
             Gv = mat.Gv[k,2], ηv = mat.ηv[k,2], phv = mat.phv[k,2],
-            d0 = loc(mat.d0, k, 1, v2, v2), H = loc(mat.H, k, 1, v2, v2), Wp = loc(mat.Wp, k, 1, v2, v2),
+            d0 = loc(mat.d0, k, 1, v2, v2), H = loc(mat.H, k, 1, v2, v2), Wp = loc(mat.Wp, k, 1, v2, v2), εp = loc(mat.εp, k, 1, v2, v2),
             gc = loc(mat.gc, k, 1, v2, v2), l = loc(mat.l, k, 1, v2, v2), ηd = loc(mat.ηd, k, 1, v2, v2))
     return first(vertex_vep(loc(Vx, k, 2, v3, v2), loc(Vy, k, 1, v2, v3), loc(Pt, k, 1, v2, v2), loc(d, k, 1, v2, v2), τ0v, matv, materials, Δ))
 end
@@ -554,7 +567,7 @@ values. Returns the degraded shear stress, the plastic rate and the effective sh
     Pv  = (P[1,1] + P[2,1] + P[1,2] + P[2,2]) / 4
     Kv  = (mat.K[1,1] + mat.K[2,1] + mat.K[1,2] + mat.K[2,2]) / 4
     ηve = viscoelastic_viscosity(mat.Gv, mat.ηv, Δt)
-    nl  = (d = avg4(d), d0 = avg4(mat.d0), H = avg4(mat.H), Wp0 = avg4(mat.Wp), gc = avg4(mat.gc), l = avg4(mat.l), ηd = avg4(mat.ηd))
+    nl  = (d = avg4(d), d0 = avg4(mat.d0), H = avg4(mat.H), Wp0 = avg4(mat.Wp), εp0 = avg4(mat.εp), gc = avg4(mat.gc), l = avg4(mat.l), ηd = avg4(mat.ηd))
     _, _, τxy, _, λ̇, _, f = point_stress(τ̃xx, τ̃yy, τ̃xy, Pv, g, ηve, Kv, mat.phv, nl, materials, Δt)
     return τxy, λ̇, f * τ̃xy
 end
@@ -569,7 +582,7 @@ end
     d  = SetBCPt1( d_loc, type.d, bcv.d, Δ, 0.0)
 
     # Crack driving force: history of the elastic strain energy above the threshold ψc, and plastic work
-    nl = (d = d[2,2], d0 = old.d, H = old.H, Wp0 = old.Wp, gc = mat.gc[2,2], l = mat.l[2,2], ηd = mat.ηd)
+    nl = (d = d[2,2], d0 = old.d, H = old.H, Wp0 = old.Wp, εp0 = old.εp, gc = mat.gc[2,2], l = mat.l[2,2], ηd = mat.ηd)
     st = centroid_vep(Vx, Vy, Pt_loc[1,1], d[2,2], τ0, mat, nl, materials, Δ)
     H  = max(old.H, max(st.ψ - _ψc(materials), zero(st.ψ)))
     Wp = old.Wp + st.λ̇ * st.τII * Δt
@@ -601,7 +614,7 @@ end
     τ0  = (xx = loc(old.τ.xx, i-1, j-2, v2, v3), yy = loc(old.τ.yy, i-1, j-2, v2, v3), xy = loc(old.τ.xy, i-1, j-1, v3, v2))
     mat = (Gc = loc(rheo.G.c, i-1, j-2, v2, v3), ηc = loc(rheo.η.c, i-1, j-2, v2, v3), K = loc(rheo.K.c, i-1, j-2, v2, v3), phc = loc(rheo.ph.c, i-1, j-2, v2, v3),
            Gv = loc(rheo.G.v, i-1, j-1, v3, v2), ηv = loc(rheo.η.v, i-1, j-1, v3, v2), phv = loc(rheo.ph.v, i-1, j-1, v3, v2),
-           d0 = loc(old.d, i-1, j-2, v2, v3), H = loc(old.H, i-1, j-2, v2, v3), Wp = loc(old.Wp, i-1, j-2, v2, v3),
+           d0 = loc(old.d, i-1, j-2, v2, v3), H = loc(old.H, i-1, j-2, v2, v3), Wp = loc(old.Wp, i-1, j-2, v2, v3), εp = loc(_εp_hist(old), i-1, j-2, v2, v3),
            gc = loc(rheo.gc.c, i-1, j-2, v2, v3), l = loc(rheo.l.c, i-1, j-2, v2, v3), ηd = loc(rheo.ηd.c, i-1, j-2, v2, v3))
     tl  = (x = loc(type.Vx, i-1, j-1, v3, v3), y = loc(type.Vy, i-1, j-2, v4, v4), pt = loc(type.Pt, i-1, j-2, v2, v3), d = loc(type.d, i-1, j-2, v2, v3))
     bl  = (x = loc(BC.Vx,   i-1, j-1, v3, v3), y = loc(BC.Vy,   i-1, j-2, v4, v4), pt = loc(BC.Pt,   i-1, j-2, v2, v3), d = loc(BC.d,   i-1, j-2, v2, v3))
@@ -623,7 +636,7 @@ end
     τ0  = (xx = loc(old.τ.xx, i-2, j-1, v3, v2), yy = loc(old.τ.yy, i-2, j-1, v3, v2), xy = loc(old.τ.xy, i-1, j-1, v2, v3))
     mat = (Gc = loc(rheo.G.c, i-2, j-1, v3, v2), ηc = loc(rheo.η.c, i-2, j-1, v3, v2), K = loc(rheo.K.c, i-2, j-1, v3, v2), phc = loc(rheo.ph.c, i-2, j-1, v3, v2),
            Gv = loc(rheo.G.v, i-1, j-1, v2, v3), ηv = loc(rheo.η.v, i-1, j-1, v2, v3), phv = loc(rheo.ph.v, i-1, j-1, v2, v3),
-           d0 = loc(old.d, i-2, j-1, v3, v2), H = loc(old.H, i-2, j-1, v3, v2), Wp = loc(old.Wp, i-2, j-1, v3, v2),
+           d0 = loc(old.d, i-2, j-1, v3, v2), H = loc(old.H, i-2, j-1, v3, v2), Wp = loc(old.Wp, i-2, j-1, v3, v2), εp = loc(_εp_hist(old), i-2, j-1, v3, v2),
            gc = loc(rheo.gc.c, i-2, j-1, v3, v2), l = loc(rheo.l.c, i-2, j-1, v3, v2), ηd = loc(rheo.ηd.c, i-2, j-1, v3, v2))
     tl  = (x = loc(type.Vx, i-2, j-1, v4, v4), y = loc(type.Vy, i-1, j-1, v3, v3), pt = loc(type.Pt, i-2, j-1, v3, v2), d = loc(type.d, i-2, j-1, v3, v2))
     bl  = (x = loc(BC.Vx,   i-2, j-1, v4, v4), y = loc(BC.Vy,   i-1, j-1, v3, v3), pt = loc(BC.Pt,   i-2, j-1, v3, v2), d = loc(BC.d,   i-2, j-1, v3, v2))
@@ -659,7 +672,7 @@ end
     mat = (Gc = rheo.G.c[i,j], ηc = rheo.η.c[i,j], K = rheo.K.c[i,j], phc = rheo.ph.c[i,j],
            Gv = loc(rheo.G.v, i, j, v2, v2), ηv = loc(rheo.η.v, i, j, v2, v2),
            gc = loc(rheo.gc.c, i-1, j-1, v3, v3), l = loc(rheo.l.c, i-1, j-1, v3, v3), ηd = rheo.ηd.c[i,j])
-    oldl = (d = old.d[i,j], H = old.H[i,j], Wp = old.Wp[i,j])
+    oldl = (d = old.d[i,j], H = old.H[i,j], Wp = old.Wp[i,j], εp = _εp_hist(old)[i,j])
     tl  = (x = loc(type.Vx, i, j, v2, v3), y = loc(type.Vy, i, j, v3, v2), d = loc(type.d, i-1, j-1, v3, v3))
     bl  = (x = loc(BC.Vx,   i, j, v2, v3), y = loc(BC.Vy,   i, j, v3, v2), d = loc(BC.d,   i-1, j-1, v3, v3))
     return Vx, Vy, Pt, dl, (τ0, mat, oldl, tl, bl)
@@ -881,7 +894,7 @@ function UpdateStress!(τ, ψ, V, P, d, old, rheo, materials, type, BC, nc, Δ; 
             Vx, Vy, Pt, dl, (τ0, mat, oldl, tl, bl) = gather_d(i, j, V, P, d, old, rheo, type, BC)
             Vx = SetBCVx1(Vx, tl.x, bl.x, Δ)
             Vy = SetBCVy1(Vy, tl.y, bl.y, Δ)
-            nl = (d = d[i,j], d0 = oldl.d, H = oldl.H, Wp0 = oldl.Wp, gc = mat.gc[2,2], l = mat.l[2,2], ηd = mat.ηd)
+            nl = (d = d[i,j], d0 = oldl.d, H = oldl.H, Wp0 = oldl.Wp, εp0 = oldl.εp, gc = mat.gc[2,2], l = mat.l[2,2], ηd = mat.ηd)
             st = centroid_vep(Vx, Vy, Pt[1,1], d[i,j], τ0, mat, nl, materials, Δ)
             τ.xx[i,j], τ.yy[i,j], ψ[i,j] = st.τ̃xx, st.τ̃yy, st.ψ
             if plastic !== nothing
@@ -899,7 +912,7 @@ function UpdateStress!(τ, ψ, V, P, d, old, rheo, materials, type, BC, nc, Δ; 
             τ0  = (xx = loc(old.τ.xx, i-1, j-1, v2, v2), yy = loc(old.τ.yy, i-1, j-1, v2, v2), xy = old.τ.xy[i,j])
             mat = (Gc = loc(rheo.G.c, i-1, j-1, v2, v2), ηc = loc(rheo.η.c, i-1, j-1, v2, v2), K = loc(rheo.K.c, i-1, j-1, v2, v2),
                    Gv = rheo.G.v[i,j], ηv = rheo.η.v[i,j], phv = rheo.ph.v[i,j],
-                   d0 = loc(old.d, i-1, j-1, v2, v2), H = loc(old.H, i-1, j-1, v2, v2), Wp = loc(old.Wp, i-1, j-1, v2, v2),
+                   d0 = loc(old.d, i-1, j-1, v2, v2), H = loc(old.H, i-1, j-1, v2, v2), Wp = loc(old.Wp, i-1, j-1, v2, v2), εp = loc(_εp_hist(old), i-1, j-1, v2, v2),
                    gc = loc(rheo.gc.c, i-1, j-1, v2, v2), l = loc(rheo.l.c, i-1, j-1, v2, v2), ηd = loc(rheo.ηd.c, i-1, j-1, v2, v2))
             _, λ̇, τ̃xy = vertex_vep(Vx, Vy, Pt, dl, τ0, mat, materials, Δ)
             τ.xy[i,j] = τ̃xy
