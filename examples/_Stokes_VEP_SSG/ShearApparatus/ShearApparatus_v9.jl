@@ -64,6 +64,7 @@ Figure of one time step from the data `d` built in `main` (also stored in the `s
 """
 function plot_shear_apparatus(d)
     it, sc, pl = d.it, d.sc, d.plasticity
+    δmm = hasproperty(d.probes, :δ) ? d.probes.δ[1:it] * sc.L * 1e3 : d.probes.t[1:it] * d.ε̇yy * d.Ly * sc.L * 1e3 # axial shortening [mm]
     return with_theme(theme_latexfonts()) do
         ftsz = 25
         fig = Figure(size=(1000, 1000)) # (1000, 1150) with the Δt panel
@@ -200,10 +201,10 @@ function plot_shear_apparatus(d)
         # scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.σxxE[1:it]*sc.σ./1e6, marker=:star5 ) #, markersize=20
         # scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.σyyN[1:it]*sc.σ./1e6, marker=:circle )
         # scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.σyyS[1:it]*sc.σ./1e6, marker=:circle )
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, -d.probe_salt.σxx[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_salt, label=L"$-\sigma_{xx}$ salt")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, -d.probe_plate.σyy[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_plate, label=has_plates ? L"$-\sigma_{yy}$ plate" : L"$-\sigma_{yy}$ load cell (boundary mean)")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, -d.probes.σxx_salt_grid[1:it]*sc.σ ./ 1e6, marker=:circle, markersize=5, color=:black, label=L"$-\sigma_{xx}$ salt (fixed cell)")
-        has_plates && scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, -d.probes.σyy_plate_grid[1:it]*sc.σ ./ 1e6, marker=:circle, markersize=5, color=:gray50, label=L"$-\sigma_{yy}$ plate (fixed cell)")
+        scatter!(ax, δmm, -d.probe_salt.σxx[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_salt, label=L"$-\sigma_{xx}$ salt")
+        scatter!(ax, δmm, -d.probe_plate.σyy[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_plate, label=has_plates ? L"$-\sigma_{yy}$ plate" : L"$-\sigma_{yy}$ load cell (boundary mean)")
+        scatter!(ax, δmm, -d.probes.σxx_salt_grid[1:it]*sc.σ ./ 1e6, marker=:circle, markersize=5, color=:black, label=L"$-\sigma_{xx}$ salt (fixed cell)")
+        has_plates && scatter!(ax, δmm, -d.probes.σyy_plate_grid[1:it]*sc.σ ./ 1e6, marker=:circle, markersize=5, color=:gray50, label=L"$-\sigma_{yy}$ plate (fixed cell)")
         axislegend(ax, position=:lt, labelsize=12, framevisible=false)
 
         # ax  = Axis(fig[0,1], xlabel="Axial shortening", ylabel="Axial stress [MPa]", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
@@ -217,18 +218,18 @@ function plot_shear_apparatus(d)
         # scatter!(ax, d.probes.t[1:it]*sc.t/3600, d.probes.τIIN[1:it]*sc.σ./1e6, marker=:diamond, markersize=20 )
 
         ax = Axis(fig[0, 2], xlabel="Axial shortening", ylabel="-τ/σ", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
-        lines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, ones(it)*0.8, linestyle=:dash, color=:gray, label=L"$0.8$")
-        lines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, ones(it)*tand(pl.ϕ[2]), linestyle=:dash, color=:gray, label=L"$\tan\phi$")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric[1:it], color=:black, label="apparent (gouge mean)")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric_lab[1:it], marker=:rect, color=c_app, label=@sprintf("apparent (apparatus) = %.4f", d.probes.app_fric_lab[it]))
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.app_fric_lab_grid[1:it], marker=:circle, markersize=5, color=:gray50, label="apparent (apparatus, fixed cells)")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probes.true_fric[1:it], marker=:utriangle, color=:black, label="true (centre)") #, markersize=20  
+        lines!(ax, δmm, ones(it)*0.8, linestyle=:dash, color=:gray, label=L"$0.8$")
+        lines!(ax, δmm, ones(it)*tand(pl.ϕ[2]), linestyle=:dash, color=:gray, label=L"$\tan\phi$")
+        scatter!(ax, δmm, d.probes.app_fric[1:it], color=:black, label="apparent (gouge mean)")
+        scatter!(ax, δmm, d.probes.app_fric_lab[1:it], marker=:rect, color=c_app, label=@sprintf("apparent (apparatus) = %.4f", d.probes.app_fric_lab[it]))
+        scatter!(ax, δmm, d.probes.app_fric_lab_grid[1:it], marker=:circle, markersize=5, color=:gray50, label="apparent (apparatus, fixed cells)")
+        scatter!(ax, δmm, d.probes.true_fric[1:it], marker=:utriangle, color=:black, label="true (centre)") #, markersize=20  
         tanα = cosd(pl.ψ[2])*sind(pl.ϕ[2]) / (1 - sind(pl.ψ[2])*sind(pl.ϕ[2]))
-        lines!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, ones(it)*tanα, linestyle=:dot, color=:gray, label=L"$\tan\alpha$")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_salt.σxy[1:it] ./ d.probe_salt.σyy[1:it], marker=:star5, color=c_salt, label="salt")
-        has_plates && scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_plate.σxy[1:it] ./ d.probe_plate.σyy[1:it], marker=:star5, color=c_plate, label="plate")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_MC1.σxy[1:it] ./ d.probe_MC1.σyy[1:it], marker=:xcross, color=c_MC1, label="probe 1 (rock)")
-        scatter!(ax, d.probes.t[1:it]*d.ε̇yy*d.Ly*sc.L*1e3, d.probe_MC2.σxy[1:it] ./ d.probe_MC2.σyy[1:it], marker=:xcross, color=c_MC2, label="probe 2 (gouge)")
+        lines!(ax, δmm, ones(it)*tanα, linestyle=:dot, color=:gray, label=L"$\tan\alpha$")
+        scatter!(ax, δmm, d.probe_salt.σxy[1:it] ./ d.probe_salt.σyy[1:it], marker=:star5, color=c_salt, label="salt")
+        has_plates && scatter!(ax, δmm, d.probe_plate.σxy[1:it] ./ d.probe_plate.σyy[1:it], marker=:star5, color=c_plate, label="plate")
+        scatter!(ax, δmm, d.probe_MC1.σxy[1:it] ./ d.probe_MC1.σyy[1:it], marker=:xcross, color=c_MC1, label="probe 1 (rock)")
+        scatter!(ax, δmm, d.probe_MC2.σxy[1:it] ./ d.probe_MC2.σyy[1:it], marker=:xcross, color=c_MC2, label="probe 2 (gouge)")
         ax.title = @sprintf("apparatus: -τ/σ = %.4f", d.probes.app_fric_lab[it])
         Legend(fig[0, 3], ax, framevisible=false, labelsize=12, rowgap=0, halign=:left)
 
@@ -281,6 +282,11 @@ end
 #         after a successful step, Δt is multiplied by Δt_inc_fac, up to Δt_max (nothing: Δt0). Δt is also limited by the CFL condition
 # nt, time_max: the run stops after nt steps or at time_max [s], whichever comes first (time_max = Inf: nt steps)
 # G_gouge: shear modulus of the gouge [Pa] (default 1 GPa)
+# σ_top: stress-controlled axial loading (nothing: imposed shortening rate ε̇yy, default). Normal stress σyy = -σ_top(t) [Pa]
+#         on the top boundary under a piston of the initial sample width (|x| ≤ w_sample/2), σ_top(t) = min(σ_top, Pbg + σ_top_rate t) (ramp, then hold);
+#         the salt columns keep the confining stress Pbg (a uniform top stress would squeeze the weak salt out). Bottom: Vy = 0.
+#         Δδ_max: largest top displacement per step [m] (default: as the reference runs, ε̇yy Ly Δt0); δ_stop: the run stops
+#         when the shortening δ exceeds δ_stop [m] (runaway). The shortening δ = ∫ mean(-Vy top, piston) dt is stored in probes.δ.
 # Gouge plasticity: friction angle ϕ_gouge + Δϕ_gouge tanh(εp/εh_gouge) [°] and cohesion C_gouge + ΔC_gouge tanh(εp/εh_gouge) [Pa], εp = ∫ε̇II_pl dt (plastic deviatoric strain rate invariant, carried by the markers).
 #         Defaults (refit 2026-11-15, _hardening_refit): ϕ_gouge = 34° (measured, not fitted), C = 1.25 + 2.8 tanh(εp/0.5) MPa,
 #         dilatancy ψ_gouge = 12° (fitted 11.7° at LR, 12° to compensate the slightly lower MR friction), with mixing = :voigt and
@@ -289,7 +295,9 @@ end
 # mixing: averaging of the rheology in interface cells (:voigt = iso-strain rate, recommended; see
 #         ../MixingSchemesReport); plastic_strain = :phase: one εp per phase (grid), carried by the markers
 @views function main(nc, nt, Δt0, θgouge, hgouge; outdir=nothing, nsave=10, niter=10, restart=0, ncheck=100, Pic2Newt=Inf, line_search=:backtracking, niter_KSP=60, plates=false, ϵ_nl_last=1e-5,
-                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=0.5, ψ_gouge=12.0, G_gouge=1e9, mixing=:voigt, plastic_strain=:phase)
+                     Δt_red_fac=2.0, Δt_inc_fac=1.25, ntry=4, Δt_max=nothing, time_max=Inf, ϕ_gouge=34.0, C_gouge=1.25e6, Δϕ_gouge=0.0, ΔC_gouge=2.8e6, εh_gouge=0.5, ψ_gouge=12.0, G_gouge=1e9, mixing=:voigt, plastic_strain=:phase,
+                     plasticity=DruckerPragerCap, θt=25.0,
+                     σ_top=nothing, σ_top_rate=0.06e6, Δδ_max=6.55e-6, δ_stop=Inf)
     #--------------------------------------------#
 
     # Scaling
@@ -310,6 +318,10 @@ end
     θgouge    = (θgouge) / 180*π
     ε̇yy       = 1.31e-6*sc.t
     Pbg       = 1e7/sc.σ
+    stress_control = σ_top !== nothing
+    σ_top_of(t) = stress_control ? min(σ_top/sc.σ, Pbg + σ_top_rate/sc.σ*sc.t*t) : 0.0 # top load at time t (nondimensional)
+    Δδ_max    = Δδ_max/sc.L
+    δ_stop    = δ_stop/sc.L
 
     𝐱_probe_salt = (width/2 - t_salt/2, height/2) # apparatus response (plate and salt), centre of the salt
     𝐱_probe_plate = (0.000/sc.L, 0.002/sc.L) # apparatus response (plate and salt)
@@ -320,7 +332,7 @@ end
     𝐱_probe_MC2 = (0.0, height/2) # gouge centre
 
     # Boundary loading type
-    config = :EW_stress
+    config = stress_control ? :ENW_stress : :EW_stress # ENW: normal stress also on the top boundary
     # config = :free_slip
     D_BC = @SMatrix([ε̇yy 0.;
                      0 -ε̇yy])
@@ -329,7 +341,7 @@ end
 
       # Material parameters
     nphases                   = 4
-    plasticity                = DruckerPragerCap # DruckerPrager: no tension cap (then comment the Pt line below)
+    # plasticity: DruckerPragerCap (default), or MohrCoulomb (same tension cap in the (k(θ)τII, P) plane; θt: Abbo-Sloan corner rounding [°], 0: exact)
     materials                 = initialize_materials(nphases; compressible=true, plasticity, mixing, plastic_strain)  # mixing: phase averaging in interface cells (:default, :voigt, :reuss, :isowork); plastic_strain: :mixed or :phase
     materials.n              .= [1.0,   1.0,    1.0,    1.0]                                                        # Power law exponent
     materials.η0             .= [1e48,  1e28,   1e10,   1e48]  ./ sc.σ ./ sc.t                                    # Reference viscosity 
@@ -338,11 +350,12 @@ end
     materials.plasticity.C   .= [45e6,  C_gouge, 15e60,  15e60] ./ sc.σ                                        # Cohesion
     materials.plasticity.ϕ   .= [36.13, ϕ_gouge, 36.13,  36.13]                                                       # Friction angle
     materials.plasticity.ψ   .= [0.0,   ψ_gouge, 0.0,    0.0]                                                        # Dilation angle
-    materials.plasticity.Pt  .= [-10e6, -0.5e6, -1e60,  -1e60] ./ sc.σ                                         # Tensile strength (DruckerPragerCap), must be > -C/tanϕ
+    materials.plasticity.Pt  .= [-10e6, -0.5e6, -1e60,  -1e60] ./ sc.σ                                         # Tensile strength (cap), must be > -C/tanϕ
     materials.plasticity.ηvp .= [1e10,  1e8,    5e11,   5e11] .* 10/sc.σ ./ sc.t                                   # Viscoplastic regularisation
     materials.plasticity.Δϕ  .= [0.0,   Δϕ_gouge, 0.0,  0.0]                                                       # Strain hardening: ϕ + Δϕ tanh(εp/εh) [°] (0: none)
     materials.plasticity.ΔC  .= [0.0,   ΔC_gouge, 0.0,  0.0] ./ sc.σ                                              # Strain hardening: C + ΔC tanh(εp/εh) [Pa] (0: none)
     materials.plasticity.εh  .= [1.0,   εh_gouge, 1.0,  1.0]                                                       # Plastic strain scale of the hardening
+    plasticity === MohrCoulomb && (materials.plasticity.θt .= θt)                                                    # Abbo-Sloan corner rounding (Mohr-Coulomb)
       # materials.plasticity.soft .= [0.0, 0.0, 0.0, 0.0]             # softening ?
     #                            rock   gouge   salt    plates
     preprocess!(materials)
@@ -459,7 +472,7 @@ end
 
     rvec        = zeros(length(iter_params.α))
     err         = (x=zeros(iter_params.niter), y=zeros(iter_params.niter), p=zeros(iter_params.niter))
-    probes      = (Δt=zeros(nt), τII=zeros(nt),τIIW=zeros(nt), τIIE=zeros(nt), τIIS=zeros(nt), τIIN=zeros(nt), true_fric=zeros(nt), app_fric=zeros(nt), app_fric_lab=zeros(nt), t=zeros(nt), εxx=zeros(nt), εyy=zeros(nt), σyyN=zeros(nt), σyyS=zeros(nt), σxxW=zeros(nt), σxxE=zeros(nt), PW=zeros(nt), PE=zeros(nt), minθ=zeros(nt), maxθ=zeros(nt), meanθ=zeros(nt),
+    probes      = (δ=zeros(nt), Δt=zeros(nt), τII=zeros(nt),τIIW=zeros(nt), τIIE=zeros(nt), τIIS=zeros(nt), τIIN=zeros(nt), true_fric=zeros(nt), app_fric=zeros(nt), app_fric_lab=zeros(nt), t=zeros(nt), εxx=zeros(nt), εyy=zeros(nt), σyyN=zeros(nt), σyyS=zeros(nt), σxxW=zeros(nt), σxxE=zeros(nt), PW=zeros(nt), PE=zeros(nt), minθ=zeros(nt), maxθ=zeros(nt), meanθ=zeros(nt),
                    σxx_salt_grid=zeros(nt), σyy_plate_grid=zeros(nt), P_salt_grid=zeros(nt), app_fric_lab_grid=zeros(nt)) # *_grid: old (v7) way, fixed cells
     probe_salt  = (σxx=zeros(nt), σyy=zeros(nt), σzz=zeros(nt), σxy=zeros(nt), τII=zeros(nt), P=zeros(nt), x=zeros(nt), y=zeros(nt))
     probe_plate = (σxx=zeros(nt), σyy=zeros(nt), σzz=zeros(nt), σxy=zeros(nt), τII=zeros(nt), P=zeros(nt), x=zeros(nt), y=zeros(nt))
@@ -497,6 +510,9 @@ end
     grid_old = deepcopy(state.grid)
 
     t_end = iter_params.time_max * (1 - 1e-10) # end of the run (tolerance: round-off in the sum of the Δt)
+    # Piston: fixed width = initial sample width (top Vy nodes over |x| ≤ w_sample/2). A mask that follows the sample phases
+    # changes width when dilatancy widens the sample at the top (one cell ≈ 1 % of the load): spurious jumps of the slip rate
+    top_sample = [abs(a.X.vy_e.x[i]) <= w_sample/2 for i in inx_Vy]
     time >= t_end && @info "Restart: time_max already reached"
     for it=restart+1:iter_params.nt_max
         time >= t_end && break
@@ -504,11 +520,18 @@ end
         # Adaptive time step, limited by the CFL condition and by time_max (the last step ends exactly at time_max)
         Vmax   = max(maximum(abs.(a.V.x)), maximum(abs.(a.V.y)))
         Δt_CFL = Vmax > 0 ? 0.5*min(Δ.x, Δ.y)/Vmax : Inf
+        # Stress control: top displacement per step ≤ Δδ_max (velocity of the last step)
+        if stress_control
+            Vtop   = maximum(abs, a.V.y[inx_Vy, end-1])
+            Δt_CFL = min(Δt_CFL, Vtop > 0 ? Δδ_max / Vtop : Inf)
+        end
         restore_state!(grid_old, state.grid)
 
         # Main loop: solver and advection -------------------------------------------------------------------
         for itry = 0:iter_params.ntry
             Δ = (x=Δ.x, y=Δ.y, t=min(Δt, Δt_CFL, iter_params.time_max - time))
+            # Top load at the end of the step: σ_top(t) on the sample, confining stress on the salt
+            stress_control && (BC.Vy[inx_Vy, end-1] .= ifelse.(top_sample, -σ_top_of(time + Δ.t), -Pbg))
             try
                 @time main_loop(a, adv, tm, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
                 break
@@ -520,7 +543,10 @@ end
             end
         end
         time += Δ.t
-        done  = time >= t_end # last step: always saved (figure, step file, checkpoint)
+        # Axial shortening: mean downward velocity of the top boundary under the piston (= ε̇yy Ly t with imposed shortening rate)
+        probes.δ[it] = (it > 1 ? probes.δ[it-1] : 0.0) - mean(a.V.y[inx_Vy, end-1][top_sample]) * Δ.t
+        done  = time >= t_end || probes.δ[it] >= δ_stop # last step: always saved (figure, step file, checkpoint)
+        probes.δ[it] >= δ_stop && @info @sprintf("Shortening %.3f mm ≥ δ_stop: end of the run", probes.δ[it]*sc.L*1e3)
         probes.Δt[it] = Δ.t
         Δt = min(Δ.t * iter_params.Δt_inc_fac, Δt_max) # try a larger time step for the next one
         Set_Grid_Phases!(a)

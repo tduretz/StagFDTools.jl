@@ -69,7 +69,9 @@ function update_solution!(a::Allocs, materials, BC, nc, Δ, to, rvec, iter, ϵ0,
     @timeit to "Linear solve" begin
         if iter_params.solver_type === :GCR
             a.gcr.initialized || setup_gcr!(a.gcr, a.M, a.M_PC; restart=20)
-            (refresh_PC || a.gcr.Kf === nothing) && @timeit to "Preconditioner" update_preconditioner!(a.gcr, a.M_PC; ηb=iter_params.γ)
+            # pc_type = :sym_newton: Newton steps preconditioned with the symmetrised Newton Kuu (Picard Kup, Kpu)
+            M_N = (Newton && iter_params.pc_type === :sym_newton) ? a.M : nothing
+            (refresh_PC || a.gcr.Kf === nothing) && @timeit to "Preconditioner" update_preconditioner!(a.gcr, a.M_PC; ηb=iter_params.γ, M_N)
             update_operator!(a.gcr, Newton ? a.M : a.M_PC)
             its = KSP_GCR_Stokes!(a.dx, a.gcr, a.r; ϵ_l=ϵ_l, maxit=iter_params.niter_KSP, noisy=false)
         elseif Newton
@@ -96,8 +98,11 @@ function Solve!(a::Allocs, materials, BC, nc, Δ, to,
     rvec, iter, ϵ0, ϵ, iter_params; mk=nothing)
     # Picard iterations until the relative residual drops below Pic2Newt, then Newton
     Newton = ϵ / ϵ0 < iter_params.Pic2Newt
-    # Picard preconditioner: at each Picard iteration (it is the operator), else once per step if PC_refresh = :step
-    refresh_PC = !Newton || iter == 1 || iter_params.PC_refresh !== :step || iter_params.solver_type !== :GCR
+    # Picard preconditioner: at each Picard iteration (it is the operator), else once per step if PC_refresh = :step;
+    # pc_type = :sym_newton: the preconditioner depends on the Newton matrix, refreshed at each Newton iteration
+    iter_params.pc_type in (:picard, :sym_newton) || error("pc_type must be :picard or :sym_newton (got :$(iter_params.pc_type))")
+    sym_pc = Newton && iter_params.pc_type === :sym_newton
+    refresh_PC = sym_pc || !Newton || iter == 1 || iter_params.PC_refresh !== :step || iter_params.solver_type !== :GCR
     @timeit to "Assembly" _assemble!(a, materials, BC, nc, Δ; Newton, refresh_PC)
     return update_solution!(a, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params; Newton, refresh_PC, mk)
 end

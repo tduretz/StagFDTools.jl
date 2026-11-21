@@ -74,6 +74,10 @@ end
     ϵ̇yy = a * ε̇[2] + T0[2][p][I] * _2GΔt
     ϵ̇xy = a * ε̇[3] + T0[3][p][I] * _2GΔt
     ϵ̇II = sqrt((ϵ̇xx^2 + ϵ̇yy^2 + (-ϵ̇xx - ϵ̇yy)^2) / 2 + ϵ̇xy^2 + eps0^2) # regularised inside: finite derivative at ϵ̇ = 0 (iso-work, a = 0)
+    if materials.plasticity isa MohrCoulomb # stress not coaxial with ϵ̇ (Rheology_MohrCoulomb.jl)
+        τp, Pp, λ̇p, ε̇plp, η = phase_vep_tensor(SVector(ϵ̇xx, ϵ̇yy, ϵ̇xy), Ptr, ε̇kk, P0p, G, materials, p, Δ, Tk, _εp(εp, p), Ω)
+        return τp, Pp, λ̇p, η, ε̇plp
+    end
     τII, Pp, λ̇p, ε̇plp = phase_vep(ϵ̇II, Ptr, ε̇kk, P0p, G, materials, p, Δ, Tk, _εp(εp, p), Ω)
     η = τII / (2 * ϵ̇II)
     return SVector{3}(2η * ϵ̇xx, 2η * ϵ̇yy, 2η * ϵ̇xy), Pp, λ̇p, η, ε̇plp

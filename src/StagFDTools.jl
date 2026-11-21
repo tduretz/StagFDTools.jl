@@ -24,7 +24,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, MohrCoulomb, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
 export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers
@@ -35,8 +35,9 @@ module Rheology
 using StaticArrays, StagFDTools, LinearAlgebra
 include("Rheology.jl")
 include("Rheology_Reuss.jl")
+include("Rheology_MohrCoulomb.jl")
 export _mixing, _per_phase_stress, _phase_pressure, _plastic_strain, _εp, PhaseStrain, phase_plastic_rates!, phase_vep, LocalRheology_Reuss, reuss_max_phases
-export LocalRheology, StressVector!, update_rate_state
+export LocalRheology, StressVector!, update_rate_state, phase_vep_tensor, mc_strain_rate_II, mc_phase
 export LocalRheology_div, StressVector_div!
 export Yield, Potential, invII
 end
@@ -78,6 +79,17 @@ include("Main.jl")
 export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!, update_plastic_strain!
 export assemble_jacobian!, set_block_matrices!
 export compute_vorticity!
+end
+module StokesVariational
+using LinearAlgebra, StaticArrays, SparseArrays, Printf, StagFDTools, StagFDTools.Stokes
+using JustPIC
+using CellArraysIndexing: @index
+import StagFDTools.Stokes: allocate_matrices, assembly_loop, _target, pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!, foreach_marker, zero_gradient!
+include("StokesVariational.jl")
+export VariationalWeights, VariationalFreeSurface, fluid_fractions!, flag_free_surface!, numbering_free_surface!, update_free_surface!
+export set_phases_from_chain!, remove_air_phase!, set_grid_phases_free_surface!, advect_free_surface!, fill_velocity_ghosts!
+export plastic_strain_ToParticles_FS!, plastic_strain_ToGrid_FS!
+export residuals_free_surface!, assemble_free_surface!, solve_free_surface!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology

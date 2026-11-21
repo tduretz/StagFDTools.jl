@@ -252,11 +252,13 @@ function AnalyticalReturnMapping(τII, P, ηve, comp, β, Δt, C, cosϕ, sinϕ, 
     λ̇ = zero(τII)
     F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
     if F > 1e-10
+        τ_trial = τII
         λ̇ = F / (ηve + ηvp + comp * Δt / β * sinϕ * sinψ)
         τII -= λ̇ * ηve
         P += comp * λ̇ * sinψ * Δt / β
         F = τII - C * cosϕ - P * sinϕ - λ̇ * ηvp
-        (F > 1e-10) && error("Failed return mapping")
+        # relative check: after the (exact) return, F is round-off of the order of eps × τ_trial
+        (F > 1e-10 * (1 + abs(τ_trial))) && error("Failed return mapping")
     end
     return τII, P, λ̇
 end
@@ -310,11 +312,11 @@ end
 # Local Newton on (τII, P, λ̇), converged to machine precision so that the global Newton is not polluted.
 # Backtracking line search on |R|: full Newton steps can cycle between the cap and the Drucker-Prager branches
 # (e.g. trial stress far in tension)
-function CapReturnMapping(τII, P, ηve, comp, β, Δt, p; α_min=1e-8)
+function CapReturnMapping(τII_in, P_in, ηve_in, comp, β, Δt, p; α_min=1e-8)
     # Common number type of the unknowns and of the parameters (implicit hardening: p depends on dual numbers), so that the
-    # local jacobian nests its dual numbers outside those of p
-    Tp = promote_type(typeof(τII), typeof(P), typeof(ηve), typeof(p.k), typeof(p.c), typeof(p.py), typeof(p.pq))
-    τII, P, ηve = Tp(τII), Tp(P), Tp(ηve)
+    # local jacobian nests its dual numbers outside those of p (new names: every variable keeps one type)
+    Tp = promote_type(typeof(τII_in), typeof(P_in), typeof(ηve_in), typeof(p.k), typeof(p.c), typeof(p.py), typeof(p.pq))
+    τII, P, ηve = Tp(τII_in), Tp(P_in), Tp(ηve_in)
     yield_Cap(τII, P, p) <= 0 && return τII, P, zero(τII)
     KΔt = comp * Δt / β
     x   = SVector(τII, P, zero(τII))
@@ -398,8 +400,8 @@ _hardening_g(ε, εp0, τII, P, ηve, comp, β, Δt, pl, ph) =
 function HardeningReturnMapping(τII, P, ηve, comp, β, Δt, pl, ph, εp0; tol=1e-12, niter=50)
     p0 = cap_parameters(pl, ph, εp0)
     yield_Cap(τII, P, p0) <= 0 && return τII, P, zero(τII) # elastic trial with the start-of-step parameters
-    lo, hi = εp0, εp0 + Δt * τII / (2ηve)
     ε = εp0 + Δt * (τII - CapReturnMapping(τII, P, ηve, comp, β, Δt, p0)[1]) / (2ηve) # lagged estimate
+    lo, hi = convert(typeof(ε), εp0), convert(typeof(ε), εp0 + Δt * τII / (2ηve))       # one type for the bracket
     scale = Δt * τII / (2ηve) + 1e-30
     for _ in 1:niter
         g, dg = fd_value_and_derivative(_hardening_g, ε, εp0, τII, P, ηve, comp, β, Δt, pl, ph)
@@ -583,7 +585,10 @@ end
 
 # Dispatch on materials.mixing (shared-τ0 schemes; :voigt and :isowork: see TangentOperator_Voigt!)
 function phase_plastic_rates!(ε̇plph, I, ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0)
-    if _mixing(materials) === :reuss
+    if materials.plasticity isa MohrCoulomb
+        _mixing(materials) === :reuss ? phase_plastic_rates_MC_Reuss!(ε̇plph, I, ε̇, Ggrid, materials, phase_ratios, Δ, Tk, εp) :
+                                        phase_plastic_rates_MC!(ε̇plph, I, ε̇, Ggrid, materials, phase_ratios, Δ, Tk, εp)
+    elseif _mixing(materials) === :reuss
         phase_plastic_rates_partition!(ε̇plph, I, ReussRule(), ε̇, Dkk, P0, materials, phase_ratios, Δ, Tk, εp, Ω)
     else
         phase_plastic_rates_default!(ε̇plph, I, ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk, εp, Ω)
@@ -699,6 +704,11 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ, Tk=not
 end
 
 function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk=nothing, εp=0.0, Ω=0.0) where {N,T}
+    # Mohr-Coulomb: stress not coaxial with the effective strain rate (Rheology_MohrCoulomb.jl)
+    if materials.plasticity isa MohrCoulomb
+        return _mixing(materials) === :reuss ? StressVector_MC_Reuss(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp) :
+                                              StressVector_MC(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp)
+    end
     η, λ̇, P, τII = _mixing(materials) === :reuss ?
         LocalRheology_Reuss(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω) :
         LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω)
