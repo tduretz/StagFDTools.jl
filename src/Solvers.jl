@@ -147,6 +147,8 @@ Base.@kwdef mutable struct StokesGCRCache
     𝐌::SparseMatrixCSC{Float64,Int64}    = spzeros(0, 0)   # [Kuu Kup; Kpu Kpp] of the operator (M or M_PC)
     map𝐌::Vector{Vector{Int64}}          = Vector{Int64}[] # position of the nonzeros of each block in 𝐌
     Kuu::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)   # preconditioner blocks (from M_PC)
+    KuuN::SparseMatrixCSC{Float64,Int64} = spzeros(0, 0)   # Newton Kuu (from M), for pc_type = :sym_newton
+    sym_fallbacks::Int                   = 0               # pc_type = :sym_newton: solves that fell back to the Picard factor (not positive definite)
     Kup::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)
     Kpu::SparseMatrixCSC{Float64,Int64}  = spzeros(0, 0)
     mapKuu::Vector{Vector{Int64}}        = Vector{Int64}[]
@@ -206,6 +208,7 @@ function setup_gcr!(c::StokesGCRCache, M, M_PC; restart=20)
     all(same_pattern.(B, BPC)) || error("setup_gcr!: M and M_PC must have the same sparsity pattern")
     c.𝐌, c.map𝐌     = concat_blocks(((B[1], B[2], B[3]), (B[4], B[5], B[6]), (B[7], B[8], B[9])))
     c.Kuu, c.mapKuu = concat_blocks(((BPC[1], BPC[2]), (BPC[4], BPC[5])))
+    c.KuuN = copy(c.Kuu)                                    # same pattern (M and M_PC share it)
     c.Kup, c.mapKup = concat_blocks(((BPC[3],), (BPC[6],)))
     c.Kpu, c.mapKpu = concat_blocks(((BPC[7], BPC[8]),))
     N, ndofu = size(c.𝐌, 1), size(c.Kuu, 1)
@@ -219,20 +222,50 @@ function setup_gcr!(c::StokesGCRCache, M, M_PC; restart=20)
     return c
 end
 
-# Refill the preconditioner blocks from M_PC, form the Schur complement and factorise it (numeric only if the pattern is unchanged)
-function update_preconditioner!(c::StokesGCRCache, M_PC; ηb=1e5)
+"""
+    update_preconditioner!(c::StokesGCRCache, M_PC; ηb=1e5, M_N=nothing, φp=nothing)
+
+Refill the preconditioner blocks, form the Schur complement Kuu_pc - Kup P⁻¹ Kpu and factorise it by Cholesky
+(numeric only if the pattern is unchanged). Kup, Kpu, Kpp always come from the Picard operator `M_PC`; Kuu_pc is the
+Picard Kuu (`M_N === nothing`, `pc_type = :picard`) or the symmetrised Newton Kuu ½(Kuu + Kuuᵀ) of `M_N`
+(`pc_type = :sym_newton`). P⁻¹ = 1/diag(Kpp), or the penalty ηb where Kpp = 0 (incompressible); with `φp` (fluid
+fraction of each pressure cell, variational free surface) P⁻¹ = 1 / (|diag(Kpp)| + φp/ηb): the continuity rows of cut
+cells carry φp, a uniform penalty would leave them weakly constrained.
+If the symmetrised Newton Schur complement is not positive definite, the Picard factor is used for this solve
+(counted in `c.sym_fallbacks`); there is no LU fallback.
+"""
+function update_preconditioner!(c::StokesGCRCache, M_PC; ηb=1e5, M_N=nothing, φp=nothing)
     BPC = stokes_blocks(M_PC)
     fill_blocks!(c.Kuu, c.mapKuu, (BPC[1], BPC[2], BPC[4], BPC[5]))
     fill_blocks!(c.Kup, c.mapKup, (BPC[3], BPC[6]))
     fill_blocks!(c.Kpu, c.mapKpu, (BPC[7], BPC[8]))
     d = diag(BPC[9])
-    @. c.Pinv = ifelse(d == 0, ηb, 1.0 / d) # incompressible: penalty
-    Kuusc = c.Kuu - c.Kup * spdiagm(c.Pinv) * c.Kpu
+    if φp === nothing
+        @. c.Pinv = ifelse(d == 0, ηb, 1.0 / d) # incompressible: penalty
+    else
+        @. c.Pinv = 1.0 / (abs(d) + φp / ηb)
+    end
+    Kuu = if M_N === nothing
+        (c.Kuu + c.Kuu') ./ 2       # symmetric already; same pattern as the :sym_newton case (symbolic factorisation reused)
+    else
+        BN = stokes_blocks(M_N)
+        fill_blocks!(c.KuuN, c.mapKuu, (BN[1], BN[2], BN[4], BN[5]))
+        (c.KuuN + c.KuuN') ./ 2
+    end
+    Kuusc = Kuu - c.Kup * spdiagm(c.Pinv) * c.Kpu
     if c.Kf !== nothing && same_pattern(Kuusc, c.Kuusc)
         cholesky!(c.Kf, Hermitian(Kuusc), check=false)
     else
         c.Kf = cholesky(Hermitian(Kuusc), check=false)
     end
+    if !issuccess(c.Kf) && M_N !== nothing
+        # Symmetrised Newton Kuu not positive definite (e.g. strongly softening/far-from-equilibrium plastic states):
+        # Picard factor for this solve (same pattern, numeric refactorisation only)
+        c.sym_fallbacks += 1
+        Kuusc = (c.Kuu + c.Kuu') ./ 2 - c.Kup * spdiagm(c.Pinv) * c.Kpu
+        cholesky!(c.Kf, Hermitian(Kuusc), check=false)
+    end
+    issuccess(c.Kf) || @warn "update_preconditioner!: Cholesky factorisation failed (preconditioner not positive definite)"
     c.Kuusc = Kuusc
     return c
 end

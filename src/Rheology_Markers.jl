@@ -52,6 +52,10 @@ end
     ϵ̇xy = ε̇[3] + τ0xy * _2GΔt
     ϵ̇II = sqrt((ϵ̇xx^2 + ϵ̇yy^2 + (-ϵ̇xx - ϵ̇yy)^2) / 2 + ϵ̇xy^2 + 1e-34)
     Ptr = materials.compressible ? P0m + βr * (ε̇[4] - P0c) : one(P0m) * ε̇[4]
+    if materials.plasticity isa MohrCoulomb # stress not coaxial with ϵ̇ (Rheology_MohrCoulomb.jl)
+        τ, Pp, λ̇, ε̇pl, η = phase_vep_tensor(SVector(ϵ̇xx, ϵ̇yy, ϵ̇xy), Ptr, ε̇kk, P0m, G, materials, p, Δ, Tk, εpm, Ω)
+        return SVector{4}(τ[1], τ[2], τ[3], Pp), η, λ̇, mc_strain_rate_II(τ), ε̇pl
+    end
     τII, Pp, λ̇, ε̇pl = phase_vep(ϵ̇II, Ptr, ε̇kk, P0m, G, materials, p, Δ, Tk, εpm, Ω)
     η = τII / (2 * ϵ̇II)
     return SVector{4}(2η * ϵ̇xx, 2η * ϵ̇yy, 2η * ϵ̇xy, Pp), η, λ̇, τII, ε̇pl

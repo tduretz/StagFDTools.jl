@@ -18,6 +18,7 @@ Base.@kwdef struct IterParams
     Pic2Newt::Float64   = Inf                   # Picard until ϵ/ϵ0 < Pic2Newt, then Newton (> 1: Newton only)
     α_Picard::Float64   = 3.0                   # first trial step of the backtracking for Picard iterations
     PC_refresh::Symbol  = :step                 # solver_type = :GCR: Picard preconditioner assembled and factorised once per time step (:step) or at each Newton iteration (:iteration); always at Picard iterations
+    pc_type::Symbol     = :picard               # solver_type = :GCR, Newton steps: Cholesky factor of the Schur complement built from the Picard Kuu (:picard) or from the symmetrised Newton Kuu, ½(Kuu + Kuuᵀ) (:sym_newton, refreshed at each Newton iteration; better for plasticity, e.g. ~2× fewer GCR iterations on Duretz et al. 2018)
     Δt_red_fac::Float64 = 2.0                   # adaptive time stepping: a failed step is restarted with Δt/Δt_red_fac...
     ntry::Int64         = 4                     # ...at most ntry times
     Δt_inc_fac::Float64 = 1.25                  # after a successful step, Δt is multiplied by Δt_inc_fac
@@ -37,6 +38,25 @@ Base.@kwdef struct DruckerPrager{T} <: AbstractPlasticity
     ϕ::T    = Float64[]
     ψ::T    = Float64[]
     ηvp::T  = Float64[]
+    cosϕ::T = Float64[]
+    sinϕ::T = Float64[]
+    sinψ::T = Float64[]
+    cosψ::T = Float64[]
+end
+
+# Mohr-Coulomb (σ2-independent), tensorial return mapping (Rheology_MohrCoulomb.jl). Non-associated: flow potential = yield
+# function with ψ in place of ϕ. θt [°]: 0 → exact Mohr-Coulomb written with the principal stresses (de Borst, 1990; corners
+# at the triaxial states), > 0 → Abbo & Sloan (1995) rounding of the corners for |θ| > θt (Lode angle, e.g. 25-29°)
+Base.@kwdef struct MohrCoulomb{T} <: AbstractPlasticity
+    C::T    = Float64[]
+    ϕ::T    = Float64[]
+    ψ::T    = Float64[]
+    ηvp::T  = Float64[]
+    θt::T   = Float64[]
+    Pt::T   = Float64[]  # Tension cap (as DruckerPragerCap, in the (k(θ)τII, P) plane), must be > -C/tanϕ; -Inf: no cap
+    Δϕ::T   = Float64[]  # Strain hardening: ϕ(εp) = ϕ + Δϕ tanh(εp/εh) [°] (0: no hardening)
+    ΔC::T   = Float64[]  # Strain hardening: C(εp) = C + ΔC tanh(εp/εh)
+    εh::T   = Float64[]
     cosϕ::T = Float64[]
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
@@ -215,6 +235,22 @@ initialize(::Type{VonMises}, n::Integer) = VonMises(
     sinϕ = zeros(n),
     sinψ = zeros(n),
     cosψ = zeros(n)
+)
+
+initialize(::Type{MohrCoulomb}, n::Integer) = MohrCoulomb(
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    θt   = zeros(n),
+    Pt   = fill(-Inf, n),
+    Δϕ   = zeros(n),
+    ΔC   = zeros(n),
+    εh   = ones(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = ones(n)
 )
 
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
@@ -420,6 +456,13 @@ function preprocess!(dp::DruckerPrager)
     @. dp.sinϕ = sind(dp.ϕ)
     @. dp.sinψ = sind(dp.ψ)
     @. dp.cosψ = cosd(dp.ψ)
+end
+
+function preprocess!(mc::MohrCoulomb)
+    @. mc.cosϕ = cosd(mc.ϕ)
+    @. mc.sinϕ = sind(mc.ϕ)
+    @. mc.sinψ = sind(mc.ψ)
+    @. mc.cosψ = cosd(mc.ψ)
 end
 
 function preprocess!(dp::DruckerPragerCap)

@@ -140,6 +140,22 @@ function set_boundaries_template!(type, config, nc)
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
 
+    elseif config == :ENW_stress
+        # Normal stress on the east, west and north sides, Vy imposed at the south (stress-controlled axial loading)
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx] .= :in
+        type.Vx[1, iny_Vx] .= :normal_stress
+        type.Vx[end, iny_Vx] .= :normal_stress
+        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
+        type.Vx[inx_Vx, end-1] .= :Dirichlet_tangent
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy] .= :in
+        type.Vy[2, iny_Vy] .= :Dirichlet_tangent
+        type.Vy[end-1, iny_Vy] .= :Dirichlet_tangent
+        type.Vy[inx_Vy, 2] .= :Dirichlet_normal
+        type.Vy[inx_Vy, end] .= :normal_stress
+        # -------- Pt -------- #
+        type.Pt[2:(end-1), 2:(end-1)] .= :in
     elseif config == :EW_stress
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
@@ -207,7 +223,9 @@ function set_boundaries_template!(type, config, nc)
     end
 end
 
-function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, materials, type, bcv, Δ)
+# φ (optional): volume fractions of the stress control volumes, φ = (c=SVector{2}, v=SVector{2}), used by the
+# variational free surface (StokesVariational): the stresses are weighted by the fluid fraction of their control volume
+function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, materials, type, bcv, Δ; φ=nothing)
 
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0
 
@@ -288,6 +306,12 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
         τxy = SVector{2}(τxy[1], bcv.x[2,end])
     end
 
+    # Variational free surface: weight by the fluid fraction of the stress control volumes
+    if φ !== nothing
+        σxx = φ.c .* σxx
+        τxy = φ.v .* τxy
+    end
+
     # Residual
     fx = (σxx[2] - σxx[1]) * invΔx
     fx += (τxy[2] - τxy[1]) * invΔy
@@ -297,7 +321,9 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
     return fx
 end
 
-function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, materials, type, bcv, Δ)
+# φ (optional): see SMomentum_x_Generic, plus φ.Vy, the fluid fraction of the Vy control volume (weights gravity)
+# θ_fs (optional): free surface stabilisation parameter (0: off)
+function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, materials, type, bcv, Δ; φ=nothing, θ_fs=0.0)
 
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0
 
@@ -384,8 +410,25 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
         τxy = SVector{2}(τxy[1], bcv.y[end,2])
     end
 
+    # Variational free surface: weight by the fluid fraction of the stress and Vy control volumes
+    if φ !== nothing
+        σyy = φ.c .* σyy
+        τxy = φ.v .* τxy
+        ρg *= φ.Vy
+    end
+
+    # Free surface stabilisation (Kaus et al., 2010; Duretz et al., 2011, Eq. 25): body force evaluated with the
+    # density expected at t + θΔt, ρ - θΔt v⋅∇ρ. Only the diagonal (symmetric) part -θΔt g_y ∂ρ/∂y Vy is kept,
+    # the asymmetric ∂ρ/∂x Vx coupling is neglected. With φ, ρ is the effective density φc ρ (free surface jump).
+    fstab = zero(eltype(Vy_loc))
+    if θ_fs > 0
+        ρ̃ = φ === nothing ? ρ : φ.c .* ρ
+        fstab = -θ_fs * Δ.t * materials.g[2] * (ρ̃[2] - ρ̃[1]) * invΔy * Vy_loc[2, 2]
+    end
+
     # Residual
     fy = (σyy[2] - σyy[1]) * invΔy
+    fy += fstab
     fy += (τxy[2] - τxy[1]) * invΔx
     fy += ρg
     fy *= -Δ.x * Δ.y
