@@ -92,7 +92,7 @@ function KSP_GCR_Stokes!(
                 mul!(tmpu, Kup, tmpp)
                 @. fusc = fu - tmpu
 
-                ldiv!(su, Kf, fusc)
+                su .= Kf \ fusc   # not ldiv!: ldiv!(x, ::CHOLMOD.Factor, b) leaks one vector per call (SparseArrays, Julia 1.12)
 
                 mul!(tmpp, Kpu, su)
 
@@ -305,7 +305,7 @@ function KSP_GCR_Stokes!(x, c::StokesGCRCache, r; ϵ_l=1e-9, maxit=1000, noisy=t
                 mul!(tmpu, Kup, tmpp)
                 @. fusc = fu - tmpu
 
-                ldiv!(su, Kf, fusc)
+                su .= Kf \ fusc   # not ldiv!: ldiv!(x, ::CHOLMOD.Factor, b) leaks one vector per call (SparseArrays, Julia 1.12)
 
                 mul!(tmpp, Kpu, su)
 
