@@ -375,7 +375,7 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ; phase_
         n = materials.n[phases]
         η0 = materials.η0[phases]
         B = materials.B[phases]
-        G = Ggrid
+        G = materials.G[phases] #Ggrid
         β = materials.β[phases]
         comp = materials.compressible
 
@@ -406,13 +406,13 @@ function LocalRheology(ε̇, Dkk, P0, Ggrid, materials, phase_ratios, Δ; phase_
         ηvep = τII / (2 * ε̇II)
 
         # Phase averaging
-        η_average += PhaseAverage_summand(ηvep, phase_ratios[phases], phase_avg)
+        η_average += PhaseAverage_summand(ηvep, phase_ratios[phases], :harmonic)
         P_average += PhaseAverage_summand(P, phase_ratios[phases], phase_avg)
         λ̇_average += PhaseAverage_summand(λ̇, phase_ratios[phases], phase_avg)
         τ_average += PhaseAverage_summand(τII, phase_ratios[phases], phase_avg)
     end
 
-    η_average = PhaseAverage(η_average, phase_avg)
+    η_average = PhaseAverage(η_average, :harmonic)
     P_average = PhaseAverage(P_average, phase_avg)
     λ̇_average = PhaseAverage(λ̇_average, phase_avg)
     τ_average = PhaseAverage(τ_average, phase_avg)

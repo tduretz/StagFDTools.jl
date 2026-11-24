@@ -6,7 +6,7 @@ using DifferentiationInterface
 using ForwardDiff: ForwardDiff
 using JustPIC
 using CellArraysIndexing: @index
-const save = false
+const save = true
 const figpath = "/Users/filippozarabara/Documents/PHD/MEDIA/I_manuscript_runs/power_law"
 const ad_backend = AutoForwardDiff()
 const backend = JustPIC.CPU
@@ -23,8 +23,17 @@ function set_phases_geometry!(phases, particles, layering)
     end
 end
 
+# Mean (macroscopic) stress metrics over the inner subdomain
+function macro_stress(a, inner_x, inner_y)
+    τxx       = mean(a.τ.xx[inner_x, inner_y])
+    τyy       = mean(a.τ.yy[inner_x, inner_y])
+    τxy       = mean(av2D(a.τ.xy[inner_x, inner_y]))
+    τII_macro = sqrt(0.5 * (τxx^2 + τyy^2 + (-τxx - τyy)^2) + τxy^2)
+    τII_mean  = mean(a.τ.II[inner_x, inner_y])
+    return (Τxx=τxx, Τyy=τyy, Τxy=τxy, ΤII_macro=τII_macro, ΤII_mean=τII_mean)
+end
 
-@views function main(nc, nt, L, layering, BC_template, D_template, αs, η1, η2, n_w, n_s; fabric_angle=nothing)
+@views function main(nc, nt, Δt, L, layering, BC_template, D_template, αs, η1, η2, G1, G2, n_w, n_s; fabric_angle=nothing)
     #--------------------------------------------#   
 
     # Boundary loading type
@@ -37,23 +46,25 @@ end
     materials = initialize_materials(nphases; compressible=false)
     materials.η0 .= [η1, η2]
     materials.n .= [n_w, n_s]
+    materials.G .= [G1, G2]
 
     preprocess!(materials)
-
-    # Time steps
-    Δt0 = 0.02
 
     # Newton solver
     iter_params = IterParams(niter=50, ϵ_nl=1e-8, α=LinRange(0.05, 1.0, 10))
 
     # Intialise field
-    Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt0)
+    Δ = (x=L.x / nc.x, y=L.y / nc.y, t=Δt)
     x = (min=(-L.x / 2), max=L.x / 2)
     y = (min=(-L.y / 2), max=L.y / 2)
 
     # Allocate all fields and solver structures
     a = Allocs(nc, config, x, y, Δ, nphases)
-    Err = (x=fill(NaN, iter_params.niter), y=fill(NaN, iter_params.niter), p=fill(NaN, iter_params.niter), iter=zeros(Int))
+    # Nonlinear residuals per timestep (niter × nt)
+    Err = (x=fill(NaN, iter_params.niter, nt), y=fill(NaN, iter_params.niter, nt), p=fill(NaN, iter_params.niter, nt), iter=zeros(Int, nt))
+
+    # Macroscopic stress time series
+    Τ_t = (t=collect(1:nt) .* Δt, xx=zeros(nt), yy=zeros(nt), xy=zeros(nt), II_macro=zeros(nt), II_mean=zeros(nt))
 
     # Grid bounds
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -122,10 +133,18 @@ end
     for it = 1:nt
 
         iter, err = main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-        Err.x[1:iter] .= err.x[1:iter]
-        Err.y[1:iter] .= err.y[1:iter]
-        Err.p[1:iter] .= err.p[1:iter]
+        Err.x[1:iter, it] .= err.x[1:iter]
+        Err.y[1:iter, it] .= err.y[1:iter]
+        Err.p[1:iter, it] .= err.p[1:iter]
         Err.iter[it] = iter
+
+        # Macroscopic stress at this timestep
+        M = macro_stress(a, inner_x, inner_y)
+        Τ_t.xx[it]       = M.Τxx
+        Τ_t.yy[it]       = M.Τyy
+        Τ_t.xy[it]       = M.Τxy
+        Τ_t.II_macro[it] = M.ΤII_macro
+        Τ_t.II_mean[it]  = M.ΤII_mean
 
         #--------------------------------------------#
 
@@ -214,16 +233,11 @@ end
     end
 
     # Save mean (macroscopic) stress metrics at final timestep
-    mΤxx       = mean(a.τ.xx[inner_x, inner_y])
-    mΤyy       = mean(a.τ.yy[inner_x, inner_y])
-    mΤxy       = mean(av2D(a.τ.xy[inner_x, inner_y]))
-    mΤII_macro = sqrt(0.5 * (mΤxx^2 + mΤyy^2 + (-mΤxx - mΤyy)^2) + mΤxy^2)
-    mΤII       = mean(a.τ.II[inner_x, inner_y])
-    Macro      = (Τxx=mΤxx, Τyy=mΤyy, Τxy=mΤxy, ΤII_macro=mΤII_macro, ΤII_mean=mΤII)
+    Macro = macro_stress(a, inner_x, inner_y)
 
     display(to)
 
-    return Macro, Err
+    return Macro, Τ_t, Err
 end
 
 let
@@ -235,15 +249,14 @@ let
     ]
 
     # Boundary deformation gradient matrix
-    D_BCs = @SMatrix([5 0; 0 -5])
+    D_BCs = @SMatrix([1 0; 0 -1])
 
     nc = (x=150, y=150)
-    nt = 1
-    L = 2.0
+    L = 3.0
 
     # Discretise angle of layer 
     # nθ = 2
-    nθ = 15
+    nθ = 3
     θ = LinRange(0, π/4, nθ)
     # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
@@ -252,11 +265,22 @@ let
     Τ = (II_mean=zeros(nθ), II_macro=zeros(nθ), xx=zeros(nθ), yy=zeros(nθ), xy=zeros(nθ))
 
     #  Composite parameters
-    m = 4
+    m = 1
+    me = 1
     # η2 = 1e10
     # η1 = η2
     η2 = 10
     η1 = η2/m
+
+    G2 = 1.
+    G1 = G2/me
+
+    # Time stepping (Maxwell time η/G = 10 → Δt = tM/5, nt·Δt = 8 tM)
+    nt = 40
+    Δt = 2.0
+    t  = collect(1:nt) .* Δt
+
+    Τ_time = (II_mean=zeros(nθ, nt), II_macro=zeros(nθ, nt), xx=zeros(nθ, nt), yy=zeros(nθ, nt), xy=zeros(nθ, nt))
 
     α2 = 0.50 #strong
     α1 = 1 - α2
@@ -265,20 +289,26 @@ let
     δ = (α1 + α2 * m) * (α1 + α2 / m)
 
     n_ran = 1:20
-    n1s = [2, 3, 4, 5, 3, 4, 4, 8, 10]
-    n2s = [1, 1, 1, 1, 2, 2, 3, 2, 5]
+    n1s = [1]
+    n2s = [1]
     @assert length(n1s) == length(n2s)
 
     # Single output file 
-    jld2path = joinpath(@__DIR__, "Layered_pwl_dn_nc150_astrong050.jld2")
+    jld2path = joinpath(@__DIR__, "Layered_VEpwl_n1_nc150_astrong050_isotropic.jld2")
     jld2file = save ? jldopen(jld2path, "w") : nothing
 
     try
         # Parameters shared by all n combinations (saved once)
         if save
             jld2file["nc"]  = nc.x
+            jld2file["nt"]  = nt
+            jld2file["t"]   = t
+            jld2file["Δt"]  = Δt
             jld2file["η2"]  = η2
             jld2file["η1"]  = η1
+            jld2file["G1"]  = G1
+            jld2file["G2"]  = G2
+            jld2file["D_BC"] = Matrix(D_BCs)
             jld2file["nθ"]  = nθ
             jld2file["m"]   = m
             jld2file["α2"]  = α2
@@ -305,7 +335,7 @@ let
 
                 println("**Layering $(rad2deg(θ[iθ]))°, n₁ = $n1, n₂ = $(n2)x**")
 
-                Macro, Err = main(nc, nt, (x=L, y=L), layering, BCs[1], D_BCs, α2, η1, η2, n1, n2; fabric_angle=θ[iθ])
+                Macro, Τ_t, Err = main(nc, nt, Δt, (x=L, y=L), layering, BCs[1], D_BCs, α2, η1, η2, G1, G2, n1, n2; fabric_angle=θ[iθ])
 
                 # Nonlinear residuals of each timestep (niter × nt)
                 if save
@@ -323,6 +353,13 @@ let
                 Τ.xy[iθ] = Macro.Τxy
                 Τ.II_mean[iθ] = Macro.ΤII_mean
                 Τ.II_macro[iθ] = Macro.ΤII_macro
+
+                # Macroscopic stress time series
+                Τ_time.xx[iθ, :]       .= Τ_t.xx
+                Τ_time.yy[iθ, :]       .= Τ_t.yy
+                Τ_time.xy[iθ, :]       .= Τ_t.xy
+                Τ_time.II_macro[iθ, :] .= Τ_t.II_macro
+                Τ_time.II_mean[iθ, :]  .= Τ_t.II_mean
             end
 
             if save
@@ -332,6 +369,14 @@ let
                 jld2file["$group/τ_xx"]      = Τ.xx
                 jld2file["$group/τ_yy"]      = Τ.yy
                 jld2file["$group/τ_xy"]      = Τ.xy
+
+                # Time series (nθ × nt)
+                jld2file["$group/time/t"]         = t
+                jld2file["$group/time/τ_II"]      = Τ_time.II_macro
+                jld2file["$group/time/τ_II_mean"] = Τ_time.II_mean
+                jld2file["$group/time/τ_xx"]      = Τ_time.xx
+                jld2file["$group/time/τ_yy"]      = Τ_time.yy
+                jld2file["$group/time/τ_xy"]      = Τ_time.xy
             end
 
             cm.with_theme(cm.theme_latexfonts()) do
@@ -346,7 +391,7 @@ let
                 # fig1 = cm.Figure(size=(800, 650), px_per_unit=2)
                 # ax1 = cm.Axis(fig1[1, 1], title="m = $(m)", xlabel=cm.L"$\mathrm{time step}$", ylabel=cm.L"$\tau_{II} \ [-]$", xlabelsize=18, ylabelsize=18, titlesize=16)
                 # for iθ in (iθ_first, iθ_mid, iθ_last)
-                #     cm.lines!(ax1, 1:nt, Τ_time.II_mean[1, iθ, :], linestyle=linestyles[iθ], label=orientation_label[iθ])
+                #     cm.lines!(ax1, 1:nt, Τ_time.II_mean[iθ, :], linestyle=linestyles[iθ], label=orientation_label[iθ])
                 # end
                 # cm.Legend(fig1[1, 2], ax1, "fabric orientation", labelsize=14, titlesize=13)
                 # display(fig1)
