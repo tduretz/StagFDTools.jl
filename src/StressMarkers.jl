@@ -66,15 +66,15 @@ function upper_convected!(tm::TensorMarkers, particles, dt)
                 Δτxy = @inbounds @index tm.Δ.τxy[ip, I...]
                 ΔP   = @inbounds @index tm.Δ.P[ip, I...]
                 tmp   = 2 * τ_xy * ω_xy
-                # Full velocity gradient correction
+                # Full velocity gradient correction: L⋅τ + τ⋅Lᵀ with L = ε̇ + ε̇_kk/3 I + W (ε̇ deviatoric)
                 ε̇_zz = -(ε̇_xx + ε̇_yy)
                 τ_zz = -(τ_xx + τ_yy)
                 ε̇_kk = 3*(ε̇_xx + ε̇_yy)
-                # trace correction
-                tr = 2(ε̇_xx*τ_xx + ε̇_yy*τ_yy + ε̇_zz*τ_zz + ε̇_xy*τ_xy)/3
-                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3)), Δτxx)
-                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3)), Δτyy)
-                @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy)), Δτxy)
+                # trace correction: mean of the convective term, 2/3 ε̇:τ, removed from the deviator and added to the mean stress (-P)
+                tr = 2(ε̇_xx*τ_xx + ε̇_yy*τ_yy + ε̇_zz*τ_zz + 2ε̇_xy*τ_xy)/3
+                @inbounds @index tm.Δ.τxx[ip, I...] = muladd(dt, (tmp + 2(ε̇_xx*τ_xx + ε̇_xy*τ_xy + ε̇_kk/3*τ_xx) - tr), Δτxx)
+                @inbounds @index tm.Δ.τyy[ip, I...] = muladd(dt, (-tmp + 2(ε̇_yy*τ_yy + ε̇_xy*τ_xy + ε̇_kk/3*τ_yy) - tr), Δτyy)
+                @inbounds @index tm.Δ.τxy[ip, I...] = muladd(dt, ((τ_yy - τ_xx) * ω_xy + ε̇_xy*(τ_xx + τ_yy) + τ_xy*(ε̇_xx + ε̇_yy) + 2ε̇_kk/3*τ_xy), Δτxy)
                 @inbounds @index tm.Δ.P[ip, I...]   = muladd(-dt, tr, ΔP)
             end
         end
@@ -82,15 +82,19 @@ function upper_convected!(tm::TensorMarkers, particles, dt)
     return nothing
 end
 
-function rotation_increments!(tm::TensorMarkers, particles, dt)
-    return upper_convected!(tm, particles, dt)
+# Objective stress rate on the markers: :upper_convected (default), :jaumann, :none
+function rotation_increments!(tm::TensorMarkers, particles, dt; rotation::Symbol=:upper_convected)
+    rotation === :upper_convected && return upper_convected!(tm, particles, dt)
+    rotation === :jaumann && return Jaumann_rate!(tm, particles, dt)
+    rotation === :none && return nothing
+    error("rotation must be :upper_convected, :jaumann or :none (got :$rotation)")
 end
 
 function constitutive_increments!(allocs::Allocs)
     allocs.D.τxx .= allocs.τ.xx .- allocs.τ0.xx
     allocs.D.τyy .= allocs.τ.yy .- allocs.τ0.yy
     allocs.D.τxy .= allocs.τ.xy .- allocs.τ0.xy
-    allocs.D.Pt .= allocs.ΔPt.c
+    allocs.D.Pt .= allocs.Pt .- allocs.Pt0 # full increment (elastic + plastic): ΔPt.c alone is only the plastic correction, the markers would lose the elastic pressure change
 end
 
 # update stress in the markers from increments
@@ -148,12 +152,14 @@ function stress_subgrid_diffusion!(tm::TensorMarkers, allocs::Allocs, particles,
 
                 η = @inbounds @index tm.t.η[ip, I...]
                 G = @inbounds @index tm.t.G[ip, I...]
-                Δt_mxw = η / G
+                # Maxwell time of the viscous(-plastic) part only: η is the effective viscosity ηvep, which contains the elastic 1/(GΔt);
+                # with η/G the diffusion would be ≥ 1 - 1/e at each step whatever Δt (i.e. its rate per unit time would scale with 1/Δt)
+                inv_ηM = max(inv(η) - inv(G * Δt), 0.0)
                   # ξ = @inbounds @index tm.t.ξ[ip, I...]
                   # K = @inbounds @index tm.t.K[ip, I...]
                   # Δt_P = comp * ξ/K
 
-                diff = -expm1(dΔt / Δt_mxw)
+                diff = -expm1(dΔt * G * inv_ηM) # = 1 - exp(-d Δt / Δt_mxw), Δt_mxw = η_M / G
                 @inbounds @index tm.Δ_sub.τxx[ip, I...] = (nτ0_xx - τ0_xx)*diff
                 @inbounds @index tm.Δ_sub.τyy[ip, I...] = (nτ0_yy - τ0_yy)*diff
                 @inbounds @index tm.Δ_sub.τxy[ip, I...] = (nτ0_xy - τ0_xy)*diff
@@ -214,20 +220,21 @@ function add_increments!(tm::TensorMarkers, allocs::Allocs, particles)
 end
 
 # Compute stress increments on markers 
-function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt, comp)
+function increment_stress!(allocs::Allocs, tm::TensorMarkers, particles, Δt, comp; d=1.0)
     constitutive_increments!(allocs)
-    stress_subgrid_diffusion!(tm, allocs, particles, Δt, comp)
+    stress_subgrid_diffusion!(tm, allocs, particles, Δt, comp; d)
     subgrid_toGrid!(tm, allocs, particles)
     add_increments!(tm, allocs, particles)
     return nothing
 end
 
-function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Materials, particles, Δ)
+# d: subgrid diffusion coefficient (0: none)
+function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Materials, particles, Δ; d=1.0, rotation::Symbol=:upper_convected)
 
     # Interpolate stress increments
     comp = materials.compressible
     compute_vorticity!(allocs, Δ)
-    increment_stress!(allocs, tm, particles, Δ.t, comp)
+    increment_stress!(allocs, tm, particles, Δ.t, comp; d)
 
     # temporary τ and ε̇ interpolaton
     centroid2particle!(tm.t.τxx, allocs.τ.xx, particles)
@@ -240,7 +247,7 @@ function stress_ToParticles!(allocs::Allocs, tm::TensorMarkers, materials::Mater
     grid2particle!(tm.t.ε̇xy, allocs.ε̇.xy, particles)
 
     # update increments with rotation and add them to marker stresses
-    rotation_increments!(tm, particles, Δ.t)
+    rotation_increments!(tm, particles, Δ.t; rotation)
     update_stress_markers!(tm, particles)
 
     return nothing

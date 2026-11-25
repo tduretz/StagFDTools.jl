@@ -56,21 +56,21 @@ function softening(Ep, Cmax, Cmin, E0, w)
     return Cmin + (Cmax-Cmin)*(1 - tanh((Ep-E0)/w))
 end
 
-@views function main(nc, nt, θgouge)
+@views function main(nc, nt, Δt0, θgouge, hgouge)
     #--------------------------------------------#
 
     # Scaling
     sc = (σ=1e9, L=1e-3, t=1e6)
 
     # Parameters
-    width = (12e-3 + 38e-3)/sc.L
-    height = 100e-3/sc.L
-    thickness = 2*2e-3/sc.L
-    L = (x=width, y=height)
-    θgouge = (θgouge) / 180*π
-    Δt0 = 1e2/sc.t
-    ε̇yy = 1.31e-6*sc.t
-    Pbg = 1e7/sc.σ
+    width     = (12e-3 + 38e-3)/sc.L
+    height    = 150e-3/sc.L
+    hgouge    = hgouge/sc.L
+    Δt0       = Δt0/sc.t
+    L         = (x=width, y=height)
+    θgouge    = (θgouge) / 180*π
+    ε̇yy       = 1.31e-6*sc.t
+    Pbg       = 1e7/sc.σ
 
     𝐱_probe_salt = (0.023/sc.L, height/2) # apparatus response (plate and salt)
     𝐱_probe_plate = (0.000/sc.L, 0.002/sc.L) # apparatus response (plate and salt)
@@ -152,7 +152,7 @@ end
 
     # Material geometry
     gouge = (
-        Rectangle((0.0/sc.L, L.y/2), thickness, 20.0e-2/sc.L; θ=θgouge),
+        Rectangle((0.0/sc.L, L.y/2), hgouge, 20.0e-2/sc.L; θ=θgouge),
     )
     salt = (
         Rectangle((-L.x/2, L.y/2), 6e-3/sc.L, L.y; θ=0),
@@ -186,6 +186,7 @@ end
 
     a.Pt .= Pbg #*rand(size(Pt)...)
     a.Pt0 .= a.Pt
+    centroid2particle!(tm.p.P, a.Pt, particles) # markers carry the pressure from step to step (Pt0): start from the initial pressure
     a.Pti .= a.Pt
 
     #--------------------------------------------#
@@ -248,7 +249,7 @@ end
         # Compute apparent and true friction locally
         app_fric = zeros(size(a.Pt))
         true_fric = zeros(size(a.Pt))
-        Rot = @SMatrix[cos(π/2 - θgouge) sin(π/2 - θgouge) 0; -sin(π/2 - θgouge) cos(π/2 - θgouge) 0; 0 0 1.0]
+        Rot = @SMatrix[cos(π/2 - θgouge) -sin(π/2 - θgouge) 0; sin(π/2 - θgouge) cos(π/2 - θgouge) 0; 0 0 1.0] # x′ along the gouge (dipping right), y′ normal to it
         app_fric_sum = 0.0
         true_fric_sum = 0.0
         app_sum = 0
@@ -262,7 +263,7 @@ end
                 σ = @SMatrix[-a.Pt[i, j]+a.τ.xx[i, j] τxyc[i, j] 0.; τxyc[i, j] -a.Pt[i, j]+a.τ.yy[i, j] 0.; 0. 0. -a.Pt[i, j]+(-a.τ.xx[i, j]-a.τ.yy[i, j])]
                 # Compute apparent friction
                 σ′ = Rot * σ * Rot'
-                app_fric[i, j] = σ′[1, 2] / σ′[2, 2]
+                app_fric[i, j] = -σ′[1, 2] / σ′[2, 2]
                 app_fric_sum += app_fric[i, j]
                 # Compute true friction
                 if a.λ̇.c[i, j] > abs(ε̇yy) && i==ind_mid_x && j==ind_mid_y
@@ -284,7 +285,7 @@ end
 
         σyy             = a.τ.yy .- a.Pt
         σxx             = a.τ.xx .- a.Pt
-        σzz             = a.τ.yy .- a.Pt
+        σzz             = .-(a.τ.xx .+ a.τ.yy) .- a.Pt
         ind_mid_x       = Int64(floor(nc.x/2))
         ind_mid_y       = Int64(floor(nc.y/2))
         probes.t[it]    = time
@@ -303,28 +304,28 @@ end
         probe_salt.σxx[it] = σxx[𝐈_probe_salt...]
         probe_salt.σyy[it] = σyy[𝐈_probe_salt...]
         probe_salt.σzz[it] = σzz[𝐈_probe_salt...]
-        probe_salt.σxy[it] = a.τ.xy[𝐈_probe_salt...]
+        probe_salt.σxy[it] = τxyc[𝐈_probe_salt...]
         probe_salt.P[it]   = a.Pt[𝐈_probe_salt...]
         probe_salt.τII[it] = a.τ.II[𝐈_probe_salt...]
 
         probe_plate.σxx[it] = σxx[𝐈_probe_plate...]
         probe_plate.σyy[it] = σyy[𝐈_probe_plate...]
         probe_plate.σzz[it] = σzz[𝐈_probe_plate...]
-        probe_plate.σxy[it] = a.τ.xy[𝐈_probe_plate...]
+        probe_plate.σxy[it] = τxyc[𝐈_probe_plate...]
         probe_plate.P[it]   = a.Pt[𝐈_probe_plate...]
         probe_plate.τII[it] = a.τ.II[𝐈_probe_plate...]
 
         probe_MC1.σxx[it] = σxx[𝐈_probe_MC1...]
         probe_MC1.σyy[it] = σyy[𝐈_probe_MC1...]
         probe_MC1.σzz[it] = σzz[𝐈_probe_MC1...]
-        probe_MC1.σxy[it] = a.τ.xy[𝐈_probe_MC1...]
+        probe_MC1.σxy[it] = τxyc[𝐈_probe_MC1...]
         probe_MC1.P[it]   = a.Pt[𝐈_probe_MC1...]
         probe_MC1.τII[it] = a.τ.II[𝐈_probe_MC1...]
 
         probe_MC2.σxx[it] = σxx[𝐈_probe_MC2...]
         probe_MC2.σyy[it] = σyy[𝐈_probe_MC2...]
         probe_MC2.σzz[it] = σzz[𝐈_probe_MC2...]
-        probe_MC2.σxy[it] = a.τ.xy[𝐈_probe_MC2...]
+        probe_MC2.σxy[it] = τxyc[𝐈_probe_MC2...]
         probe_MC2.P[it]   = a.Pt[𝐈_probe_MC2...]
         probe_MC2.τII[it] = a.τ.II[𝐈_probe_MC2...]
 
@@ -344,7 +345,7 @@ end
             0. 0. -probe_salt.P[it]]
 
         σ′ = Rot * σ * Rot'
-        probes.app_fric_lab[it] = σ′[1, 2] / σ′[2, 2]
+        probes.app_fric_lab[it] = -σ′[1, 2] / σ′[2, 2] # = τ/σn of the gouge-plane point on the apparatus Mohr circle
 
         # Stress angles
         i1 = argmin(abs.(a.X.c_e.x .- (-0.01/sc.L)))
@@ -361,6 +362,8 @@ end
             ftsz = 25
             fig = Figure(size=(1000, 1000))
             empty!(fig)
+            # Probe colors: shared by the markers on the heatmap and the local metrics they measure
+            c_salt, c_plate, c_MC1, c_MC2, c_app, c_sub = :gold, :magenta, :cyan, :limegreen, :darkorange, :gray
 
             # Split heatmap of the apparatus
             # ax  = Axis(fig[1:3,1], aspect=DataAspect(), title="Apparent / True friction", xlabel="x", ylabel="y", xlabelsize=ftsz,  ylabelsize=ftsz, titlesize=ftsz)
@@ -392,16 +395,23 @@ end
             xlims!(ax, minimum(a.X.v.x) .* sc.L, maximum(a.X.v.x) .* sc.L)
             lines!(ax, a.X.c.x[ind_mid_x] .* sc.L * ones(size(a.X.c.y)), a.X.c.y .* sc.L, color=:white, linewidth=4)
             # Probes
-            scatter!(ax, a.X.c.x[𝐈_probe_salt[1]] .* sc.L, a.X.c.y[𝐈_probe_salt[2]] .* sc.L, marker=:star5, markersize=20)
-            scatter!(ax, a.X.c.x[𝐈_probe_plate[1]] .* sc.L, a.X.c.y[𝐈_probe_plate[2]] .* sc.L, marker=:star5, markersize=20)
+            scatter!(ax, a.X.c.x[𝐈_probe_salt[1]] .* sc.L, a.X.c.y[𝐈_probe_salt[2]] .* sc.L, marker=:star5, color=c_salt, markersize=20)
+            scatter!(ax, a.X.c.x[𝐈_probe_plate[1]] .* sc.L, a.X.c.y[𝐈_probe_plate[2]] .* sc.L, marker=:star5, color=c_plate, markersize=20)
             # Subdomain
-            scatter!(ax, a.X.c.x[i1] .* sc.L, a.X.c.y[j1] .* sc.L, marker=:cross, color=:gray, markersize=20)
-            scatter!(ax, a.X.c.x[i2] .* sc.L, a.X.c.y[j1] .* sc.L, marker=:cross, color=:gray, markersize=20)
-            scatter!(ax, a.X.c.x[i1] .* sc.L, a.X.c.y[j2] .* sc.L, marker=:cross, color=:gray, markersize=20)
-            scatter!(ax, a.X.c.x[i2] .* sc.L, a.X.c.y[j2] .* sc.L, marker=:cross, color=:gray, markersize=20)
+            scatter!(ax, a.X.c.x[i1] .* sc.L, a.X.c.y[j1] .* sc.L, marker=:cross, color=c_sub, markersize=20)
+            scatter!(ax, a.X.c.x[i2] .* sc.L, a.X.c.y[j1] .* sc.L, marker=:cross, color=c_sub, markersize=20)
+            scatter!(ax, a.X.c.x[i1] .* sc.L, a.X.c.y[j2] .* sc.L, marker=:cross, color=c_sub, markersize=20)
+            scatter!(ax, a.X.c.x[i2] .* sc.L, a.X.c.y[j2] .* sc.L, marker=:cross, color=c_sub, markersize=20)
             # Mohr-circles
-            scatter!(ax, a.X.c.x[𝐈_probe_MC1[1]] .* sc.L, a.X.c.y[𝐈_probe_MC1[2]] .* sc.L, marker=:xcross, color=:white, markersize=20)
-            scatter!(ax, a.X.c.x[𝐈_probe_MC2[1]] .* sc.L, a.X.c.y[𝐈_probe_MC2[2]] .* sc.L, marker=:xcross, color=:white, markersize=20)
+            scatter!(ax, a.X.c.x[𝐈_probe_MC1[1]] .* sc.L, a.X.c.y[𝐈_probe_MC1[2]] .* sc.L, marker=:xcross, color=c_MC1, markersize=20)
+            scatter!(ax, a.X.c.x[𝐈_probe_MC2[1]] .* sc.L, a.X.c.y[𝐈_probe_MC2[2]] .* sc.L, marker=:xcross, color=c_MC2, markersize=20)
+            # Gouge coordinate axes, taken from the rows of Rot (as used in σ′ = Rot * σ * Rot')
+            x0, y0, ℓ = 0.0, L.y/2 * sc.L, 0.008
+            for (k, c, lab) in ((1, :black, "x′"), (2, :white, "y′"))
+                e = (Rot[k, 1], Rot[k, 2])
+                lines!(ax, [x0 - ℓ*e[1], x0 + ℓ*e[1]], [y0 - ℓ*e[2], y0 + ℓ*e[2]], color=c, linewidth=3)
+                text!(ax, x0 + 1.15ℓ*e[1], y0 + 1.15ℓ*e[2], text=lab, color=c, fontsize=20, align=(:center, :center))
+            end
 
             # # Zoom on the gouge
             # ax  = Axis(fig[2,2], aspect=DataAspect(), title="Plastic Strain rate", xlabel="x", ylabel="y", xlabelsize=ftsz,  ylabelsize=ftsz, titlesize=ftsz)
@@ -421,28 +431,31 @@ end
             ax = Axis(fig[2, 2], aspect=DataAspect(), title="Mohr circles", xlabel="σn", ylabel="τ", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
             θ = LinRange(0, π, 100)
 
-            MC1 = (x=(probe_MC1.τII[it] .* cos.(θ) .+ probe_MC1.P[it]), y=(probe_MC1.τII[it] .* sin.(θ)))
-            MC2 = (x=(probe_MC2.τII[it] .* cos.(θ) .+ probe_MC2.P[it]), y=(probe_MC2.τII[it] .* sin.(θ)))
+            # In-plane Mohr circle (compression positive): centre -(σxx+σyy)/2, radius √(((σxx-σyy)/2)² + σxy²)
+            # (τII and P include τzz, so they only match this in the incompressible limit)
+            Mohr(p) = (c = -(p.σxx[it] + p.σyy[it])/2; R = sqrt(((p.σxx[it] - p.σyy[it])/2)^2 + p.σxy[it]^2); (x=R .* cos.(θ) .+ c, y=R .* sin.(θ)))
+            MC1 = Mohr(probe_MC1)
+            MC2 = Mohr(probe_MC2)
 
             τII_MC3 = -(probe_plate.σyy[it] - probe_salt.σxx[it])/2
             P_MC3 = -(probe_plate.σyy[it] + probe_salt.σxx[it])/2
             MC3 = (x=(τII_MC3 .* cos.(θ) .+ P_MC3), y=(τII_MC3 .* sin.(θ)))
             MC3_μ = (x=(τII_MC3 .* (cos.(2*(π/2-θgouge))) .+ P_MC3), y=(τII_MC3 .* sin.(2*(π/2-θgouge))))
 
-            lines!(ax, MC1.x*sc.σ ./ 1e6, MC1.y*sc.σ ./ 1e6, label="probe 1")
-            lines!(ax, MC2.x*sc.σ ./ 1e6, MC2.y*sc.σ ./ 1e6, label="probe 2")
-            lines!(ax, MC3.x*sc.σ ./ 1e6, MC3.y*sc.σ ./ 1e6, label="apparatus")
+            lines!(ax, MC1.x*sc.σ ./ 1e6, MC1.y*sc.σ ./ 1e6, color=c_MC1, label="probe 1 (rock)")
+            lines!(ax, MC2.x*sc.σ ./ 1e6, MC2.y*sc.σ ./ 1e6, color=c_MC2, label="probe 2 (gouge)")
+            lines!(ax, MC3.x*sc.σ ./ 1e6, MC3.y*sc.σ ./ 1e6, color=c_app, label="apparatus")
             σmin = minimum([minimum(MC1.x), minimum(MC2.x), minimum(MC3.x)])
             σmax = maximum([maximum(MC1.x), maximum(MC2.x), maximum(MC3.x)])
-            scatter!(ax, MC3_μ.x*sc.σ ./ 1e6, MC3_μ.y*sc.σ ./ 1e6)
-            probes.app_fric_lab[it] = MC3_μ.y / MC3_μ.x
+            scatter!(ax, MC3_μ.x*sc.σ ./ 1e6, MC3_μ.y*sc.σ ./ 1e6, color=c_app, label="apparatus, gouge plane")
             σn_ax = LinRange(σmin-0.1*(σmin), σmax+0.1*σmin, 100)
             # τ1    = materials.plasticity.cosϕ[1]/(1+materials.plasticity.sinϕ[1]) * (materials.plasticity.C[1] * materials.plasticity.cosϕ[1] .+ σn_ax.*materials.plasticity.sinϕ[1])
             # τ2    = materials.plasticity.cosϕ[2]/(1+materials.plasticity.sinϕ[2]) * (materials.plasticity.C[2] * materials.plasticity.cosϕ[2] .+ σn_ax.*materials.plasticity.sinϕ[2])
             τ1 = materials.plasticity.C[1] .+ σn_ax .* materials.plasticity.sinϕ[1] ./ materials.plasticity.cosϕ[1]
             τ2 = materials.plasticity.C[2] .+ σn_ax .* materials.plasticity.sinϕ[2] ./ materials.plasticity.cosϕ[2]
-            lines!(ax, σn_ax*sc.σ/1e6, τ1*sc.σ/1e6, color=:black)
-            lines!(ax, σn_ax*sc.σ/1e6, τ2*sc.σ/1e6, color=:black)
+            lines!(ax, σn_ax*sc.σ/1e6, τ1*sc.σ/1e6, color=:black, label="yield rock")
+            lines!(ax, σn_ax*sc.σ/1e6, τ2*sc.σ/1e6, color=:black, linestyle=:dash, label="yield gouge")
+            Legend(fig[2, 3], ax, framevisible=false, labelsize=12, halign=:left)
 
             # ax  = Axis(fig[1,2], xlabel="Iterations @ step $(it) ", ylabel="log₁₀ error", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
             # scatter!(ax, 1:niter, log10.(err.x[1:niter]./err.x[1]) )
@@ -453,10 +466,11 @@ end
             P_ax = LinRange(minimum(P_rock), maximum(P_rock), 100)
             τ_ax_rock = materials.plasticity.C[1] * materials.plasticity.cosϕ[1] .+ P_ax .* materials.plasticity.sinϕ[1]
             τ_ax_gouge = materials.plasticity.C[2] * materials.plasticity.cosϕ[2] .+ P_ax .* materials.plasticity.sinϕ[2]
-            lines!(ax, P_ax*sc.σ/1e6, τ_ax_gouge*sc.σ/1e6, color=:black)
-            lines!(ax, P_ax*sc.σ/1e6, τ_ax_rock*sc.σ/1e6, color=:black)
-            scatter!(ax, P_rock*sc.σ/1e6, (τII_rock .- λ̇_rock .* materials.plasticity.ηvp[2])*sc.σ/1e6, color=:blue)
-            scatter!(ax, P_gouge*sc.σ/1e6, (τII_gouge .- λ̇_gouge .* materials.plasticity.ηvp[2])*sc.σ/1e6, color=:red)
+            lines!(ax, P_ax*sc.σ/1e6, τ_ax_gouge*sc.σ/1e6, color=:black, linestyle=:dash, label="yield gouge")
+            lines!(ax, P_ax*sc.σ/1e6, τ_ax_rock*sc.σ/1e6, color=:black, label="yield rock")
+            scatter!(ax, P_rock*sc.σ/1e6, (τII_rock .- λ̇_rock .* materials.plasticity.ηvp[2])*sc.σ/1e6, color=:blue, label="rock")
+            scatter!(ax, P_gouge*sc.σ/1e6, (τII_gouge .- λ̇_gouge .* materials.plasticity.ηvp[2])*sc.σ/1e6, color=:red, label="gouge")
+            Legend(fig[3, 3], ax, framevisible=false, labelsize=12, halign=:left)
 
             # τ_ax_gouge = materials.C[2]*materials.cosϕ[2] .+ P_ax.*materials.sinϕ[2]
             # lines!(ax, P_ax*sc.σ/1e6, τ_ax_gouge*sc.σ/1e6, color=:red)
@@ -469,8 +483,9 @@ end
             # scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.σxxE[1:it]*sc.σ./1e6, marker=:star5 ) #, markersize=20
             # scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.σyyN[1:it]*sc.σ./1e6, marker=:circle )
             # scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.σyyS[1:it]*sc.σ./1e6, marker=:circle )
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, -probe_salt.σxx[1:it]*sc.σ ./ 1e6, marker=:circle)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, -probe_plate.σyy[1:it]*sc.σ ./ 1e6, marker=:circle)
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, -probe_salt.σxx[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_salt, label=L"$-\sigma_{xx}$ salt")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, -probe_plate.σyy[1:it]*sc.σ ./ 1e6, marker=:star5, color=c_plate, label=L"$-\sigma_{yy}$ plate")
+            axislegend(ax, position=:lt, labelsize=12, framevisible=false)
 
             # ax  = Axis(fig[0,1], xlabel="Axial shortening", ylabel="Axial stress [MPa]", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
             # scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.τII[1:it]*sc.σ./1e6, marker=:diamond ) #, markersize=20
@@ -483,24 +498,26 @@ end
             # scatter!(ax, probes.t[1:it]*sc.t/3600, probes.τIIN[1:it]*sc.σ./1e6, marker=:diamond, markersize=20 )
 
             ax = Axis(fig[0, 2], xlabel="Axial shortening", ylabel="-τ/σ", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
-            lines!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, ones(it)*tand(materials.plasticity.ϕ[2]), linestyle=:dash, color=:gray)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.app_fric[1:it])
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.app_fric_lab[1:it])
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.true_fric[1:it], marker=:star5) #, markersize=20  
+            lines!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, ones(it)*tand(materials.plasticity.ϕ[2]), linestyle=:dash, color=:gray, label=L"$\tan\phi$")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.app_fric[1:it], color=:black, label="apparent (gouge mean)")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.app_fric_lab[1:it], marker=:rect, color=c_app, label="apparent (apparatus)")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probes.true_fric[1:it], marker=:utriangle, color=:black, label="true (centre)") #, markersize=20  
             tanα = cosd(materials.plasticity.ψ[2])*sind(materials.plasticity.ϕ[2]) / (1 - sind(materials.plasticity.ψ[2])*sind(materials.plasticity.ϕ[2]))
-            lines!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, ones(it)*tanα, linestyle=:dash, color=:gray)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_salt.σxy[1:it] ./ probe_salt.σyy[1:it], marker=:circle)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_plate.σxy[1:it] ./ probe_plate.σyy[1:it], marker=:star5)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_MC1.σxy[1:it] ./ probe_MC1.σyy[1:it], marker=:diamond)
-            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_MC2.σxy[1:it] ./ probe_MC2.σyy[1:it], marker=:xcross)
-
+            lines!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, ones(it)*tanα, linestyle=:dot, color=:gray, label=L"$\tan\alpha$")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_salt.σxy[1:it] ./ probe_salt.σyy[1:it], marker=:star5, color=c_salt, label="salt")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_plate.σxy[1:it] ./ probe_plate.σyy[1:it], marker=:star5, color=c_plate, label="plate")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_MC1.σxy[1:it] ./ probe_MC1.σyy[1:it], marker=:xcross, color=c_MC1, label="probe 1 (rock)")
+            scatter!(ax, probes.t[1:it]*ε̇yy*L.y*sc.L*1e3, probe_MC2.σxy[1:it] ./ probe_MC2.σyy[1:it], marker=:xcross, color=c_MC2, label="probe 2 (gouge)")
+            Legend(fig[0, 3], ax, framevisible=false, labelsize=12, rowgap=0, halign=:left)
 
             ax = Axis(fig[1, 2], xlabel="time [hrs]", ylabel="σ1 angle gouge", xlabelsize=ftsz, ylabelsize=ftsz, titlesize=ftsz)
-            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.minθ[1:it]*180/π)
-            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.meanθ[1:it]*180/π)
-            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.maxθ[1:it]*180/π)
+            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.minθ[1:it]*180/π, marker=:dtriangle, color=c_sub, label="min")
+            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.meanθ[1:it]*180/π, marker=:circle, color=c_sub, label="mean")
+            scatter!(ax, probes.t[1:it]*sc.t/3600, probes.maxθ[1:it]*180/π, marker=:utriangle, color=c_sub, label="max")
+            Legend(fig[1, 3], ax, framevisible=false, labelsize=12, halign=:left)
 
-            visualise_markers(particles, phases, sc, x, y, time)
+            colsize!(fig.layout, 3, Auto(0.3))
+            # visualise_markers(particles, phases, sc, x, y, time)
             display(fig)
         end
         with_theme(figure, theme_latexfonts())
@@ -509,6 +526,10 @@ end
 end
 
 let
-    # main((x = 150, y = 250), 1000, 30) # matches friction
-    main((x=100, y=200), 500, 30)
+    nt = 500
+    Δt = 5e1
+    θ  = 30.0
+    h  = 1e-3
+
+    main((x = 200, y = 300), nt, Δt, θ, h) # matches friction
 end

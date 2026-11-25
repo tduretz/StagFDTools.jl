@@ -64,7 +64,7 @@ import Statistics:mean
     @. materials.sinψ  = sind(materials.ψ)
 
     Φ0      = 1e-3
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0
@@ -410,7 +410,7 @@ import Statistics:mean
 
         # # Post process 
         # @time for i in eachindex(Φ.c)
-        #     KΦ     = materials.KΦ[phases.c[i]]
+        #     KΦ     = materials.KΦ0[phases.c[i]]
         #     ηΦ     = materials.ξ0[phases.c[i]] 
         #     sinψ   = materials.sinψ[phases.c[i]] 
         #     dPtdt  = (P.t[i] - P0.t[i]) / Δ.t

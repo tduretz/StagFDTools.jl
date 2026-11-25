@@ -8,53 +8,106 @@ function compute_vorticity!(allocs, Δ)
     return nothing
 end
 
-function _assemble!(a::Allocs, materials, BC, nc, Δ)
-    # Jacobian
-    AssembleContinuity2D!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.β, a.ξ,
+"""
+    assemble_jacobian!(M, a, 𝐷, materials, BC, nc, Δ)
+
+Assemble the Stokes block matrix `M` (CSC blocks) with the tangent operator `𝐷`.
+The sparsity pattern is recorded on the first call; later calls write the values
+in place, in parallel.
+"""
+function assemble_jacobian!(M, a::Allocs, 𝐷, materials, BC, nc, Δ)
+    if nnz(M.Vx.Vx) == 0
+        K_pat = pattern_storage(M)
+        _assemble_blocks!(K_pat, a, 𝐷, materials, BC, nc, Δ)
+        set_sparsity_pattern!(M, K_pat)
+    end
+    zero_values!(M)
+    _assemble_blocks!(fixed_pattern(M), a, 𝐷, materials, BC, nc, Δ)
+    return M
+end
+
+function _assemble_blocks!(K, a::Allocs, 𝐷, materials, BC, nc, Δ)
+    AssembleContinuity2D!(K, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, 𝐷, a.β, a.ξ,
         materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_x!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G,
+    AssembleMomentum2D_x!(K, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, 𝐷, a.G,
         materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_y!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G, a.ρ,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    # Picard preconditioner
-    AssembleContinuity2D!(a.M_PC, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.β, a.ξ,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_x!(a.M_PC, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.G,
-        materials, a.number, a.pattern, a.type, BC, nc, Δ)
-    AssembleMomentum2D_y!(a.M_PC, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.G, a.ρ,
+    AssembleMomentum2D_y!(K, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, 𝐷, a.G, a.ρ,
         materials, a.number, a.pattern, a.type, BC, nc, Δ)
 end
 
-function update_solution!(a::Allocs, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params)
-    a.𝐊 .= [a.M.Vx.Vx a.M.Vx.Vy; a.M.Vy.Vx a.M.Vy.Vy]
-    a.𝐐 .= [a.M.Vx.Pt; a.M.Vy.Pt]
-    a.𝐐ᵀ .= [a.M.Pt.Vx a.M.Pt.Vy]
-    a.𝐏 .= a.M.Pt.Pt
-    a.𝐊_PC .= [a.M_PC.Vx.Vx a.M_PC.Vx.Vy; a.M_PC.Vy.Vx a.M_PC.Vy.Vy]
-    a.𝐐_PC .= [a.M_PC.Vx.Pt; a.M_PC.Vy.Pt]
-    a.𝐐ᵀ_PC .= [a.M_PC.Pt.Vx a.M_PC.Pt.Vy]
-    a.𝐏_PC .= a.M_PC.Pt.Pt
+function _assemble!(a::Allocs, materials, BC, nc, Δ; Newton=true, refresh_PC=true)
+    Newton && assemble_jacobian!(a.M, a, a.𝐷_ctl, materials, BC, nc, Δ)        # Jacobian (not needed for Picard)
+    refresh_PC && assemble_jacobian!(a.M_PC, a, a.𝐷, materials, BC, nc, Δ)    # Picard preconditioner
+end
+
+"""
+    set_block_matrices!(𝐊, 𝐐, 𝐐ᵀ, 𝐏, M)
+
+Copy the velocity (𝐊), gradient (𝐐), divergence (𝐐ᵀ) and pressure (𝐏) blocks of `M`.
+"""
+function set_block_matrices!(𝐊, 𝐐, 𝐐ᵀ, 𝐏, M)
+    M = dropzeros(M)
+    𝐊 .= [M.Vx.Vx M.Vx.Vy; M.Vy.Vx M.Vy.Vy]
+    𝐐 .= [M.Vx.Pt; M.Vy.Pt]
+    𝐐ᵀ .= [M.Pt.Vx M.Pt.Vy]
+    𝐏 .= M.Pt.Pt
+    return nothing
+end
+
+# Newton: Jacobian (M, assembled with 𝐷_ctl) as operator; Picard: M_PC (assembled with 𝐷) as operator
+# :GCR: the cached solver (a.gcr) works on the blocks of M and M_PC directly; refresh_PC: new Schur complement and Cholesky factor
+function update_solution!(a::Allocs, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params; Newton=true, refresh_PC=true, mk=nothing)
+    if iter_params.solver_type !== :GCR
+        Newton && set_block_matrices!(a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, a.M)
+        set_block_matrices!(a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC, a.M_PC)
+    end
 
     ϵ_l = iter_params.inexact ? linear_tol(ϵ, ϵ0, iter; α=50) : iter_params.ϵ_l
-    @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e\n", ϵ, ϵ / ϵ0, ϵ_l)
+    # @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e\n", ϵ, ϵ / ϵ0, ϵ_l)
 
+    its = 0
     @timeit to "Linear solve" begin
-        mechanical_solver!(a.dx, a.M, a.r, a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC; solver=iter_params.solver_type, ηb=iter_params.γ, ϵ_l=ϵ_l, niter_l=10, restart=20)
+        if iter_params.solver_type === :GCR
+            a.gcr.initialized || setup_gcr!(a.gcr, a.M, a.M_PC; restart=20)
+            # pc_type = :sym_newton: Newton steps preconditioned with the symmetrised Newton Kuu (Picard Kup, Kpu)
+            M_N = (Newton && iter_params.pc_type === :sym_newton) ? a.M : nothing
+            (refresh_PC || a.gcr.Kf === nothing) && @timeit to "Preconditioner" update_preconditioner!(a.gcr, a.M_PC; ηb=iter_params.γ, M_N)
+            update_operator!(a.gcr, Newton ? a.M : a.M_PC)
+            its = KSP_GCR_Stokes!(a.dx, a.gcr, a.r; ϵ_l=ϵ_l, maxit=iter_params.niter_KSP, noisy=false)
+        elseif Newton
+            its = mechanical_solver!(a.dx, a.M, a.r, a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC; solver=iter_params.solver_type, ηb=iter_params.γ, ϵ_l=ϵ_l, niter_l=10, restart=20, maxit=iter_params.niter_KSP, noisy=false)
+        else
+            its = mechanical_solver!(a.dx, a.M_PC, a.r, a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC, a.𝐊_PC, a.𝐐_PC, a.𝐐ᵀ_PC, a.𝐏_PC; solver=iter_params.solver_type, ηb=iter_params.γ, ϵ_l=ϵ_l, niter_l=10, restart=20, maxit=iter_params.niter_KSP, noisy=false)
+        end
     end
 
     @timeit to "Line search" begin
-        imin = LineSearch!(rvec, iter_params.α, a.dx, a.R, a.V, a.Pt, a.ε̇, a.τ, a.Vi, a.Pti, a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G, a.β, a.ξ, a.ρ, a.𝐷, a.𝐷_ctl, a.number, a.type, BC, materials, a.phase_ratios, nc, Δ)
+        if iter_params.line_search === :grid
+            imin = LineSearch!(rvec, iter_params.α, a.dx, a.R, a.V, a.Pt, a.ε̇, a.τ, a.Vi, a.Pti, a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G, a.β, a.ξ, a.ρ, a.𝐷, a.𝐷_ctl, a.number, a.type, BC, materials, a.phase_ratios, nc, Δ; εp=a.εp, Ω=a.Ω, εp_ph=a.εp_ph, mk)
+            α = iter_params.α[imin]
+        else
+            α, success = BackTrackingLineSearch!(a.R, a.dx, a.V, a.Pt, a.ε̇, a.τ, a.Vi, a.Pti, a.ΔPt, a.Pt0, a.τ0, a.λ̇, a.η, a.G, a.β, a.ξ, a.ρ, a.𝐷, a.𝐷_ctl, a.number, a.type, BC, materials, a.phase_ratios, nc, Δ;
+                α0=Newton ? 1.0 : iter_params.α_Picard, εp=a.εp, Ω=a.Ω, εp_ph=a.εp_ph, mk)
+        end
     end
-    UpdateSolution!(a.V, a.Pt, iter_params.α[imin] * a.dx, a.number, a.type, nc)
+    UpdateSolution!(a.V, a.Pt, α * a.dx, a.number, a.type, nc)
+    return Newton, α, its
 end
 
 function Solve!(a::Allocs, materials, BC, nc, Δ, to,
-    rvec, iter, ϵ0, ϵ, iter_params)
-    @timeit to "Assembly" _assemble!(a, materials, BC, nc, Δ)
-    update_solution!(a, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params)
+    rvec, iter, ϵ0, ϵ, iter_params; mk=nothing)
+    # Picard iterations until the relative residual drops below Pic2Newt, then Newton
+    Newton = ϵ / ϵ0 < iter_params.Pic2Newt
+    # Picard preconditioner: at each Picard iteration (it is the operator), else once per step if PC_refresh = :step;
+    # pc_type = :sym_newton: the preconditioner depends on the Newton matrix, refreshed at each Newton iteration
+    iter_params.pc_type in (:picard, :sym_newton) || error("pc_type must be :picard or :sym_newton (got :$(iter_params.pc_type))")
+    sym_pc = Newton && iter_params.pc_type === :sym_newton
+    refresh_PC = sym_pc || !Newton || iter == 1 || iter_params.PC_refresh !== :step || iter_params.solver_type !== :GCR
+    @timeit to "Assembly" _assemble!(a, materials, BC, nc, Δ; Newton, refresh_PC)
+    return update_solution!(a, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params; Newton, refresh_PC, mk)
 end
 
-function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; mk=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c,
     inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
@@ -63,16 +116,20 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
     nPt = maximum(a.number.Pt)
 
     compute_grid_fields!(a.G, a.β, a.ρ, a.ξ, materials, a.phase_ratios, nc, nphases)
+    _phase_pressure(materials) && sync_old_pressure_Voigt!(a) # per-phase old pressure: Pt0 = Σφᵢ P0ᵢ
 
     @printf("Time step %04d (nthreads = %03d)\n", it, Threads.nthreads())
     iter, ϵ0, ϵ = 0, 0.0, 0.0
+    # Iteration log, printed at the end of the step: residuals, step type, α and KSP iterations
+    log_ϵ, log_step, log_α = zeros(iter_params.niter), fill("", iter_params.niter), zeros(iter_params.niter)
+    log_KSP = zeros(Int, iter_params.niter)
 
     while iter < iter_params.niter
         iter += 1
-        @printf("Iteration %04d\n", iter)
+        @printf("Time step %04d -- Iter. %03d\n", it, iter)
 
         @timeit to "Residual" begin
-            TangentOperator!(a.𝐷, a.𝐷_ctl, a.τ, a.τ0, a.ε̇, a.λ̇, a.η, a.G, a.V, a.Pt, a.Pt0, a.ΔPt, a.type, BC, materials, a.phase_ratios, Δ)
+            TangentOperator!(a.𝐷, a.𝐷_ctl, a.τ, a.τ0, a.ε̇, a.λ̇, a.η, a.G, a.V, a.Pt, a.Pt0, a.ΔPt, a.type, BC, materials, a.phase_ratios, Δ; εp=a.εp, Ω=a.Ω, εp_ph=a.εp_ph, mk)
             ResidualContinuity2D!(a.R, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.β, a.ξ, materials, a.number, a.type, BC, nc, Δ)
             ResidualMomentum2D_x!(a.R, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.G, materials, a.number, a.type, BC, nc, Δ)
             ResidualMomentum2D_y!(a.R, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷, a.G, a.ρ, materials, a.number, a.type, BC, nc, Δ)
@@ -83,15 +140,51 @@ function main_solver!(a::Allocs, it, materials, BC, nc, Δ, to, nphases, iter_pa
         err.p[iter] = @views norm(a.R.p[inx_c, iny_c]) / sqrt(nPt)
         ϵ = max(err.x[iter], err.y[iter])
         (iter == 1) && (ϵ0 = ϵ)
+        ϵ_l = iter_params.inexact ? linear_tol(ϵ, ϵ0, iter; α=50) : iter_params.ϵ_l
+        @printf("Abs. res. = %02e --- Rel. res = %02e  --- ϵ_l = %1.2e\n", ϵ, ϵ / ϵ0, ϵ_l)
+        log_ϵ[iter] = ϵ
         ϵ < iter_params.ϵ_nl && break
 
         SetRHS!(a.r, a.R, a.number, a.type, nc)
-        Solve!(a, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params)
+        Newton, log_α[iter], log_KSP[iter] = Solve!(a, materials, BC, nc, Δ, to, rvec, iter, ϵ0, ϵ, iter_params; mk)
+        log_step[iter] = Newton ? "Newton" : "Picard"
+    end
+
+    @printf("Time step %04d: iteration log\n", it)
+    for k in 1:iter
+        if log_step[k] == ""
+            @printf("    Iter. %02d. %-9s abs. res. = %.3e, rel. res. = %.3e\n", k, "converged", log_ϵ[k], log_ϵ[k] / ϵ0)
+        else
+            @printf("    Iter. %02d. %-9s abs. res. = %.3e, rel. res. = %.3e, α = %.3f, KSP its = %d\n", k, log_step[k] * ".", log_ϵ[k], log_ϵ[k] / ϵ0, log_α[k], log_KSP[k])
+        end
+    end
+
+    # Stop instead of carrying on with an unconverged (or NaN) solution, unless below the last resort tolerance
+    if !(ϵ < iter_params.ϵ_nl)
+        ϵ < iter_params.ϵ_nl_last || error(@sprintf("Time step %04d: Newton did not converge in %d iterations (abs. res. = %.2e > ϵ_nl_last = %.2e)", it, iter, ϵ, iter_params.ϵ_nl_last))
+        @printf("Time step %04d: WARNING, not converged in %d iterations, accepted with abs. res. = %.2e < ϵ_nl_last = %.2e\n", it, iter, ϵ, iter_params.ϵ_nl_last)
     end
 
     a.Pt .+= a.ΔPt.c
+    fill_solution_ghosts!(a)
 
     return iter, err
+end
+
+# Centroid fields computed by the rheology on the inner centroids only: fill their ghost cells (as the old fields, see
+# correct_boundaries!), so that the grid → marker interpolation of increments next to a boundary does not see 0 - old value
+function fill_solution_ghosts!(a)
+    t = a.type.Pt
+    for A in (a.Pt, a.τ.xx, a.τ.yy, a.τ.II, a.ε̇.xx, a.ε̇.yy, a.ε̇.II, a.η.c, a.λ̇.c)
+        fill_centroid_ghosts!(A, t)
+    end
+    if hasproperty(a.τ, :ph)
+        for k in (:xx_c, :yy_c, :xy_c, :η_c, :P_c), A in getproperty(a.τ.ph, k)
+            fill_centroid_ghosts!(A, t)
+        end
+    end
+    foreach(A -> fill_centroid_ghosts!(A, t), a.εp_ph.ε̇pl.c)
+    return nothing
 end
 
 function update_old_stress!(a::Allocs)
@@ -107,17 +200,38 @@ main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = m
 
 function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     update_old_stress!(a)
+    _per_phase_stress(materials) && update_old_stress_Voigt!(a)
     return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 end
 
+# Marker advection with JustPIC: velocity interpolation to the markers, RK4 along the path in the velocity of the step vⁿ⁺¹,
+# fixed over the step: the displacement vⁿ⁺¹Δt is the one of the (backward Euler) stress update. A time-centred velocity
+# (vⁿ + vⁿ⁺¹)/2 breaks this consistency (Viagra test: worse elastic recovery).
+#   :standard  bilinear (advection!)
+#   :LinP      linear + pressure correction, closer to divergence-free (advection_LinP!)
+#   :MQS       monotonic quadratic spline, bilinear near boundaries (advection_MQS!)
+function advect_markers!(particles, V, Δt, mode::Symbol)
+    if mode === :standard
+        advection!(particles, RungeKutta4(), V, Δt)
+    elseif mode === :LinP
+        advection_LinP!(particles, RungeKutta4(), V, Δt)
+    elseif mode === :MQS
+        advection_MQS!(particles, RungeKutta4(), V, Δt)
+    else
+        error("advection must be :standard, :LinP or :MQS (got :$mode)")
+    end
+    return nothing
+end
+
 # Advect (no stress correction)
-function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect::Bool=true)
+function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advect::Bool=true, advection::Symbol=:standard)
 
     # Static markers update
     !advect && return main_loop(a, nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     # Set old stresses
     update_old_stress!(a)
+    _per_phase_stress(materials) && update_old_stress_Voigt!(a)
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
@@ -125,7 +239,7 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
     # Advect
-    advection!(adv.particles, RungeKutta4(), V, Δ.t)
+    advect_markers!(adv.particles, V, Δ.t, advection)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
 
@@ -134,20 +248,70 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
 end
 
 # Advect and rotate stresses
-function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advection::Symbol=:standard, subgrid=1.0, rotation::Symbol=:upper_convected)
+
+    # Rheology on the markers (mixing = :markers): old pressure of the cells = mean of their markers (also after a restart)
+    onmk = _mixing(materials) in (:markers, :markers_stress, :markers_work)
+    mk = onmk ? marker_engine(a, adv.particles, adv.particle_args[1], tm) : nothing
+    onmk && stress_ToGrid_Markers!(tm, a, mk)
 
     # Solve
-    main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    onmk ? main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; mk) :
+           main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
     # Advect
-    stress_ToParticles!(a, tm, materials, adv.particles, Δ)
-    advection!(adv.particles, RungeKutta4(), V, Δ.t)
+    voigt = _per_phase_stress(materials)
+    if onmk
+        stress_ToParticles_Markers!(a, tm, mk, Δ; rotation) # also integrates the marker plastic strain
+    elseif voigt
+        stress_ToParticles_Voigt!(a, tm, materials, adv.particles, adv.particle_args[1], Δ; d=subgrid, rotation)
+    else
+        stress_ToParticles!(a, tm, materials, adv.particles, Δ; d=subgrid, rotation)
+    end
+    # Plastic strain carried by the markers: εp += Δt ε̇II_pl (of the marker's phase for plastic_strain = :phase)
+    onmk || plastic_strain_ToParticles!(a, tm, materials, adv.particles, adv.particle_args[1], Δ)
+    advect_markers!(adv.particles, V, Δ.t, advection)
     move_particles!(adv.particles, adv.particle_args)
     inject_particles!(adv.particles, adv.particle_args)
 
     # Update fields with new positions
-    stress_ToGrid!(tm, a, adv.particles)
+    if onmk
+        stress_ToGrid_Markers!(tm, a, mk)
+    elseif voigt
+        stress_ToGrid_Voigt!(tm, a, adv.particles, adv.particle_args[1], nphases)
+    else
+        stress_ToGrid!(tm, a, adv.particles)
+    end
+    plastic_strain_ToGrid!(tm, a, materials, adv.particles, adv.particle_args[1])
     Set_PhaseRatios!(a, adv.phase_ratios, adv.particles, adv.particle_args[1])
+end
+"""
+    update_plastic_strain!(a, materials, Δt)
+
+Eulerian accumulation of the plastic strain on the grid after a converged step, for runs WITHOUT stress markers
+(no advection of εp). With TensorMarkers, main_loop carries εp on the markers (plastic_strain_ToParticles!,
+plastic_strain_ToGrid!): do not call this function as well.
+εp = ∫ε̇II_pl dt, ε̇II_pl: invariant of the plastic part of the deviatoric strain rate of each phase (phase_vep)
+- materials.plastic_strain = :mixed: a.εp += Δt Σᵢφᵢε̇II_plᵢ, one value per grid point shared by all phases
+- materials.plastic_strain = :phase: a.εp_ph.εp[i] += Δt ε̇II_plᵢ per phase, and a.εp = Σᵢ φᵢ εpᵢ (mixture, for output only)
+"""
+function update_plastic_strain!(a, materials, Δt)
+    for (loc, pr) in ((:c, a.phase_ratios.c), (:v, a.phase_ratios.v))
+        εph, ε̇ph, εmix = a.εp_ph.εp[loc], a.εp_ph.ε̇pl[loc], a.εp[loc]
+        if _plastic_strain(materials) === :phase
+            for p in eachindex(εph)
+                εph[p] .+= Δt .* ε̇ph[p]
+            end
+            for I in eachindex(εmix)
+                εmix[I] = sum(pr[I][p] * εph[p][I] for p in eachindex(εph))
+            end
+        else
+            for I in eachindex(εmix)
+                εmix[I] += Δt * sum(pr[I][p] * ε̇ph[p][I] for p in eachindex(ε̇ph))
+            end
+        end
+    end
+    return nothing
 end

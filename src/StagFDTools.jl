@@ -6,7 +6,7 @@ using DifferentiationInterface, ForwardDiff
 include("AD.jl")
 export ad_gradient, ad_value_and_gradient, ad_derivative, ad_value_and_derivative
 export ad_jacobian, ad_value_and_jacobian, ad_partial_gradients, ad_value_and_jacobian_first
-export fd_value_and_jacobian, fd_value_and_derivative
+export fd_value_and_jacobian, fd_value_and_derivative, fd_jacobian_first
 export Const, Duplicated, forwarddiff_gradients!, forwarddiff_gradient, forwarddiff_jacobian
 
 include("operators.jl")
@@ -17,15 +17,15 @@ include("Utils.jl")
 export GenerateGrid, printxy, av2D, Plot_Tangent_Operator
 
 include("Solvers.jl")
-export DecoupledSolver, KSP_GCR_Stokes!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt!
+export DecoupledSolver, KSP_GCR_Stokes!, StokesGCRCache, setup_gcr!, update_preconditioner!, update_operator!, mechanical_solver!, linear_tol, two_phases_mechanical_solver!, KSP_GCR_TwoPhases_setup, KSP_GCR_TwoPhases_opt!
 
 include("BCs.jl")
 export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
-export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
-export initialize_materials, initialize_materials_TwoPhases
+export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, MohrCoulomb, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
+export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers
 #     include("markers.jl")
@@ -34,7 +34,10 @@ export initialize_materials, initialize_materials_TwoPhases
 module Rheology
 using StaticArrays, StagFDTools, LinearAlgebra
 include("Rheology.jl")
-export LocalRheology, StressVector!
+include("Rheology_Reuss.jl")
+include("Rheology_MohrCoulomb.jl")
+export _mixing, _per_phase_stress, _phase_pressure, _plastic_strain, _εp, PhaseStrain, phase_plastic_rates!, phase_vep, LocalRheology_Reuss, reuss_max_phases
+export LocalRheology, StressVector!, update_rate_state, phase_vep_tensor, mc_strain_rate_II, mc_phase
 export LocalRheology_div, StressVector_div!
 export Yield, Potential, invII
 end
@@ -50,6 +53,7 @@ using TimerOutputs, Printf
 using JustPIC
 using CellArraysIndexing: @index
 import CellArraysIndexing as CAI
+include("StokesAssembly.jl")
 include("Stokes.jl")
 export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx!, SetBCVy!, set_boundaries_template!, SetBCVx1, SetBCVy1
 export Continuity, SMomentum_x_Generic, SMomentum_y_Generic
@@ -59,15 +63,33 @@ export TangentOperator!, LineSearch!
 include("Allocs.jl")
 export Allocs, Markers, TensorMarkers, TensorConstructor, initialise_markers
 include("Markers.jl")
+export InitialiseMarkerField, FillPhaseRatios!, update_JustPIC!
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
 include("StressMarkers.jl")
+include("Rheology_Voigt.jl")
+include("Rheology_IsoWork.jl")
+include("Rheology_Markers.jl")
+export phase_multipliers, marker_engine, stress_ToGrid_Markers!, stress_ToParticles_Markers!
+export StressVector_Voigt!, stress_ToGrid_Voigt!, stress_ToParticles_Voigt!
 export stress_ToParticles!, stress_ToGrid!, tensor_args, increment_stress!,
     update_stress_markers!, correct_boundaries!, Jaumann_rate!, upper_convected!,
     rotation_increments!, constitutive_increments!,
     stress_subgrid_diffusion!, subgrid_toGrid!, add_subgrid_increments!, add_increments!
 include("Main.jl")
-export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!
+export AbstractSolver, Solve!, main_loop, IterParams, update_old_stress!, update_plastic_strain!
+export assemble_jacobian!, set_block_matrices!
 export compute_vorticity!
+end
+module StokesVariational
+using LinearAlgebra, StaticArrays, SparseArrays, Printf, StagFDTools, StagFDTools.Stokes
+using JustPIC
+using CellArraysIndexing: @index
+import StagFDTools.Stokes: allocate_matrices, assembly_loop, _target, pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!, foreach_marker, zero_gradient!
+include("StokesVariational.jl")
+export VariationalWeights, VariationalFreeSurface, fluid_fractions!, flag_free_surface!, numbering_free_surface!, update_free_surface!
+export set_phases_from_chain!, remove_air_phase!, set_grid_phases_free_surface!, advect_free_surface!, fill_velocity_ghosts!
+export plastic_strain_ToParticles_FS!, plastic_strain_ToGrid_FS!
+export residuals_free_surface!, assemble_free_surface!, solve_free_surface!
 end
 module StokesDeformed
 using LinearAlgebra, StaticArrays, ExtendableSparse, StaticArrays, StagFDTools, StagFDTools.Rheology
@@ -105,7 +127,7 @@ end
 module TwoPhases
 using StagFDTools, StaticArrays, ExtendableSparse, StaticArrays, LinearAlgebra, ForwardDiff
 include("TwoPhases/TwoPhases_v3.jl")
-export Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetBCVx1, SetBCVy1, SetBCPf1
+export set_BC_template, Fields, Ranges, Numbering!, SparsityPattern!, SetRHS!, UpdateSolution!, SetPeriodicGhosts!, SetBCVx1, SetBCVy1, SetBCPf1
 export AssembleFluidContinuity2D!, ResidualFluidContinuity2D!, FluidContinuity
 export LineSearch!, BackTrackingLineSearch!
 export AssembleContinuity2D!, ResidualContinuity2D!, Continuity
@@ -122,6 +144,16 @@ include("TwoPhases/TwoPhases_Rheology_Common.jl")
 export invII, StrainRateTrial, F, Q, compute_Q, compute_F#, DruckerPrager, DruckerPragerCap
 include("Markers.jl")
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields_two_phases!
+end
+
+module PhaseFieldMechanics
+using StagFDTools, StaticArrays, SparseArrays, LinearAlgebra, Printf
+include("PhaseFieldMechanics/PhaseFieldMechanics.jl")
+include("PhaseFieldMechanics/PhaseFieldMechanics_GCR.jl")
+export set_BC_template, Fields, Ranges, Numbering!, SetRHS!, UpdateSolution!
+export Momentum_x, Momentum_y, Continuity, PhaseField, Residuals!, Assemble!, residual_norms, BackTrackingLineSearch!
+export pattern_storage, set_sparsity_pattern!, fixed_pattern, zero_values!
+export UpdateStress!, total_stress, degradation, JacobianCache, solve!, jacobian_blocks, GCRWorkspace, gcr_solve!, lagged_gcr_solve!, set_ghosts!
 end
 
 end # module StagFDTools

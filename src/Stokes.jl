@@ -4,12 +4,18 @@ struct Fields{Tx,Ty,Tp}
     Pt::Tp
 end
 
-function Base.getindex(x::Fields, i::Int64)
+@inline function Base.getindex(x::Fields, i::Int64)
     @assert 0 < i < 4
     i == 1 && return x.Vx
     i == 2 && return x.Vy
     i == 3 && return x.Pt
 end
+
+using SparseArrays
+
+# The fixed pattern stores structural zeros (e.g. the Pt block when incompressible);
+# the solvers expect them dropped.
+SparseArrays.dropzeros(M::Fields) = _map_blocks(dropzeros, M)
 
 function Ranges(nc)
     return (inx_Vx=2:(nc.x+2), iny_Vx=3:(nc.y+2), inx_Vy=3:(nc.x+2), iny_Vy=2:(nc.y+2), inx_c=2:(nc.x+1), iny_c=2:(nc.y+1), inx_v=2:(nc.x+2), iny_v=2:(nc.y+2), size_x=(nc.x + 3, nc.y + 4), size_y=(nc.x + 4, nc.y + 3), size_c=(nc.x + 2, nc.y + 2), size_v=(nc.x + 3, nc.y + 3))
@@ -71,21 +77,38 @@ function set_boundaries_template!(type, config, nc)
         type.Pt[2:(end-1), 2:(end-1)] .= :in
         type.Pt[2:(end-1), [1 end]] .= :periodic
 
-    elseif config == :NS_Neumann
+    elseif config == :EW_periodic_shear_stress # East/West periodic, S: Vx = BC, N: τxy = BC
+        # -------- Vx -------- #
+        type.Vx[inx_Vx, iny_Vx] .= :in
+        type.Vx[1, iny_Vx] .= :periodic
+        type.Vx[(end-1):end, iny_Vx] .= :periodic
+        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
+        type.Vx[inx_Vx, end-1] .= :tangential_stress
+        # -------- Vy -------- #
+        type.Vy[inx_Vy, iny_Vy] .= :in
+        type.Vy[1:2, iny_Vy] .= :periodic
+        type.Vy[(end-1):end, iny_Vy] .= :periodic
+        type.Vy[inx_Vy, 2] .= :Dirichlet_normal
+        type.Vy[inx_Vy, end-1] .= :Dirichlet_normal
+        # -------- Pt -------- #
+        type.Pt[2:(end-1), 2:(end-1)] .= :in
+        type.Pt[[1 end], 2:(end-1)] .= :periodic
+    elseif config == :NS_periodic_shear_stress # North/South periodic, W: Vy = BC, E: τxy = BC
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
         type.Vx[end-1, iny_Vx] .= :Dirichlet_normal
-        type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
-        type.Vx[inx_Vx, end-1] .= :Dirichlet_tangent
+        type.Vx[inx_Vx, 1:2] .= :periodic
+        type.Vx[inx_Vx, (end-1):end] .= :periodic
         # -------- Vy -------- #
         type.Vy[inx_Vy, iny_Vy] .= :in
         type.Vy[2, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[end-1, iny_Vy] .= :Dirichlet_tangent
-        type.Vy[inx_Vy, 1] .= :Neumann_normal
-        type.Vy[inx_Vy, end] .= :Neumann_normal
+        type.Vy[end-1, iny_Vy] .= :tangential_stress
+        type.Vy[inx_Vy, 1] .= :periodic
+        type.Vy[inx_Vy, (end-1):end] .= :periodic
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
+        type.Pt[2:(end-1), [1 end]] .= :periodic
     elseif config == :NS_stress
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
@@ -100,8 +123,8 @@ function set_boundaries_template!(type, config, nc)
         type.Vy[inx_Vy, 1] .= :normal_stress
         type.Vy[inx_Vy, end] .= :normal_stress
         # -------- Pt -------- #
-        type.Pt[2:(end-1), 2:(end-1)] .= :in
-    elseif config == :N_StressFree
+        type.Pt[2:end-1,2:end-1] .= :in
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
@@ -117,11 +140,12 @@ function set_boundaries_template!(type, config, nc)
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
 
-    elseif config == :EW_Neumann
+    elseif config == :ENW_stress
+        # Normal stress on the east, west and north sides, Vy imposed at the south (stress-controlled axial loading)
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
-        type.Vx[1, iny_Vx] .= :Neumann_normal
-        type.Vx[end-0, iny_Vx] .= :Neumann_normal
+        type.Vx[1, iny_Vx] .= :normal_stress
+        type.Vx[end, iny_Vx] .= :normal_stress
         type.Vx[inx_Vx, 2] .= :Dirichlet_tangent
         type.Vx[inx_Vx, end-1] .= :Dirichlet_tangent
         # -------- Vy -------- #
@@ -129,10 +153,9 @@ function set_boundaries_template!(type, config, nc)
         type.Vy[2, iny_Vy] .= :Dirichlet_tangent
         type.Vy[end-1, iny_Vy] .= :Dirichlet_tangent
         type.Vy[inx_Vy, 2] .= :Dirichlet_normal
-        type.Vy[inx_Vy, end-1] .= :Dirichlet_normal
+        type.Vy[inx_Vy, end] .= :normal_stress
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
-        # type.Pt[[1,end],2:end-1] .= :Neumann_normal
     elseif config == :EW_stress
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
@@ -181,7 +204,7 @@ function set_boundaries_template!(type, config, nc)
         # -------- Pt -------- #
         type.Pt[2:(end-1), 2:(end-1)] .= :in
 
-    elseif config == :N_StressFree
+    elseif config == :N_stress_free
         # -------- Vx -------- #
         type.Vx[inx_Vx, iny_Vx] .= :in
         type.Vx[2, iny_Vx] .= :Dirichlet_normal
@@ -200,7 +223,9 @@ function set_boundaries_template!(type, config, nc)
     end
 end
 
-function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, materials, type, bcv, Δ)
+# φ (optional): volume fractions of the stress control volumes, φ = (c=SVector{2}, v=SVector{2}), used by the
+# variational free surface (StokesVariational): the stresses are weighted by the fluid fraction of their control volume
+function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, materials, type, bcv, Δ; φ=nothing)
 
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0
 
@@ -273,6 +298,20 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
         BC_sym = 1 / 2
     end
 
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.x[2,1] == :tangential_stress
+        τxy = SVector{2}(bcv.x[2,1], τxy[2])
+    end
+    if type.x[2,end] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.x[2,end])
+    end
+
+    # Variational free surface: weight by the fluid fraction of the stress control volumes
+    if φ !== nothing
+        σxx = φ.c .* σxx
+        τxy = φ.v .* τxy
+    end
+
     # Residual
     fx = (σxx[2] - σxx[1]) * invΔx
     fx += (τxy[2] - τxy[1]) * invΔy
@@ -282,7 +321,9 @@ function SMomentum_x_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, 𝐷, material
     return fx
 end
 
-function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, materials, type, bcv, Δ)
+# φ (optional): see SMomentum_x_Generic, plus φ.Vy, the fluid fraction of the Vy control volume (weights gravity)
+# θ_fs (optional): free surface stabilisation parameter (0: off)
+function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, materials, type, bcv, Δ; φ=nothing, θ_fs=0.0)
 
     invΔx, invΔy, BC_sym = 1 / Δ.x, 1 / Δ.y, 1.0
 
@@ -352,7 +393,7 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
     ρg = materials.g[2] * 0.5 * (ρ[1] + ρ[2])
 
     # Apply normal stress BC 
-    if type.x[2, 1] == :normal_stress
+    if type.y[2, 1] == :normal_stress
         σyy = SVector{2}([2*bcv.y[2, 2]-σyy[2] σyy[2]])
         BC_sym = 1 / 2
     end
@@ -361,8 +402,33 @@ function SMomentum_y_Generic(Vx_loc, Vy_loc, Pt, ΔP, τ0, G_loc, ρ_loc, 𝐷, 
         BC_sym = 1 / 2
     end
 
+    # Apply shear stress BC (τxy on the boundary vertex = BC)
+    if type.y[1,2] == :tangential_stress
+        τxy = SVector{2}(bcv.y[1,2], τxy[2])
+    end
+    if type.y[end,2] == :tangential_stress
+        τxy = SVector{2}(τxy[1], bcv.y[end,2])
+    end
+
+    # Variational free surface: weight by the fluid fraction of the stress and Vy control volumes
+    if φ !== nothing
+        σyy = φ.c .* σyy
+        τxy = φ.v .* τxy
+        ρg *= φ.Vy
+    end
+
+    # Free surface stabilisation (Kaus et al., 2010; Duretz et al., 2011, Eq. 25): body force evaluated with the
+    # density expected at t + θΔt, ρ - θΔt v⋅∇ρ. Only the diagonal (symmetric) part -θΔt g_y ∂ρ/∂y Vy is kept,
+    # the asymmetric ∂ρ/∂x Vx coupling is neglected. With φ, ρ is the effective density φc ρ (free surface jump).
+    fstab = zero(eltype(Vy_loc))
+    if θ_fs > 0
+        ρ̃ = φ === nothing ? ρ : φ.c .* ρ
+        fstab = -θ_fs * Δ.t * materials.g[2] * (ρ̃[2] - ρ̃[1]) * invΔy * Vy_loc[2, 2]
+    end
+
     # Residual
     fy = (σyy[2] - σyy[1]) * invΔy
+    fy += fstab
     fy += (τxy[2] - τxy[1]) * invΔx
     fy += ρg
     fy *= -Δ.x * Δ.y
@@ -419,61 +485,57 @@ end
 function AssembleMomentum2D_x!(K, V, P, P0, ΔP, τ0, 𝐷, G, materials, num, pattern, type, BC, nc, Δ)
 
     shift = (x=1, y=2)
-    for j in (1+shift.y):(nc.y+shift.y)
-        for i in (1+shift.x):(nc.x+shift.x+1)
+    assembly_loop(K, (1+shift.y):(nc.y+shift.y)) do j, tid
+        @inbounds for i in (1+shift.x):(nc.x+shift.x+1)
 
-            if type.Vx[i, j] == :in
+            type.Vx[i, j] == :in || continue
+            row = num.Vx[i, j]
+            row > 0 || continue
 
-                bcx_loc = SMatrix{3,3}(BC.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                bcy_loc = SMatrix{4,4}(BC.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                typex_loc = SMatrix{3,3}(type.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                typey_loc = SMatrix{4,4}(type.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                typep_loc = SMatrix{2,1}(type.Pt[ii, jj] for ii in (i-1):(i-0), jj in (j-1):(j-1))
+            bcx_loc = SMatrix{3,3}(BC.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            bcy_loc = SMatrix{4,4}(BC.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            typex_loc = SMatrix{3,3}(type.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            typey_loc = SMatrix{4,4}(type.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            typep_loc = SMatrix{2,1}(type.Pt[ii, jj] for ii in (i-1):(i-0), jj in (j-1):(j-1))
 
-                Vx_loc = SMatrix{3,3}(V.x[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                Vy_loc = SMatrix{4,4}(V.y[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
-                P_loc = SMatrix{2,3}(P[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                ΔP_loc = SMatrix{2,1}(ΔP.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Gc_loc = SMatrix{2,1}(G.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Gv_loc = SMatrix{1,2}(G.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
+            Vx_loc = SMatrix{3,3}(V.x[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            Vy_loc = SMatrix{4,4}(V.y[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1))
+            P_loc = SMatrix{2,3}(P[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            ΔP_loc = SMatrix{2,1}(ΔP.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Gc_loc = SMatrix{2,1}(G.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Gv_loc = SMatrix{1,2}(G.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
 
-                τxx0 = SMatrix{2,3}(τ0.xx[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                τyy0 = SMatrix{2,3}(τ0.yy[ii, jj] for ii in (i-1):i, jj in (j-2):j)
-                τxy0 = SMatrix{3,2}(τ0.xy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):j)
+            τxx0 = SMatrix{2,3}(τ0.xx[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            τyy0 = SMatrix{2,3}(τ0.yy[ii, jj] for ii in (i-1):i, jj in (j-2):j)
+            τxy0 = SMatrix{3,2}(τ0.xy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):j)
 
-                Dc = SMatrix{2,1}(𝐷.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
-                Dv = SMatrix{1,2}(𝐷.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
-                bcv_loc = (x=bcx_loc, y=bcy_loc)
-                type_loc = (x=typex_loc, y=typey_loc, p=typep_loc)
-                # ph_loc     = (c=phc_loc, v=phv_loc)
-                D = (c=Dc, v=Dv)
-                τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
-                G_loc = (c=Gc_loc, v=Gv_loc)
+            Dc = SMatrix{2,1}(𝐷.c[ii, jj] for ii in (i-1):i, jj in (j-1):(j-1))
+            Dv = SMatrix{1,2}(𝐷.v[ii, jj] for ii in (i-0):(i-0), jj in (j-1):(j-0))
+            bcv_loc = (x=bcx_loc, y=bcy_loc)
+            type_loc = (x=typex_loc, y=typey_loc, p=typep_loc)
+            D = (c=Dc, v=Dv)
+            τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
+            G_loc = (c=Gc_loc, v=Gv_loc)
 
-                ∂R∂Vx = gradient(x -> SMomentum_x_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
-                ∂R∂Vy = gradient(x -> SMomentum_x_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
-                ∂R∂Pt = gradient(x -> SMomentum_x_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
-                # Vx --- Vx
-                Local = SMatrix{3,3}(num.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[1][1]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][1][num.Vx[i, j], Local[ii, jj]] = ∂R∂Vx[ii, jj]
-                    end
-                end
-                # Vx --- Vy
-                Local = SMatrix{4,4}(num.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1)) .* pattern[1][2]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][2][num.Vx[i, j], Local[ii, jj]] = ∂R∂Vy[ii, jj]
-                    end
-                end
-                # Vx --- Pt
-                Local = SMatrix{2,3}(num.Pt[ii, jj] for ii in (i-1):i, jj in (j-2):j) .* pattern[1][3]
-                for jj in axes(Local, 2), ii in axes(Local, 1)
-                    if (Local[ii, jj] > 0) && num.Vx[i, j] > 0
-                        K[1][3][num.Vx[i, j], Local[ii, jj]] = ∂R∂Pt[ii, jj]
-                    end
-                end
+            ∂R∂Vx = ad_gradient(x -> SMomentum_x_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(x -> SMomentum_x_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(x -> SMomentum_x_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, D, materials, type_loc, bcv_loc, Δ), P_loc)
+
+            Kt = _target(K, tid)
+            # Vx --- Vx
+            Local = SMatrix{3,3}(num.Vx[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[1][1]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
+            end
+            # Vx --- Vy
+            Local = SMatrix{4,4}(num.Vy[ii, jj] for ii in (i-1):(i+2), jj in (j-2):(j+1)) .* pattern[1][2]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
+            end
+            # Vx --- Pt
+            Local = SMatrix{2,3}(num.Pt[ii, jj] for ii in (i-1):i, jj in (j-2):j) .* pattern[1][3]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[1][3][row, Local[ii, jj]] = ∂R∂Pt[ii, jj])
             end
         end
     end
@@ -517,78 +579,54 @@ end
 function AssembleMomentum2D_y!(K, V, P, P0, ΔP, τ0, 𝐷, G, ρ, materials, num, pattern, type, BC, nc, Δ)
 
     shift = (x=2, y=1)
-    K21 = K[2][1]
-    K22 = K[2][2]
-    K23 = K[2][3]
+    assembly_loop(K, (1+shift.y):(nc.y+shift.y+1)) do j, tid
+        @inbounds for i in (1+shift.x):(nc.x+shift.x)
 
-    for j in (1+shift.y):(nc.y+shift.y+1)
-        for i in (1+shift.x):(nc.x+shift.x)
+            type.Vy[i, j] == :in || continue
+            row = num.Vy[i, j]
+            row > 0 || continue
 
-            if type.Vy[i, j] === :in
+            Vx_loc = SMatrix{4,4}(V.x[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            Vy_loc = SMatrix{3,3}(V.y[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            bcx_loc = SMatrix{4,4}(BC.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            bcy_loc = SMatrix{3,3}(BC.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            typex_loc = SMatrix{4,4}(type.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
+            typey_loc = SMatrix{3,3}(type.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
+            Gc_loc = SMatrix{1,2}(G.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            Gv_loc = SMatrix{2,1}(G.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
+            P_loc = SMatrix{3,2}(P[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            ΔP_loc = SMatrix{1,2}(ΔP.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            ρ_loc = SMatrix{1,2}(ρ.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            τxx0 = SMatrix{3,2}(τ0.xx[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            τyy0 = SMatrix{3,2}(τ0.yy[ii, jj] for ii in (i-2):i, jj in (j-1):j)
+            τxy0 = SMatrix{2,3}(τ0.xy[ii, jj] for ii in (i-1):i, jj in (j-1):(j+1))
+            Dc = SMatrix{1,2}(𝐷.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
+            Dv = SMatrix{2,1}(𝐷.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
+            bcv_loc = (x=bcx_loc, y=bcy_loc)
+            type_loc = (x=typex_loc, y=typey_loc)
+            G_loc = (c=Gc_loc, v=Gv_loc)
+            D = (c=Dc, v=Dv)
+            τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
 
-                Vx_loc = @inline SMatrix{4,4}(@inbounds V.x[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                Vy_loc = @inline SMatrix{3,3}(@inbounds V.y[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                bcx_loc = @inline SMatrix{4,4}(@inbounds BC.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                bcy_loc = @inline SMatrix{3,3}(@inbounds BC.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                typex_loc = @inline SMatrix{4,4}(@inbounds type.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2))
-                typey_loc = @inline SMatrix{3,3}(@inbounds type.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1))
-                Gc_loc = @inline SMatrix{1,2}(@inbounds G.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                Gv_loc = @inline SMatrix{2,1}(@inbounds G.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
-                P_loc = @inline SMatrix{3,2}(@inbounds P[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                ΔP_loc = @inline SMatrix{1,2}(@inbounds ΔP.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                ρ_loc = @inline SMatrix{1,2}(@inbounds ρ.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                τxx0 = @inline SMatrix{3,2}(@inbounds τ0.xx[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                τyy0 = @inline SMatrix{3,2}(@inbounds τ0.yy[ii, jj] for ii in (i-2):i, jj in (j-1):j)
-                τxy0 = @inline SMatrix{2,3}(@inbounds τ0.xy[ii, jj] for ii in (i-1):i, jj in (j-1):(j+1))
-                Dc = @inline SMatrix{1,2}(@inbounds 𝐷.c[ii, jj] for ii in (i-1):(i-1), jj in (j-1):j)
-                Dv = @inline SMatrix{2,1}(@inbounds 𝐷.v[ii, jj] for ii in (i-1):(i-0), jj in (j-0):(j-0))
-                bcv_loc = (x=bcx_loc, y=bcy_loc)
-                type_loc = (x=typex_loc, y=typey_loc)
-                G_loc = (c=Gc_loc, v=Gv_loc)
-                D = (c=Dc, v=Dv)
-                τ0_loc = (xx=τxx0, yy=τyy0, xy=τxy0)
+            ∂R∂Vx = ad_gradient(x -> SMomentum_y_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), Vx_loc)
+            ∂R∂Vy = ad_gradient(x -> SMomentum_y_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), Vy_loc)
+            ∂R∂Pt = ad_gradient(x -> SMomentum_y_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), P_loc)
 
-                ∂R∂Vx = gradient(x -> SMomentum_y_Generic(x, Vy_loc, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vx_loc)
-                ∂R∂Vy = gradient(x -> SMomentum_y_Generic(Vx_loc, x, P_loc, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, Vy_loc)
-                ∂R∂Pt = gradient(x -> SMomentum_y_Generic(Vx_loc, Vy_loc, x, ΔP_loc, τ0_loc, G_loc, ρ_loc, D, materials, type_loc, bcv_loc, Δ), AUTO_DIFF_BACKEND, P_loc)
-
-
-                num_Vy = @inbounds num.Vy[i, j]
-                bounds_Vy = num_Vy > 0
-                # Vy --- Vx
-                Local1 = SMatrix{4,4}(num.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2)) .* pattern[2][1]
-                # for jj in axes(Local1,2), ii in axes(Local1,1)
-                #     if (Local1[ii,jj]>0) && bounds_Vy
-                #         @inbounds K21[num_Vy, Local1[ii,jj]] = ∂R∂Vx[ii,jj] 
-                #     end
-                # end
-                # Vy --- Vy
-                Local2 = SMatrix{3,3}(num.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[2][2]
-                # for jj in axes(Local2,2), ii in axes(Local2,1)
-                #     if (Local2[ii,jj]>0) && bounds_Vy
-                #         @inbounds K22[num_Vy, Local2[ii,jj]] = ∂R∂Vy[ii,jj]  
-                #     end
-                # end
-                # Vy --- Pt
-                Local3 = SMatrix{3,2}(num.Pt[ii, jj] for ii in (i-2):i, jj in (j-1):j) .* pattern[2][3]
-                # for jj in axes(Local3,2), ii in axes(Local3,1)
-                #     if (Local3[ii,jj]>0) && bounds_Vy
-                #         @inbounds K23[num_Vy, Local3[ii,jj]] = ∂R∂Pt[ii,jj]  
-                #     end
-                # end 
-
-                Base.@nexprs 4 jj -> begin
-                    Base.@nexprs 4 ii -> begin
-                        bounds_Vy && (Local1[ii, jj] > 0) &&
-                            (@inbounds K21[num_Vy, Local1[ii, jj]] = ∂R∂Vx[ii, jj])
-
-                        bounds_Vy && ii < 4 && jj < 4 && (Local2[ii, jj] > 0) &&
-                            (@inbounds K22[num_Vy, Local2[ii, jj]] = ∂R∂Vy[ii, jj])
-
-                        bounds_Vy && ii < 4 && jj < 3 && (Local3[ii, jj] > 0) &&
-                            (@inbounds K23[num_Vy, Local3[ii, jj]] = ∂R∂Pt[ii, jj])
-                    end
-                end
+            Kt = _target(K, tid)
+            # Vy --- Vx
+            Local = SMatrix{4,4}(num.Vx[ii, jj] for ii in (i-2):(i+1), jj in (j-1):(j+2)) .* pattern[2][1]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
+            end
+            # Vy --- Vy
+            Local = SMatrix{3,3}(num.Vy[ii, jj] for ii in (i-1):(i+1), jj in (j-1):(j+1)) .* pattern[2][2]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
+            end
+            # Vy --- Pt
+            Local = SMatrix{3,2}(num.Pt[ii, jj] for ii in (i-2):i, jj in (j-1):j) .* pattern[2][3]
+            for jj in axes(Local, 2), ii in axes(Local, 1)
+                Local[ii, jj] > 0 && (Kt[2][3][row, Local[ii, jj]] = ∂R∂Pt[ii, jj])
             end
         end
     end
@@ -614,8 +652,12 @@ end
 
 function AssembleContinuity2D!(K, V, P, Pt0, ΔP, τ0, 𝐷, β, ξ, materials, num, pattern, type, BC, nc, Δ)
 
-    for j in 2:(size(P, 2)-1)
-        for i in 2:(size(P, 1)-1)
+    assembly_loop(K, 2:(size(P, 2)-1)) do j, tid
+        @inbounds for i in 2:(size(P, 1)-1)
+
+            row = num.Pt[i, j]
+            row > 0 || continue
+
             Vx_loc = SMatrix{2,3}(V.x[ii, jj] for ii in i:(i+1), jj in j:(j+2))
             Vy_loc = SMatrix{3,2}(V.y[ii, jj] for ii in i:(i+2), jj in j:(j+1))
             P_loc = SMatrix{1,1}(P[ii, jj] for ii in i:i, jj in j:j)
@@ -624,25 +666,20 @@ function AssembleContinuity2D!(K, V, P, Pt0, ΔP, τ0, 𝐷, β, ξ, materials, 
             D = (;)
 
             ∂R∂Vx, ∂R∂Vy, ∂R∂P = ad_partial_gradients(Continuity, (Vx_loc, Vy_loc, P_loc), Pt0[i, j], D, β.c[i, j], ξ.c[i, j], materials, type_loc, bcv_loc, Δ)
+
+            Kt = _target(K, tid)
             # Pt --- Vx
-            Local = SMatrix{2,3}(num.Vx[ii, jj] for ii in i:(i+1), jj in j:(j+2))# .* pattern[3][1]        
+            Local = SMatrix{2,3}(num.Vx[ii, jj] for ii in i:(i+1), jj in j:(j+2))
             for jj in axes(Local, 2), ii in axes(Local, 1)
-                if Local[ii, jj] > 0 && num.Pt[i, j] > 0
-                    K[3][1][num.Pt[i, j], Local[ii, jj]] = ∂R∂Vx[ii, jj]
-                end
+                Local[ii, jj] > 0 && (Kt[3][1][row, Local[ii, jj]] = ∂R∂Vx[ii, jj])
             end
             # Pt --- Vy
-            Local = SMatrix{3,2}(num.Vy[ii, jj] for ii in i:(i+2), jj in j:(j+1)) #.* pattern[3][2]
+            Local = SMatrix{3,2}(num.Vy[ii, jj] for ii in i:(i+2), jj in j:(j+1))
             for jj in axes(Local, 2), ii in axes(Local, 1)
-                if Local[ii, jj] > 0 && num.Pt[i, j] > 0
-                    K[3][2][num.Pt[i, j], Local[ii, jj]] = ∂R∂Vy[ii, jj]
-                end
+                Local[ii, jj] > 0 && (Kt[3][2][row, Local[ii, jj]] = ∂R∂Vy[ii, jj])
             end
-
             # Pt --- Pt
-            if num.Pt[i, j] > 0
-                K[3][3][num.Pt[i, j], num.Pt[i, j]] = ∂R∂P[1, 1]
-            end
+            Kt[3][3][row, row] = ∂R∂P[1, 1]
         end
     end
     return nothing
@@ -834,6 +871,26 @@ function UpdateSolution!(V, Pt, dx, number, type, nc)
         end
     end
 
+    # Non-periodic sides: zero-gradient pressure ghosts (the vertex pressure P̄ of boundary vertices averages them)
+    fill_centroid_ghosts!(Pt, type.Pt)
+end
+
+# Ghost cells of a centroid field (size nc .+ 2): copy of the opposite side where periodic (type.Pt ghost = :periodic),
+# zero gradient otherwise. The rheology only fills the inner centroids; the ghosts are read by the vertex averages and by the
+# bilinear grid → marker interpolation of markers within half a cell of a boundary.
+function fill_centroid_ghosts!(A, typePt)
+    nx, ny = size(A)
+    px = any(==(:periodic), view(typePt, nx, 2:(ny-1)))
+    py = any(==(:periodic), view(typePt, 2:(nx-1), ny))
+    @inbounds for j in 1:ny
+        A[1, j]  = px ? A[nx-1, j] : A[2, j]
+        A[nx, j] = px ? A[2, j]    : A[nx-1, j]
+    end
+    @inbounds for i in 1:nx
+        A[i, 1]  = py ? A[i, ny-1] : A[i, 2]
+        A[i, ny] = py ? A[i, 2]    : A[i, ny-1]
+    end
+    return nothing
 end
 
 function Numbering!(N, type, nc)
@@ -938,7 +995,7 @@ function Numbering!(N, type, nc)
 end
 
 
-function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ)
+function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ; T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
 
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -950,7 +1007,7 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
         V.y .= Vi.y
         Pt .= Pti
         UpdateSolution!(V, Pt, α[i] .* dx, number, type, nc)
-        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp, Ω, εp_ph, mk)
         ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
         ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
@@ -963,7 +1020,60 @@ function LineSearch!(rvec, α, dx, R, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, 
     return imin
 end
 
-@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ)
+# Backtracking line search (same strategy as the two-phase one): α = α0, α0ρ_LS, α0ρ_LS², ... and accept the
+# first α that reduces the residual. R must hold the residual of the current solution on entry.
+# Returns (α, success); the solution (V, Pt) is left unchanged, as in LineSearch!
+function BackTrackingLineSearch!(R, dx, V, Pt, ε̇, τ, Vi, Pti, ΔPt, Pt0, τ0, λ̇, η, G, β, ξ, ρ, 𝐷, 𝐷_ctl, number, type, BC, materials, phase_ratios, nc, Δ;
+    α0=1.0, ρ_LS=0.5, αmin=1e-2, maxiter=5, T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
+
+    inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c, inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
+
+    # Same merit function as LineSearch!
+    merit() = @views norm(R.x[inx_Vx, iny_Vx]) / length(R.x[inx_Vx, iny_Vx]) + norm(R.y[inx_Vy, iny_Vy]) / length(R.y[inx_Vy, iny_Vy])
+
+    ϕ0 = merit()
+    Vi.x .= V.x
+    Vi.y .= V.y
+    Pti .= Pt
+
+    α, success = α0, false
+    for _ in 1:maxiter
+        V.x .= Vi.x
+        V.y .= Vi.y
+        Pt .= Pti
+        UpdateSolution!(V, Pt, α .* dx, number, type, nc)
+        TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T, εp, Ω, εp_ph, mk)
+        ResidualContinuity2D!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, β, ξ, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_x!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, materials, number, type, BC, nc, Δ)
+        ResidualMomentum2D_y!(R, V, Pt, Pt0, ΔPt, τ0, 𝐷, G, ρ, materials, number, type, BC, nc, Δ)
+        if merit() < ϕ0
+            success = true
+            break
+        end
+        α *= ρ_LS
+        α < αmin && break
+    end
+    success || (α = αmin)
+
+    V.x .= Vi.x
+    V.y .= Vi.y
+    Pt .= Pti
+    return α, success
+end
+
+# T: optional temperature field (c, v) [K] for temperature-dependent creep
+# εp: optional accumulated plastic strain field (c, v) for strain hardening (nothing: no hardening)
+# Ω: optional rate-and-state variable field (c, v) for rate-and-state friction (nothing: Ω = 0)
+# εp_ph: optional per-phase plastic strain and plastic strain rate fields, (εp=(c, v), ε̇pl=(c, v)) with per-phase vectors
+#        of arrays (see Allocs.jl); εp used when materials.plastic_strain = :phase (each phase hardens with its own εp),
+#        ε̇pl (invariant of the plastic deviatoric strain rate of each phase) filled in both modes
+# mk: marker engine (materials.mixing = :markers, Rheology_Markers.jl): the rheology is evaluated on the markers
+@views function TangentOperator!(𝐷, 𝐷_ctl, τ, τ0, ε̇, λ̇, η, G, V, Pt, Pt0, ΔPt, type, BC, materials, phase_ratios, Δ; T=nothing, εp=nothing, Ω=nothing, εp_ph=nothing, mk=nothing)
+
+    prates  = εp !== nothing && εp_ph !== nothing # per-phase plastic strain rates ε̇IIplᵢ (plastic strain accumulation, both modes)
+    pstrain = prates && _plastic_strain(materials) === :phase
+    εph_c   = εp_ph === nothing ? nothing : εp_ph.εp.c
+    εph_v   = εp_ph === nothing ? nothing : εp_ph.εp.v
 
     _ones = @SVector ones(4)
     s = 1
@@ -1023,15 +1133,29 @@ end
                 # Deviatoric strain rate
                 ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
 
+                Tk = T === nothing ? nothing : T.c[i, j]
+                εpk = εp === nothing ? 0.0 : PhaseStrain(εp.c[i, j], εph_c, CartesianIndex(i, j), pstrain)
+                Ωk  = Ω === nothing ? 0.0 : Ω.c[i, j]
+                if mk !== nothing
+                    τ_vec, jac, η_local, λ̇_local, τII_local = TangentOperator_Markers!(mk, τ0, i, j, :c, SVector{4}(ε̇xx, ε̇yy, ε̇xy, Pt[i, j]), ε̇kk, Pt0[i, j], G.c[i, j], materials, Δ, Tk, Ωk)
+                elseif _per_phase_stress(materials)
+                    # Per-phase old stresses (Rheology_Voigt.jl); also writes the equivalent τ0 used by the momentum residual
+                    ε̇true = SVector{4}(ε̇xx, ε̇yy, ε̇xy, Pt[i, j])
+                    τ_vec, jac, η_local, λ̇_local, τII_local = prates ?
+                        TangentOperator_Voigt!(τ0, τ, i, j, :c, ε̇true, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk, εp_ph.ε̇pl.c) :
+                        TangentOperator_Voigt!(τ0, τ, i, j, :c, ε̇true, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                else
                 # Effective visco-elastic strain rate
                 _2GΔt = inv(2 * G.c[i, j] * Δ.t)
                 ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
                 ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, Pt[i, j])
 
                 # Tangent operator used for Newton Linearisation
-                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ)
-                τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ)
+                stress_state = StressVector!(ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                τ_vec, jac = fd_jacobian_first(StressVector!, ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
                 _, η_local, λ̇_local, τII_local = stress_state
+                prates && phase_plastic_rates!(εp_ph.ε̇pl.c, CartesianIndex(i, j), ε̇vec, ε̇kk, Pt0[i, j], G.c[i, j], materials, phase_ratios.c[i, j], Δ, Tk, εpk, Ωk)
+                end
 
                 @views 𝐷_ctl.c[i, j] .= jac
 
@@ -1115,15 +1239,28 @@ end
             # Deviatoric strain rate
             ε̇xx, ε̇yy, ε̇xy, ε̇kk = deviatoric_strain_rate(Dxx, Dxy, Dyx, Dyy)
 
+            Tk = T === nothing ? nothing : T.v[i, j]
+            εpk = εp === nothing ? 0.0 : PhaseStrain(εp.v[i, j], εph_v, CartesianIndex(i, j), pstrain)
+            Ωk  = Ω === nothing ? 0.0 : Ω.v[i, j]
+            if mk !== nothing
+                τ_vec, jac, η_local, λ̇_local, _ = TangentOperator_Markers!(mk, τ0, i, j, :v, SVector{4}(ε̇xx, ε̇yy, ε̇xy, P̄), ε̇kk, P̄0, G.v[i, j], materials, Δ, Tk, Ωk)
+            elseif _per_phase_stress(materials)
+                ε̇true = SVector{4}(ε̇xx, ε̇yy, ε̇xy, P̄)
+                τ_vec, jac, η_local, λ̇_local, _ = prates ?
+                    TangentOperator_Voigt!(τ0, τ, i, j, :v, ε̇true, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk, εp_ph.ε̇pl.v) :
+                    TangentOperator_Voigt!(τ0, τ, i, j, :v, ε̇true, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            else
             # Effective visco-elastic strain rate
             _2GΔt = inv(2 * G.v[i, j] * Δ.t)
             ϵ̇xx, ϵ̇yy, ϵ̇xy = effective_strain_rate(ε̇xx, ε̇yy, ε̇xy, τ0xx, τ0yy, τ0xy, _2GΔt)
             ε̇vec = SVector{4}(ϵ̇xx, ϵ̇yy, ϵ̇xy, P̄)
 
             # Tangent operator used for Newton Linearisation
-            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ)
-            τ_vec, jac = ad_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ)
+            stress_state = StressVector!(ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            τ_vec, jac = fd_jacobian_first(StressVector!, ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
             _, η_local, λ̇_local, = stress_state
+            prates && phase_plastic_rates!(εp_ph.ε̇pl.v, CartesianIndex(i, j), ε̇vec, ε̇kk, P̄0, G.v[i, j], materials, phase_ratios.v[i, j], Δ, Tk, εpk, Ωk)
+            end
 
             @views 𝐷_ctl.v[i, j] .= jac
 

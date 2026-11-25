@@ -76,8 +76,8 @@ import Statistics:mean
     @show materials.ηb  ./ materials.G
     @show materials.η0 ./ materials.Kd
     @show materials.ηb  ./ materials.Kd
-    @show materials.η0 ./ materials.KΦ
-    @show materials.ηb  ./ materials.KΦ
+    @show materials.η0 ./ materials.KΦ0
+    @show materials.ηb  ./ materials.KΦ0
     @show materials.η0 ./ materials.Kf
     @show materials.ηb  ./ materials.Kf
     @show r^2/k_ηf0/materials.Ks[1]
@@ -396,7 +396,7 @@ import Statistics:mean
         divVs = diff(V.x[2:end-1,3:end-2], dims=1)./Δ.x .+ diff(V.y[3:end-2,2:end-1], dims=2)./Δ.y
         # Post process 
         @time for i in eachindex(ϕ.c)
-            KΦ = materials.KΦ[phases.c[i]]
+            KΦ = materials.KΦ0[phases.c[i]]
             ηΦ = materials.ηb[phases.c[i]] 
             ϕ.c[i] = ϕ0.c[i] .+ Δ.t*( 1/KΦ * ((P.f[i] - P0.f[i])/Δ.t - (P.t[i] - P0.t[i])/Δ.t) + 1/ηΦ*(P.f[i] - P.t[i]) )
             # divVs

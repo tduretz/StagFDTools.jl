@@ -1,0 +1,200 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=1.6cm,top=1.4cm,bottom=1.6cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage[font=small,labelfont=bf]{caption}
+\usepackage{microtype}
+\usepackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue]{hyperref}
+\setlength{\parskip}{2pt}
+\setlength{\parindent}{0pt}
+
+\title{\vspace{-1.2cm}Phase-field mechanics in StagFDTools: from brittle fracture\\ to gradient-regularised frictional plasticity}
+\author{StagFDTools -- \texttt{PhaseFieldMechanics}}
+\date{20 November 2026}
+
+\begin{document}
+\maketitle
+\vspace{-0.8cm}
+
+\section*{1\quad Phase-field fracture (Miehe et al., 2010)}
+\textbf{Equations.} The unknowns are the velocities $V_x, V_y$, the pressure $P$ and the phase field $d\in[0,1]$ on a
+staggered grid. The effective (undamaged) stresses follow incremental Maxwell visco-elasticity (here elastic,
+$\eta\to\infty$), the stress is degraded by $g(d)$:
+\begin{gather}
+\tilde\tau_{ij} = 2\eta_{ve}\left(\dot\varepsilon'_{ij} + \frac{\tilde\tau^0_{ij}}{2G\Delta t}\right),\quad
+\eta_{ve} = \left(\frac1\eta + \frac1{G\Delta t}\right)^{-1},\qquad
+\Delta t\,\nabla\cdot\boldsymbol V + \frac{P - P^0}{K} = 0, \label{eq:ve}\\
+\sigma_{ij} = g(d)\left(\tilde\tau_{ij} - P\,\delta_{ij}\right),\qquad g(d) = (1-d)^2 + k_{res},\qquad
+\nabla\cdot\boldsymbol\sigma = 0 . \label{eq:mom}
+\end{gather}
+The phase field minimises the AT2 crack functional, with a viscous regularisation $\eta_d$ and the history field
+$H$ (largest elastic strain energy reached so far) as driving force:
+\begin{equation}
+\frac{g_c}{l}\,d - \nabla\cdot\left(g_c l\,\nabla d\right) - 2(1-d)\,H + \eta_d\dot d = 0,\qquad
+H = \max_{t}\psi,\qquad \psi = \frac{\tilde\tau_{ij}\tilde\tau_{ij}}{4G} + \frac{P^2}{2K}.
+\label{eq:pf0}
+\end{equation}
+$g_c$ is the fracture energy and $l$ the length scale of the diffuse crack. The system
+(\ref{eq:ve}--\ref{eq:pf0}) is solved monolithically with Newton's method; the local Jacobians are obtained by
+automatic differentiation and the linear systems by sparse LU (or a GCR solver with a block Cholesky
+preconditioner). The loading uses small displacement increments past the peak. Snap-back is passed by relaxation
+steps at fixed displacement.
+
+\textbf{Test.} A $1\times1$\,mm plate with a horizontal notch from the west side to the centre ($d=1$ pinned) is
+pulled vertically. $K=174.9$\,GPa, $G=80.77$\,GPa, $g_c=2.7$\,kN/m, $l=15\,\mu$m, $\eta_d=10^3$\,Pa\,s,
+$150\times150$ cells ($l/\Delta x = 2.25$), $\Delta u = 10^{-5}$\,mm near the peak. The crack grows straight from the
+notch tip to the east side (Fig.~\ref{fig:miehe}a). The force first increases linearly, peaks at
+0.635\,kN at $u=4.72\times10^{-3}$\,mm, decreases as the crack grows and drops to zero at
+$u\approx5.45\times10^{-3}$\,mm, where the snap-back is passed by relaxation steps at fixed displacement
+(vertical segment in Fig.~\ref{fig:miehe}b).
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.78\textwidth]{figures/fig_miehe.png}
+\caption{Single edge notched tension test (Miehe et al., 2010), $150\times150$ cells. (a) Phase field $d$ at the end
+of the loading ($u = 7\times10^{-3}$\,mm). (b) Force (per mm thickness) versus vertical displacement of the north
+boundary.}
+\label{fig:miehe}
+\end{figure}
+
+\section*{2\quad From fracture to gradient-regularised plasticity}
+In gradient plasticity (de Borst \& M\"uhlhaus, 1992; Duretz et al., 2023) the yield function contains
+$K_g\nabla^2\varepsilon^p$, so the plastic multiplier becomes a global unknown. Here the phase field, driven by
+plastic work (Hageman, 2026), is a smoothed image of the plastic strain, and $\nabla^2 d$ replaces
+$\nabla^2\varepsilon^p$. $\dot\lambda$ stays a local variable. Four changes to Section~1 are needed:
+
+\textbf{(i) Plasticity.} Non-associated Drucker--Prager with linear cohesion softening, evaluated on the degraded
+stress, with the gradient term:
+\begin{equation}
+F = \tau_{II} - P\sin\phi - C\cos\phi + K_d\nabla^2 d,\qquad Q = \tau_{II} - P\sin\psi,\qquad
+C = C^0 + h\,\varepsilon^p,\qquad \varepsilon^p = \sqrt{2/3}\textstyle\int\dot\lambda\,\mathrm{d}t .
+\label{eq:F}
+\end{equation}
+
+\textbf{(ii) Driving force.} The elastic driving force is switched off; the phase field is driven by the plastic work:
+$H \to \beta_p W_p$ in Eq.~\eqref{eq:pf0}, with $W_p = \int \tau_{II}\dot\lambda\,\mathrm{d}t$.
+
+\textbf{(iii) No degradation.} $g(d)=1$ in Eq.~\eqref{eq:mom} (\texttt{damage = false}): $d$ only regularises
+plasticity, it does not soften the material.
+
+\textbf{(iv) Local evaluation of $\nabla^2 d$.} Instead of a stencil, $\nabla^2 d$ is taken from the phase-field
+equation itself at the integration point:
+\begin{equation}
+\nabla^2 d = \frac{1}{g_c l}\left[\frac{g_c}{l}d - 2(1-d)\beta_p W_p + \eta_d\dot d\right].
+\label{eq:lap}
+\end{equation}
+
+\textbf{Return mapping.} The trial state is the visco-elastic stress $\tau_{II}^t$ of Eq.~\eqref{eq:ve} and the
+pressure unknown $P^t$ (which satisfies the continuity equation). All terms of Eq.~\eqref{eq:F} depend linearly on
+$\dot\lambda$ except the plastic work:
+\begin{equation}
+\tau_{II} = \tau_{II}^t - \eta_e\dot\lambda,\quad
+P = P^t + K\Delta t\sin\psi\,\dot\lambda,\quad
+C = C^0 + h\left(\varepsilon^{p,0} + \sqrt{2/3}\,\dot\lambda\Delta t\right),\quad
+W_p = W_p^0 + \left(\tau_{II}^t - \eta_e\dot\lambda\right)\dot\lambda\,\Delta t,
+\end{equation}
+with $\eta_e = G\Delta t$. The corrected pressure $P$ enters the momentum equation (plastic dilatancy). Inserting
+these expressions and Eq.~\eqref{eq:lap} into Eq.~\eqref{eq:F} gives a quadratic in $\dot\lambda$:
+\begin{gather}
+F(\dot\lambda) = F^t - \Big(\eta_e + \underbrace{K\Delta t\sin\phi\sin\psi}_{\text{pressure}}
++ \underbrace{\sqrt{2/3}\,h\cos\phi\,\Delta t}_{\text{cohesion}} + \underbrace{\kappa\,\tau_{II}^t}_{\nabla^2 d}\Big)\dot\lambda
++ \kappa\,\eta_e\,\dot\lambda^2 = 0,\qquad \kappa = \frac{2K_d(1-d)\beta_p\Delta t}{g_c l},\label{eq:quad}\\
+F^t = \tau_{II}^t - P^t\sin\phi - \left(C^0 + h\,\varepsilon^{p,0}\right)\cos\phi
++ \frac{K_d}{g_c l}\left[\frac{g_c}{l}d - 2(1-d)\beta_p W_p^0 + \eta_d\dot d\right].\nonumber
+\end{gather}
+$d$ is the current Newton value of the global field. The smallest positive root is taken in closed form ($K_d=h=0$
+recovers the standard Drucker--Prager return mapping). The local plastic work hardens ($\kappa>0$); the non-local
+field $d$, raised by neighbouring plastic points, promotes yielding next to existing bands. A floor
+$C\ge C_{\min}=0$ prevents negative cohesion.
+
+\textbf{Equivalent gradient modulus.} Linearising the phase-field equation ($d\ll1$, $\tau_{II}\approx\tau_y$) gives
+$d - l^2\nabla^2 d = \alpha\,\varepsilon^p$ with $\alpha = \sqrt{3/2}\;2\beta_p\tau_y/(g_c/l)$. For a perturbation of
+wavenumber $k$,
+\begin{equation}
+K_d\nabla^2 d \;\longrightarrow\; -\frac{K_g\,k^2}{1 + l^2k^2}\,\hat\varepsilon^p,\qquad K_g = \alpha K_d .
+\label{eq:Kg}
+\end{equation}
+For $kl\ll1$ (bands much wider than $l$) this is classical gradient plasticity, $K_g\nabla^2\varepsilon^p$. For
+$kl\gg1$ the term saturates at $K_g/l^2$: an \emph{implicit} gradient model. It only regularises if $K_g/l^2$ exceeds
+the critical modulus of the non-associated, softening material. Below that value, Newton fails at the onset of
+yielding unless viscoplasticity is added. This is why runs with $K_d\le10^{12}$\,Pa\,m$^2$ needed $\eta_{vp}>0$. For
+$K_d\ge3\times10^{12}$\,Pa\,m$^2$ all runs below use $\eta_{vp}=0$.
+
+\section*{3\quad Single shear band test (Duretz et al., 2023)}
+\textbf{Setup.}
+Single shear band configuration of Duretz et al.\ (2023): $14.1\times10.4$\,km$^2$, weak seed
+($R=500$\,m, $G/4$) centred on the south-west corner, pure shear $\dot\varepsilon_{BG}=2\times10^{-13}$\,s$^{-1}$ with
+free-slip boundaries, pre-stressed state $P=250$\,MPa, $\tau_{xx}=-\tau_{yy}=-125$\,MPa.
+Material: $G=10^{10}$\,Pa, $K=2\times10^{10}$\,Pa, $C^0=17.5$\,MPa, $h=-2\times10^8$\,Pa, $\phi=30^\circ$,
+$\psi=0^\circ$, $\eta_{vp}=0$. Phase field: $l=100$\,m, $g_c/l=10^8$\,Pa, $\beta_p=1$, $\eta_d=0$
+(only $K_d\beta_p/(g_c/l)$ matters; this $g_c/l$ keeps $d<0.4$). Grid $282\times208$ ($\Delta x = 50$\,m),
+$\Delta t=8\times10^8$\,s, 40 steps. Monolithic Newton (Jacobian by automatic differentiation, sparse LU) on
+$(V_x,V_y,P,d)$, with sub-stepping ($\Delta t/2$) when Newton fails.
+Band width: a straight centre line is fitted to the $\varepsilon^p$ maxima for $2.5\le y\le7.5$\,km,
+$\varepsilon^p$ is averaged as a function of the distance $s$ to that line, and
+$W = \int(\varepsilon^p-\varepsilon^p_{bg})\,\mathrm{d}s/\max(\varepsilon^p-\varepsilon^p_{bg})$ (integral width; equals
+FWHM for a top-hat and $\sqrt{2\pi}\sigma$ for a Gaussian).
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.92\textwidth]{figures/fig_bandwidth.png}
+\caption{Single shear band test with phase-field gradient regularisation (no viscoplasticity, $t=1.0$\,kyr).
+(a,b) Accumulated plastic strain for $K_d=3\times10^{12}$ and $3\times10^{13}$\,Pa\,m$^2$.
+(c) Phase field $d$ for $K_d=3\times10^{13}$\,Pa\,m$^2$.
+(d) $\varepsilon^p$ profiles across the band. (e) Band width versus $\sqrt{K_d}$; dashed: linear fit of the four
+runs. (f) Mean $\tau_{II}$.}
+\label{fig:results}
+\end{figure}
+
+\textbf{Results.}
+\begin{table}[h]
+\centering\small
+\begin{tabular}{lccccc}
+\toprule
+$K_d$ [Pa\,m$^2$] & $K_g=\alpha K_d$ [Pa\,m$^2$] & $W$ (integral) [m] & FWHM [m] & band angle & peak / final $\bar\tau_{II}$ [MPa]\\
+\midrule
+$3\times10^{12}$ & $1.0\times10^{13}$ & 616  & 654  & $36^\circ$ & 138.8 / 121.3\\
+$10^{13}$        & $3.4\times10^{13}$ & 894  & 905  & $36^\circ$ & 139.8 / 123.9\\
+$3\times10^{13}$ & $1.0\times10^{14}$ & 1407 & 1415 & $36^\circ$ & 140.0 / 128.1\\
+$6\times10^{13}$ & $2.1\times10^{14}$ & 1901 & 1906 & $37^\circ$ & 140.0 / 130.8\\
+\bottomrule
+\end{tabular}
+\end{table}
+\vspace{-0.2cm}
+\begin{itemize}\setlength{\itemsep}{1pt}
+\item \textbf{Shear bands form without viscoplasticity} once $K_d\ge3\times10^{12}$\,Pa\,m$^2$: a single band nucleates
+at the seed and crosses the domain at $36^\circ$ (Fig.~\ref{fig:results}a--c). After the onset of yielding, Newton
+needs 4--7 iterations per step. The onset itself (the pre-stressed background reaching yield) costs 15--230 iterations
+over a few sub-steps.
+\item \textbf{The width is linear in $\sqrt{K_d}$} (Fig.~\ref{fig:results}e):
+$W \approx 230\,\mathrm{m} + 2.15\times10^{-4}\sqrt{K_d}$ (m, Pa\,m$^2$), over a factor 20 in $K_d$. This is the scaling of gradient plasticity, $W\propto\sqrt{K_g/|h|}$, reported by
+Duretz et al.\ (2023, Fig.~7b). The positive intercept ($\approx2.3\,l$) reflects the saturation of
+Eq.~\eqref{eq:Kg} for narrow bands ($kl\sim1$). Accordingly, a pure power law fits less well
+($W\propto K_d^{0.38}$); the local exponent increases from 0.31 to 0.43 as the band widens. At
+$K_d=10^{14}$\,Pa\,m$^2$ the band is as wide as the domain and a conjugate X-shaped pattern forms instead.
+\item \textbf{The measured slope is about half the classical estimate.} For a cosine-shaped band, the classical
+result gives a FWHM of $\pi\sqrt{K_g/|h\cos\phi|}$, i.e.\ $4.4\times10^{-4}\sqrt{K_d}$ with $\alpha\approx3.4$. The
+measured slope is half of that. Likely causes are non-associated flow, the non-linearity in $d$ (factor $1-d$) and the
+width metric. The scaling holds, but the prefactor has to be calibrated.
+\item \textbf{Stress--time curves}: the peak ($\approx140$\,MPa) and the softening towards 121--131\,MPa are close to the
+gradient-plasticity results of Duretz et al.\ (2023, peak $\approx140$, residual $\approx125$\,MPa). Larger $K_d$
+gives wider bands and slower softening (Fig.~\ref{fig:results}f).
+\item \textbf{Limits}: one resolution ($l/\Delta x=2$) and one $l$; mesh convergence, the $l$ dependence and the
+combination with damage (\texttt{damage = true}) remain to be tested. $\nabla^2 d$ at vertices uses averages of
+centroid quantities.
+\end{itemize}
+
+\textbf{Code}: \texttt{gradient\_return\_mapping} in \texttt{src/PhaseFieldMechanics/PhaseFieldMechanics.jl}
+(options \texttt{damage}, \texttt{Kd}, \texttt{h}, \texttt{C\_min}); setup in
+\texttt{examples/\_PhaseField/SingleShearBand\_Duretz2023.jl}. The Miehe et al.\ (2010) and Duretz et al.\ (2018)
+tests are unchanged.
+
+\vspace{-0.1cm}
+{\footnotesize
+\textbf{References.} de Borst \& M\"uhlhaus (1992), IJNME 35, 521--539.
+Duretz, Souche, de Borst \& Le Pourhiet (2018), G-Cubed 19, doi:10.1029/2018GC007877.
+Duretz, R\"ass, de Borst, et al.\ (2023), G-Cubed 24, e2022GC010675.
+Hageman (2026), CMAME 454, 118857.
+Miehe, Hofacker \& Welschinger (2010), CMAME 199, 2765--2778.\par}
+\end{document}

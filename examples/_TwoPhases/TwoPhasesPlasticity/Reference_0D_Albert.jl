@@ -20,8 +20,8 @@ end
     return r 
 end
 
- function StressVector_P!(ε̇::SVector{N, T}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ) where {N,T}
-    η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Δ)
+ function StressVector_P!(ε̇::SVector{N, T}, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Tk, Δ) where {N,T}
+    η, λ̇, Pt, Pf, τII, Φ, f = LocalRheology_P(ε̇, divVs, divqD, Pt0, Pf0, Φ0, materials, phases, Tk, Δ)
     τ  = @SVector([2 * η * ε̇[1],
                    2 * η * ε̇[2],
                    2 * η * ε̇[3],
@@ -73,7 +73,7 @@ function LocalRheology_P2(ε̇::SVector{N, D}, divVs, divqD, Pt0, Pf0, Φ0, mate
     G    = materials.G[phases]
     C    = materials.plasticity.C[phases]
     ηΦ0  = materials.ξ0[phases]
-    KΦ   = materials.KΦ[phases]
+    KΦ   = materials.KΦ0[phases]
     Ks   = materials.Ks[phases]
     Kf   = materials.Kf[phases]
 
@@ -182,7 +182,7 @@ end
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 1e11,   1e11 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
@@ -192,7 +192,7 @@ end
     preprocess!(materials)
 
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0

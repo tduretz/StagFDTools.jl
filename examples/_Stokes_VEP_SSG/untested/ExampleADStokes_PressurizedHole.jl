@@ -149,17 +149,12 @@ end
             #--------------------------------------------#
             # Assembly
             @timeit to "Assembly" begin
-                AssembleContinuity2D!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.β, a.ξ, materials, a.number, a.pattern, a.type, BC, nc, Δ)
-                AssembleMomentum2D_x!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G, materials, a.number, a.pattern, a.type, BC, nc, Δ)
-                AssembleMomentum2D_y!(a.M, a.V, a.Pt, a.Pt0, a.ΔPt, a.τ0, a.𝐷_ctl, a.G, a.ρ, materials, a.number, a.pattern, a.type, BC, nc, Δ)
+                assemble_jacobian!(a.M, a, a.𝐷_ctl, materials, BC, nc, Δ)
             end
 
             #--------------------------------------------#
             # Stokes operator as block matrices
-            a.𝐊  .= [a.M.Vx.Vx a.M.Vx.Vy; a.M.Vy.Vx a.M.Vy.Vy]
-            a.𝐐  .= [a.M.Vx.Pt; a.M.Vy.Pt]
-            a.𝐐ᵀ .= [a.M.Pt.Vx a.M.Pt.Vy]
-            a.𝐏  .= a.M.Pt.Pt
+            set_block_matrices!(a.𝐊, a.𝐐, a.𝐐ᵀ, a.𝐏, a.M)
 
             #--------------------------------------------#
 

@@ -65,12 +65,14 @@ import Statistics:mean
     materials.m     .= [ -1.0,   -1.0 ]
     materials.n_CK  .= [ n_CK,   n_CK ]
     materials.η0    .= [   ηs,     ηs ]/sc.σ/sc.t 
+    materials.Ea    .= [  0.0,    0.0 ]          # activation energy [J/mol]
+    materials.Tref  .= [ 293.15, 293.15 ]        # reference temperature [K], η = η0 at Tref
     materials.ξ0    .= [   ηs,     ηs ]/sc.σ/sc.t
     materials.G     .= [ 1e10, 0.25e10]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 2e10,   2e10 ]./sc.σ
-    materials.KΦ    .= [  5e9,    5e9 ]./sc.σ
+    materials.KΦ0    .= [  5e9,    5e9 ]./sc.σ
     materials.Kf    .= [  2e9,    2e9 ]./sc.σ 
     materials.k_ηf0 .= [k_μf0/Φini^n_CK,  k_μf0/Φini^n_CK ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 30.,     30. ] * 1
@@ -82,7 +84,7 @@ import Statistics:mean
     preprocess!(materials)
 
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
 
@@ -182,6 +184,7 @@ import Statistics:mean
     𝐷_ctl   = (c = D_ctl_c, v = D_ctl_v)
 
     λ̇       = (c  = zeros(size_c...), v  = zeros(size_v...) )
+    T       = (c  = 293.15*ones(size_c...), v  = 293.15*ones(size_v...) )   # temperature [K]
 
     phases  = (c= ones(Int64, size_c...), v= ones(Int64, size_v...), x =ones(Int64, size_x...), y=ones(Int64, size_y...) )  # phase on velocity points
     P       = (t = Pt_ini.*ones(size_c...), f = Pf_ini.*ones(size_c...))
@@ -282,7 +285,7 @@ import Statistics:mean
         ρ0.f  .= ρ.f
 
         # Compute bulk and shear moduli
-        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρfi, ρsi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
+        compute_grid_fields_two_phases!(G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK, materials, phase_ratios, nc, nphases)
 
         old  = τ0, P0, Φ0, ρ0
         rheo = G, Ks, KΦ, Kf, ξ0, m, ρsi, ρfi, k_ηf0, n_CK
@@ -298,7 +301,7 @@ import Statistics:mean
 
             # Residual check
             @timeit to "Tangent operator" begin
-                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, Δ)
+                TangentOperator!( 𝐷, 𝐷_ctl, τ, ε̇, λ̇, η, V, P, ΔP, Φ, ΔΦ, ρ, old, div_Vs, div_qD, type, BC, materials, phases, rheo, T, Δ)
             end
             @timeit to "Residual" begin
                 ResidualMomentum2D_x!(     R, V, P, ΔP, ΔΦ, old, 𝐷, rheo, materials, number, type, BC, nc, Δ)
@@ -395,7 +398,7 @@ import Statistics:mean
                 # imin = LineSearch!(rvec, α, dx, R, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, old, rheo, λ̇,  η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ)
                 # UpdateSolution!(V, P, α[imin]*dx, number, type, nc)
                 αmax   = Newton ? 1.0 : 3.0
-                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, nc, Δ, α0=αmax )
+                α_best, R_trial, success = BackTrackingLineSearch!(R, dx, V, P, ε̇, τ, Vi, Pi, ΔP, Φ, ΔΦ, ρ, div_Vs, div_qD, old, rheo, λ̇, η, 𝐷, 𝐷_ctl, number, type, BC, materials, phases, T, nc, Δ, α0=αmax )
                 UpdateSolution!(V, P, α_best*dx, number, type, nc)
             end
 

@@ -1,0 +1,86 @@
+\documentclass[11pt,a4paper]{article}
+\usepackage[margin=2cm]{geometry}
+\usepackage[hyphens]{url}\usepackage{graphicx,booktabs,amsmath,amssymb,bm,xcolor,hyperref,caption,enumitem}
+\hypersetup{colorlinks,linkcolor=blue!50!black,urlcolor=blue!50!black,citecolor=blue!50!black}
+\setlist{itemsep=2pt,topsep=4pt}
+\captionsetup{font=small}
+
+\title{A variational free surface on the staggered grid}
+\author{StagFDTools, branch \texttt{variational-free-surface}}
+\date{21 November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+The module \texttt{StagFDTools.StokesVariational} implements the variational free surface of Larionov et al.\ (2017) and Gray et al.\ (2026) on the StagFDTools staggered grid. Each term of the discrete Stokes equations is weighted by the fluid fraction of its control volume. The surface is a marker chain, so no sticky air is needed. The method reproduces the inclusion test of Gray et al.\ (2026) with first-order convergence and the two free-surface benchmarks of Crameri et al.\ (2012). A one-sided free-surface stabilisation allows time steps 25 times larger.
+\end{abstract}
+
+\section{Method}
+
+\paragraph{Weighted operators.} The weak form of Stokes flow integrates over the fluid domain $\Omega_f$ only. The traction-free condition on $\partial\Omega_f$ is natural and needs no explicit treatment. Gray et al.\ (2026) approximate each volume integral control volume by control volume. Each integrand is multiplied by the fluid fraction $\varphi\in[0,1]$ of its control volume:
+\begin{equation}
+\begin{bmatrix} \mathbf D^\mathsf T \mathbf M\, \bm\varphi_\tau \mathbf D & \mathbf G\,\bm\varphi_P \\ \bm\varphi_P\, \mathbf G^\mathsf T & 0 \end{bmatrix}
+\begin{bmatrix} \mathbf v \\ \mathbf p \end{bmatrix} =
+\begin{bmatrix} \bm\varphi_v\, \rho\mathbf g \\ 0 \end{bmatrix}.
+\end{equation}
+On the staggered grid, the normal stresses $\sigma_{xx}$, $\sigma_{yy}$ and the pressure are weighted by the centroid fractions $\varphi_c$. The shear stress $\tau_{xy}$ is weighted by the vertex fractions $\varphi_v$, and gravity by the fractions of the $V_x$ and $V_y$ control volumes. The discrete operators are unchanged. The continuity equation is weighted by $\varphi_c$, so the system stays symmetric. The weights enter through a single new keyword, \texttt{\ensuremath{\varphi}}, in \texttt{SMomentum\_x/y\_Generic} in \texttt{src/Stokes.jl}. The rheology is unchanged, including visco-elasto-plasticity and its return mappings.
+
+\paragraph{Surface and fractions.} The topography $y=h(x)$ is a JustPIC marker chain. The fractions are computed by \texttt{compute\_rock\_fraction!} of JustPIC, which are copied onto the ghosted StagFDTools arrays (\texttt{VariationalWeights}). Unknowns whose equations are empty (no fluid in any connected control volume, $\varphi<10^{-9}$) are flagged \texttt{:air}. They are removed from the numbering and stay zero, so the grid only needs a few cells above the surface. The air phase is removed from the grid phase ratios, so cut cells get the rock viscosity and density. The chain is advected with the velocity field after a call to \texttt{fill\_velocity\_ghosts!}, which sets the boundary ghost velocities that the stencils otherwise only see implicitly.
+
+\paragraph{Free-surface stabilisation.} Explicit advection of a dense surface is unstable when $\Delta t$ exceeds the relaxation time of the topography (the ``drunken sailor''). The keyword \texttt{\ensuremath{\theta}\_fs} adds the diagonal term
+\begin{equation}
+-\theta\,\Delta t\, g_y\, \frac{\partial(\varphi_c\rho)}{\partial y}\, V_y
+\end{equation}
+to the $y$-momentum equation. It is the vertical part of the stabilisation of Kaus et al.\ (2010). The asymmetric coupling $\partial\rho/\partial x\,V_x$ is dropped, which keeps the velocity block symmetric positive definite. For one relaxation mode with time scale $\tau$, the scheme acts as a $\theta$-method with amplification factor $\bigl(1-(1-\theta)\Delta t/\tau\bigr)/\bigl(1+\theta\Delta t/\tau\bigr)$, which is damped for $\theta=1$. The term can also be used by the plain Stokes solver.
+
+\paragraph{Solver.} \texttt{solve\_free\_surface!} runs a Newton iteration with a Jacobian from automatic differentiation, a backtracking line search and a Picard fallback. The linear solves use the GCR of \texttt{Solvers.jl} (\texttt{StokesGCRCache}), with no LU factorisation. The preconditioner is one Powell--Hestenes step on the Cholesky factor of $\mathbf K_{uu}-\mathbf K_{up}\mathbf P^{-1}\mathbf K_{pu}$, with $\mathbf P^{-1}=\gamma/\varphi_p$. The penalty is scaled by the fluid fraction of each pressure cell: a uniform $\gamma$ needs 38 GCR iterations instead of 3. The sparsity pattern and the symbolic factorisation are reused while the set of active unknowns is unchanged. A $280\times146$ step costs 0.46\,s (0.88\,s with UMFPACK). The preconditioner \texttt{pc\_type=:sym\_newton} is available for plastic problems.
+
+\section{Benchmarks}
+
+All scripts are in \texttt{examples/\_Stokes\_VariationalFreeSurface/}.
+
+\paragraph{Inclusion test (Gray et al., 2026, Fig.~7).} Pure shear around a void (Schmid \& Podladchikov, 2003, inclusion viscosity $\to0$) makes the void boundary a free surface. The domain $[-0.25,0.25]\times[-0.75,-0.25]$ cuts the bottom of the void (radius 0.5), so the boundary is a height function. Analytical Dirichlet velocities are imposed on all sides, and the error is the $L_1$ norm over full cells, as in Gray's script (doi:10.5281/zenodo.17956246). The errors are confined to the cut cells (Fig.~\ref{fig:gray}, top), as in the paper. Convergence is first order in pressure, with an observed order of 1.1--1.8 in velocity, up to $320^2$ (Fig.~\ref{fig:gray}, bottom).
+
+\begin{figure}[htb]\centering
+\includegraphics[width=0.6\textwidth]{figures/Gray2026_Fig7_variational_100.png}\\
+\includegraphics[width=0.58\textwidth]{figures/Gray2026_convergence_variational.png}
+\caption{Gray et al.\ (2026) inclusion test. Top: error in pressure and velocity at $100^2$; the black line is the free surface. Bottom: $L_1$ errors against resolution.}\label{fig:gray}
+\end{figure}
+
+\paragraph{Crameri et al.\ (2012), Case 1: isostatic relaxation.} A 7\,km cosine topography (wavelength 2800\,km) on a 100\,km lithosphere ($\eta=10^{23}$\,Pa\,s) relaxes above a 600\,km mantle ($\eta=10^{21}$\,Pa\,s). The analytical solution is $h(t)=7\exp(-t/14.825\,\mathrm{ka})$\,km. At $280\times146$ with $\Delta t=500$\,yr, the model gives $h(15\,\mathrm{ka})=2550$\,m, against 2545\,m analytically (Fig.~\ref{fig:cr1}). An independent layered propagator solution gives $\tau=14.81$\,ka, which confirms the reference value.
+
+\begin{figure}[htb]\centering
+\includegraphics[width=0.5\textwidth]{figures/Crameri2012_Case1.png}
+\caption{Crameri Case 1: maximum topography against the analytical solution (top) and viscosity at 15\,ka (bottom).}\label{fig:cr1}
+\end{figure}
+
+\paragraph{Crameri et al.\ (2012), Case 2: rising plume.} A plume (radius 50\,km, $\rho=3200$\,kg\,m$^{-3}$, $\eta=10^{20}$\,Pa\,s) rises below a flat lithosphere. Without stabilisation, at $280\times146$ and $\Delta t=2$\,ka, the maximum topography at 3\,Ma is 389\,m, against 398\,m for the true free surface of MILAMIN\_VEP (Fig.~\ref{fig:cr2}). With $\theta_\mathrm{fs}=1$, time steps of 20\,ka (391\,m at 3\,Ma; peak 841\,m at 17.5\,Ma) and 50\,ka (390\,m) give the same curve. Without stabilisation, $\Delta t=50$\,ka blows up to $\sim$16\,km within 1\,Ma. The 20\,Ma run takes 163\,s with $\Delta t=50$\,ka.
+
+\begin{figure}[htb]\centering
+\includegraphics[width=0.62\textwidth]{figures/Crameri2012_Case2_comparison.png}
+\caption{Crameri Case 2 at $280\times146$: maximum topography for three time steps, with and without stabilisation. Diamond: MILAMIN\_VEP at 3\,Ma.}\label{fig:cr2}
+\end{figure}
+
+\paragraph{Plasticity: Buiter et al.\ (2016) sandbox wedges.} Experiment~1 (stable wedge) runs with Drucker--Prager plasticity, elasticity and a 1\,mm basal frictional layer, in the frame of the mobile wall. At $265\times70$, the wall force is $\approx8.5$\,N/m (analytical value 7.9\,N/m) and $v_\mathrm{rms}=6.73\times10^{-6}$\,m/s (analytical $6.944\times10^{-6}$; participating codes $6.76\pm0.37$). The surface slope drops from 20 to 19$^\circ$ because the basal layer is bulldozed into a toe; this is an artefact of the layer approach in the wall frame. The nonlinear iterations converge poorly at this resolution: the 40-iteration limit is reached in every step, at about 7\,s per step. Experiment~2 (unstable wedge, cohesion softening) is set up but not finished.
+
+\section{Status and open items}
+
+\begin{itemize}
+\item Not yet done: the traction (non-zero Neumann) boundary term (Gray et al., Eq.~9) and the subduction benchmark of Gray et al.
+\item Nonlinear rheology near the surface: the averaged strain rates $\dot\varepsilon_{xy}$ at centroids and $\dot\varepsilon_{xx}$ at vertices can include \texttt{:air} velocities, which are zero.
+\item Plastic problems: Newton--GCR convergence at fine resolution (the iteration count grows with $\eta_{vep}/\eta_{vp}$ at yielding points), and the toe accretion in Buiter exp.~1 (a frictional boundary condition may be needed instead of a basal layer).
+\item Not yet checked: time-step convergence of Case 2 for $\theta_\mathrm{fs}=0.5$ against $1$.
+\end{itemize}
+
+\paragraph{References.}
+{\footnotesize
+Crameri F.\ et al.\ (2012), \emph{GJI} 189, 38--54.
+Gray A.\ et al.\ (2026), \emph{GMD}.
+Buiter S.\ et al.\ (2016), \emph{JSG} 92, 140--177.
+Kaus B.\ J.\ P., M\"uhlhaus H., May D.\ A.\ (2010), \emph{PEPI} 181, 12--20.
+Larionov E., Batty C., Bridson R.\ (2017), \emph{ACM TOG} 36(4).
+Schmid D.\ W., Podladchikov Y.\ Y.\ (2003), \emph{GJI} 155, 269--288.
+}
+
+\end{document}

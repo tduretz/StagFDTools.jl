@@ -1,13 +1,29 @@
 abstract type AbstractPlasticity end
 
+# Temperature dependence of the viscosity: η0(T) = η0 exp(Ea/(nR) (1/T - 1/Tref)), T and Tref in K (unscaled)
+const R_gas = 8.314462618
+@inline arrhenius_factor(Ea, n, Tk, Tref) = iszero(Ea) ? one(Tk) : exp(Ea / (n * R_gas) * (inv(Tk) - inv(Tref)))
+
 Base.@kwdef struct IterParams
     niter::Int64        = 10
     γ::Float64          = 1e5
     ϵ_l::Float64        = 1e-11
     ϵ_nl::Float64       = 1e-8
+    ϵ_nl_last::Float64  = 1e-5                  # last resort: after niter iterations, accept the step (with a warning) if abs. res. < ϵ_nl_last
+    niter_KSP::Int64    = 1000                  # max. number of KSP iterations per linear solve (solver_type = :GCR)
     inexact::Bool       = false
     solver_type::Symbol = :PH
-    α::Vector{Float64}  = collect(LinRange(0.05, 1.0, 6))
+    line_search::Symbol = :backtracking         # :backtracking (first α that reduces the residual) or :grid (best of α)
+    α::Vector{Float64}  = collect(LinRange(0.05, 1.0, 6)) # only used by line_search = :grid
+    Pic2Newt::Float64   = Inf                   # Picard until ϵ/ϵ0 < Pic2Newt, then Newton (> 1: Newton only)
+    α_Picard::Float64   = 3.0                   # first trial step of the backtracking for Picard iterations
+    PC_refresh::Symbol  = :step                 # solver_type = :GCR: Picard preconditioner assembled and factorised once per time step (:step) or at each Newton iteration (:iteration); always at Picard iterations
+    pc_type::Symbol     = :picard               # solver_type = :GCR, Newton steps: Cholesky factor of the Schur complement built from the Picard Kuu (:picard) or from the symmetrised Newton Kuu, ½(Kuu + Kuuᵀ) (:sym_newton, refreshed at each Newton iteration; better for plasticity, e.g. ~2× fewer GCR iterations on Duretz et al. 2018)
+    Δt_red_fac::Float64 = 2.0                   # adaptive time stepping: a failed step is restarted with Δt/Δt_red_fac...
+    ntry::Int64         = 4                     # ...at most ntry times
+    Δt_inc_fac::Float64 = 1.25                  # after a successful step, Δt is multiplied by Δt_inc_fac
+    nt_max::Int64       = typemax(Int64)        # the run stops after nt_max steps...
+    time_max::Float64   = Inf                   # ...or at time_max (same units as Δ.t), whichever comes first
 end
 Base.@kwdef struct VonMises{T} <: AbstractPlasticity
     C::T    = Float64[]
@@ -22,6 +38,25 @@ Base.@kwdef struct DruckerPrager{T} <: AbstractPlasticity
     ϕ::T    = Float64[]
     ψ::T    = Float64[]
     ηvp::T  = Float64[]
+    cosϕ::T = Float64[]
+    sinϕ::T = Float64[]
+    sinψ::T = Float64[]
+    cosψ::T = Float64[]
+end
+
+# Mohr-Coulomb (σ2-independent), tensorial return mapping (Rheology_MohrCoulomb.jl). Non-associated: flow potential = yield
+# function with ψ in place of ϕ. θt [°]: 0 → exact Mohr-Coulomb written with the principal stresses (de Borst, 1990; corners
+# at the triaxial states), > 0 → Abbo & Sloan (1995) rounding of the corners for |θ| > θt (Lode angle, e.g. 25-29°)
+Base.@kwdef struct MohrCoulomb{T} <: AbstractPlasticity
+    C::T    = Float64[]
+    ϕ::T    = Float64[]
+    ψ::T    = Float64[]
+    ηvp::T  = Float64[]
+    θt::T   = Float64[]
+    Pt::T   = Float64[]  # Tension cap (as DruckerPragerCap, in the (k(θ)τII, P) plane), must be > -C/tanϕ; -Inf: no cap
+    Δϕ::T   = Float64[]  # Strain hardening: ϕ(εp) = ϕ + Δϕ tanh(εp/εh) [°] (0: no hardening)
+    ΔC::T   = Float64[]  # Strain hardening: C(εp) = C + ΔC tanh(εp/εh)
+    εh::T   = Float64[]
     cosϕ::T = Float64[]
     sinϕ::T = Float64[]
     sinψ::T = Float64[]
@@ -48,6 +83,18 @@ Base.@kwdef struct DruckerPragerCap{T} <: AbstractPlasticity
     pd::T   = Float64[]
     τd::T   = Float64[]
     pq::T   = Float64[]
+    Δϕ::T   = Float64[]  # Strain hardening: ϕ(εp) = ϕ + Δϕ tanh(εp/εh) [°], εp = ∫λ̇dt (0: no hardening)
+    ΔC::T   = Float64[]  # Strain hardening: C(εp) = C + ΔC tanh(εp/εh) (0: no hardening)
+    εh::T   = Float64[]  # Plastic strain scale of the hardening
+    # Rate-and-state friction (Herrendörfer et al., 2018; as RateStateFriction in RheologyCalculator.jl), off where aRS = 0:
+    # the Drucker-Prager slope k = sinϕ is replaced by μ(V, Ω) = aRS asinh(V/(2V0RS) exp((sinϕ + bRS Ω)/aRS)),
+    # V = DRS λ̇ (slip rate of a band of width DRS), Ω = ln(V0RS θ/LRS) (lagged, start of the time step)
+    aRS::T  = Float64[]  # direct effect
+    bRS::T  = Float64[]  # evolution effect
+    LRS::T  = Float64[]  # characteristic slip distance
+    V0RS::T = Float64[]  # reference slip rate (μ = sinϕ at V = V0RS in steady state)
+    DRS::T  = Float64[]  # width of the slipping band (usually the cell size)
+    ηRS::T  = Float64[]  # viscoplastic regularisation of the rate-and-state branch (e.g. radiation damping DRS G/(2cs)); ηvp is kept for the cap
 end
 
 Base.@kwdef struct DruckerPrager1{T} <: AbstractPlasticity
@@ -133,17 +180,22 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
 end
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T               = [0.0, 0.0]
-    ρ::T               = Float64[]
-    n::T               = Float64[]
-    η0::T              = Float64[]
-    ξ0::T              = Float64[]
-    G::T               = Float64[]
-    β::T               = Float64[]
-    B::T               = Float64[]
-    plasticity::P      = NoPlasticity()
+    g::T = [0.0, 0.0]
+    ρ::T = Float64[]
+    n::T = Float64[]
+    η0::T = Float64[]
+    Ea::T = Float64[]   # activation energy [J/mol], 0: no temperature dependence
+    Tref::T = Float64[] # reference temperature [K] at which η = η0
+    ξ0::T = Float64[]
+    G::T = Float64[]
+    β::T = Float64[]
+    B::T = Float64[]
+    plasticity::P = NoPlasticity()
     compressible::Bool = false
     phase_avg::Symbol  = :harmonic
+    mixing::Symbol     = :default # interface cells: :default (each phase sees the cell strain rate, shared τ0), :voigt (iso-strain rate, τ0 per phase), :reuss (iso-stress), :isowork (iso-work rate), :markers, :markers_stress, :markers_work (rheology on the markers: iso-strain, iso-stress, iso-work between phases; needs TensorMarkers)
+    plastic_strain::Symbol = :mixed # strain hardening: :mixed (one εp per cell, += Δt Σφᵢλ̇ᵢ, seen by all phases), :phase (εpᵢ += Δt λ̇ᵢ per phase)
+    pressure::Symbol   = :shared # old pressure: :shared (one P0 per cell), :phase (P0ᵢ per phase; only with mixing = :voigt or :isowork)
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -152,11 +204,13 @@ Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
     ρf::T              = Float64[]
     n::T               = Float64[]
     η0::T              = Float64[]
+    Ea::T              = Float64[]   # activation energy [J/mol], 0: no temperature dependence
+    Tref::T            = Float64[]   # reference temperature [K] at which η = η0
     ξ0::T              = Float64[]
     G::T               = Float64[]
     β::T               = Float64[]
     Ks::T              = Float64[]
-    KΦ::T              = Float64[]
+    KΦ0::T             = Float64[]   # KΦ = KΦ0 Φ^m (same exponent as the bulk viscosity)
     Kf::T              = Float64[]
     Φ0::T              = Float64[]
     m::T               = Float64[]
@@ -181,6 +235,22 @@ initialize(::Type{VonMises}, n::Integer) = VonMises(
     sinϕ = zeros(n),
     sinψ = zeros(n),
     cosψ = zeros(n)
+)
+
+initialize(::Type{MohrCoulomb}, n::Integer) = MohrCoulomb(
+    C    = fill(1e50, n),
+    ϕ    = zeros(n),
+    ψ    = zeros(n),
+    ηvp  = zeros(n),
+    θt   = zeros(n),
+    Pt   = fill(-Inf, n),
+    Δϕ   = zeros(n),
+    ΔC   = zeros(n),
+    εh   = ones(n),
+    cosϕ = ones(n),
+    sinϕ = zeros(n),
+    sinψ = zeros(n),
+    cosψ = ones(n)
 )
 
 initialize(::Type{DruckerPrager}, n::Integer) = DruckerPrager(
@@ -214,6 +284,15 @@ initialize(::Type{DruckerPragerCap}, n::Integer) = DruckerPragerCap(
     pd   = zeros(n),
     τd   = zeros(n),
     pq   = zeros(n),
+    Δϕ   = zeros(n),
+    ΔC   = zeros(n),
+    εh   = ones(n),
+    aRS  = zeros(n),
+    bRS  = zeros(n),
+    LRS  = ones(n),
+    V0RS = ones(n),
+    DRS  = ones(n),
+    ηRS  = zeros(n),
 )
 
 initialize(::Type{DruckerPrager1}, n::Integer) = DruckerPrager1(
@@ -303,19 +382,34 @@ initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 function initialize_materials(nphases::Integer;
     plasticity         = NoPlasticity(),
     compressible::Bool = false,
-    phase_avg::Symbol  = :harmonic)
+    phase_avg::Symbol  = :harmonic,
+    mixing::Symbol     = :default,
+    plastic_strain::Symbol = :mixed,
+    pressure::Union{Symbol,Nothing} = nothing)
+    mixing in (:default, :voigt, :reuss, :isowork, :markers, :markers_stress, :markers_work) ||
+        error("mixing must be :default, :voigt, :reuss, :isowork, :markers, :markers_stress or :markers_work (got :$mixing)")
+    plastic_strain in (:mixed, :phase) || error("plastic_strain must be :mixed or :phase (got :$plastic_strain)")
+    # Per-phase old pressure: default for the schemes with per-phase stresses (Voigt, iso-work)
+    pressure = something(pressure, mixing in (:voigt, :isowork) ? :phase : :shared)
+    pressure in (:shared, :phase) || error("pressure must be :shared or :phase (got :$pressure)")
+    pressure === :phase && !(mixing in (:voigt, :isowork)) && error("pressure = :phase requires mixing = :voigt or :isowork")
     P = plasticity isa Type ? plasticity : typeof(plasticity)
     return Materials(
         ρ            = ones(nphases),
         n            = ones(nphases),
         η0           = ones(nphases),
+        Ea           = zeros(nphases),
+        Tref         = ones(nphases),
         ξ0           = 1e50 * ones(nphases),
         G            = 1e50 * ones(nphases),
         β            = 1e-50 * ones(nphases),
         B            = ones(nphases),
         plasticity   = initialize(P, nphases),
         compressible = compressible,
-        phase_avg    = phase_avg
+        phase_avg    = phase_avg,
+        mixing       = mixing,
+        plastic_strain = plastic_strain,
+        pressure       = pressure
     )
 end
 
@@ -335,10 +429,12 @@ function initialize_materials_TwoPhases(nphases::Integer;
         ρf           = ones(nphases),
         n            = ones(nphases),
         η0           = ones(nphases),
+        Ea           = zeros(nphases),
+        Tref         = ones(nphases),
         ξ0           = 1e2 * ones(nphases),
         G            = 1e50 * ones(nphases),
         Ks           = 1e50 * ones(nphases),
-        KΦ           = 1e50 * ones(nphases),
+        KΦ0          = 1e50 * ones(nphases),
         Kf           = 1e50 * ones(nphases),
         Φ0           = 1e-2 * ones(nphases),
         m            = zeros(nphases),
@@ -360,6 +456,13 @@ function preprocess!(dp::DruckerPrager)
     @. dp.sinϕ = sind(dp.ϕ)
     @. dp.sinψ = sind(dp.ψ)
     @. dp.cosψ = cosd(dp.ψ)
+end
+
+function preprocess!(mc::MohrCoulomb)
+    @. mc.cosϕ = cosd(mc.ϕ)
+    @. mc.sinϕ = sind(mc.ϕ)
+    @. mc.sinψ = sind(mc.ψ)
+    @. mc.cosψ = cosd(mc.ψ)
 end
 
 function preprocess!(dp::DruckerPragerCap)

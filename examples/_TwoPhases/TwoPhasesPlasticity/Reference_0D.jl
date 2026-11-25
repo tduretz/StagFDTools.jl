@@ -56,12 +56,15 @@ import Statistics:mean
     materials.m     .= [  0.0,    0.0 ]
     materials.n_CK  .= [  0.0,    0.0 ]
     materials.η0    .= [ 1e22,   1e19 ]/sc.σ/sc.t 
+    materials.Ea    .= [  0.0,    0.0 ]          # activation energy [J/mol]
+    materials.Tref  .= [ 293.15, 293.15 ]        # reference temperature [K], η = η0 at Tref
+    Tk               = 293.15                      # temperature [K]
     materials.ξ0    .= [ 2e22,   2e22 ]/sc.σ/sc.t
     materials.G     .= [ 3e10,   3e10 ]./sc.σ 
     materials.ρs    .= [ 2800,   2800 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.ρf    .= [ 1000,   1000 ]/(sc.σ*sc.t^2/sc.L^2)
     materials.Ks    .= [ 1e11,   1e11 ]./sc.σ
-    materials.KΦ    .= [ 1e10,   1e10 ]./sc.σ
+    materials.KΦ0    .= [ 1e10,   1e10 ]./sc.σ
     materials.Kf    .= [  1e9,    1e9 ]./sc.σ
     materials.k_ηf0 .= [1e-15,  1e-15 ]./(sc.L^2/sc.σ/sc.t)
     materials.plasticity.ϕ   .= [ 35.,     35. ]
@@ -72,7 +75,7 @@ import Statistics:mean
     preprocess!(materials)
 
     Φ0      = Φini
-    # Φ0 = (materials.KΦ[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ[1] .* materials.ξ0[1])
+    # Φ0 = (materials.KΦ0[1] .* Δt0 .* (Pf_ini - Pt_ini)) ./ (materials.KΦ0[1] .* materials.ξ0[1])
     @show Φ0
     # error()
     Φ_ini   = Φ0
@@ -122,12 +125,12 @@ import Statistics:mean
 
         # Trial pressures - not needed with LocalRheology_P2 !!!
         div = @SVector[ε̇kk, divqD]
-        x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
+        x   = Pressures(div, Pt0, Pf0, Φ0, materials.KΦ0[1],  materials.Ks[1],  materials.Kf[1], materials.ξ0[1], Δ.t)
         Pt, Pf, Φ = x[1], x[2], x[3]
 
         # Correction
         ε̇vec = @SVector( [ε̇xx_eff; ε̇yy_eff; 0.0; Pt; Pf] )
-        η, λ̇, Pt1, Pf1, τII, Φ, f = LocalRheology_P(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Δ)
+        η, λ̇, Pt1, Pf1, τII, Φ, f = LocalRheology_P(ε̇vec, ε̇kk, divqD, Pt0, Pf0, Φ0, materials, 1, Tk, Δ)
 
         # NEW STYLE 
 

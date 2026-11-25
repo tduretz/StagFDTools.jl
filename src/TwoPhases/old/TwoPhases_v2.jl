@@ -148,7 +148,7 @@ function Continuity(Vx, Vy, Pt, Pt0, Pf, Pf0, ϕ, phase, materials, type_loc, bc
     invΔy    = 1 / Δ.y
     ηΦ       = materials.ηb[phase]
     Kd       = materials.Kd[phase]
-    KΦ       = materials.KΦ[phase]
+    KΦ       = materials.KΦ0[phase]
     Ks       = materials.Ks[phase]
     Kf       = materials.Kf[phase]
     Kd = (1-ϕ) * ( 1 / KΦ + 1 / Ks)^-1
@@ -165,7 +165,7 @@ function FluidContinuity(Vx, Vy, Pt, Pt0, Pf, Pf0, ϕ, phase, materials, kμ, ty
     
     ηΦ       = materials.ηb[phase]
     Kd       = materials.Kd[phase]
-    KΦ       = materials.KΦ[phase]
+    KΦ       = materials.KΦ0[phase]
     Ks       = materials.Ks[phase]
     Kf       = materials.Kf[phase]
     Kd = (1-ϕ) * ( 1 / KΦ + 1 / Ks)^-1
