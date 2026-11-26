@@ -165,8 +165,8 @@ function allocate(nc, config, x, y, Δ, nphases; nv=fill(2, nphases))
     τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
         ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), P_c=phc(), P_v=phv()),
         vph = (xx_c=vphc(), yy_c=vphc(), xy_c=vphc(), xx_v=vphv(), yy_v=vphv(), xy_v=vphv()),
-        # nd: fabric director (unit normal to the layers of the anisotropic phases) at centroids and vertices, rotated with the
-        # flow after each step (update_director!, Rheology_aniso.jl); 0: not set, materials.anisotropy.dv is used
+        # nd: fabric director (unit normal to the layers of the anisotropic phases) at centroids and vertices; fixed in time,
+        # 0: not set, materials.anisotropy.dv is used
         nd = (x_c=zeros(size_c...), y_c=zeros(size_c...), x_v=zeros(size_v...), y_v=zeros(size_v...)))
     τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), xy_c=zeros(size_c...),
         II=zeros(size_c...), θ=zeros(size_c...),

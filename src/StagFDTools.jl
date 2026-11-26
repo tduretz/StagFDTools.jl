@@ -69,7 +69,7 @@ export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_P
 include("StressMarkers.jl")
 include("Rheology_Voigt.jl")
 include("Rheology_aniso.jl")
-export LocalRheology_aniso, DirectorVector, update_director!, has_anisotropy
+export LocalRheology_aniso, has_anisotropy
 include("Rheology_IsoWork.jl")
 include("Rheology_Markers.jl")
 export phase_multipliers, marker_engine, stress_ToGrid_Markers!, stress_ToParticles_Markers!

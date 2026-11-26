@@ -207,7 +207,6 @@ function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphas
     update_old_stress!(a)
     _per_phase_stress(materials) && update_old_stress_Voigt!(a)
     out = main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-    # has_anisotropy(materials) && update_director!(a, materials, Δ) # fabric rotation (Rheology_aniso.jl), deactivated
     return out
 end
 
@@ -242,7 +241,6 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
-    # has_anisotropy(materials) && update_director!(a, materials, Δ) # fabric rotation (Eulerian director field, not advected), deactivated
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 

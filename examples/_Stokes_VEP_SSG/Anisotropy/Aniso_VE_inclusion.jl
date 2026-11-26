@@ -58,7 +58,7 @@ end
     materials = initialize_materials(nphases; compressible=false, mixing=:voigt, anisotropy=Anisotropy)
 
     # Parameters
-    params_bg = (ρ=1.0, n=1.0, η0=1e2, G=1e1)
+    params_bg = (ρ=1.0, n=1.0, η0=1e1, G=1e1)
     params_in = (ρ=1.0, n=1.0, η0=1e10, G=1e1)
 
     materials.g .= [0., 0.]
@@ -70,19 +70,21 @@ end
     # Anisotropy
     α  = 0.5   # volume fraction of the strong layer
     an = materials.anisotropy
-    an.mv .= [1., 1.]
-    an.me .= [10., 1.]
+    an.mv .= [1., 1.]      # B in power law
+    an.me .= [1., 1.]
     an.α  .= [0.5, α]
-    an.dv .= [-sind(10), cosd(10)]
+    an.dv .= [-sind(0), cosd(0)]
+    an.n1 .= [1., 1.]
+    an.n2 .= [1., 1.]
 
     preprocess!(materials)
 
     # Time steps
-    Δt0   = 0.05
-    nt    = 50
+    Δt0   = 0.15
+    nt    = 250
 
     # Solver parameters
-    iter_params = IterParams()
+    iter_params = IterParams(niter=20)
 
     # Intialise field
     L   = (x=1.0, y=1.0)
@@ -115,9 +117,9 @@ end
     end
 
     # Set material geometry
-    rad = 0.12 + 1e-13
-    @views a.phases.c[inx_c, iny_c][(a.X.c.x.^2 .+ (a.X.c.y').^2 .*5) .<= rad^2] .= 2
-    @views a.phases.v[inx_v, iny_v][(a.X.v.x.^2 .+ (a.X.v.y').^2 .*5) .<= rad^2] .= 2
+    rad = 0.1 + 1e-13
+    @views a.phases.c[inx_c, iny_c][(a.X.c.x.^2 .+ (a.X.c.y').^2 ) .<= rad^2] .= 2
+    @views a.phases.v[inx_v, iny_v][(a.X.v.x.^2 .+ (a.X.v.y').^2 ) .<= rad^2] .= 2
     Set_PhaseRatios!(a)
 
     # Time loop (grid only)
@@ -164,7 +166,7 @@ end
 let
     BC = :free_slip
     # Boundary velocity gradient matrix
-    er    = -1
+    er    = -2
     D_BC = @SMatrix( [er 0;
                    0 -er] )
     main(BC, D_BC)

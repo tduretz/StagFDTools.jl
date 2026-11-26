@@ -189,12 +189,17 @@ Base.@kwdef struct Anisotropy{T,V} <: AbstractAnisotropy
     α::T  = Float64[]   # volume fraction of the strong layer, 0 < α < 1
     δv::T = Float64[]   # viscous anisotropy factor ηn/ηs = (1-α+α mv)(1-α+α/mv), output of preprocess!
     δe::T = Float64[]   # elastic anisotropy factor (1-α+α me)(1-α+α/me), output of preprocess!
-    dv::V = [0.0, 1.0]  
+    n1::T = Float64[]   # power-law exponent of layer 1 (weak), 1: linear
+    n2::T = Float64[]   # power-law exponent of layer 2 (strong), 1: linear
+    r::T  = Float64[]   # shape exponent of the anisotropic yield function f, 0 < r ≤ 4 (power-law layers only)
+    ϵv::T = Float64[]   # regularisation of the 1/n root of the shared viscous normal strain rate, relative to the viscous
+                        # strain-rate magnitude (power-law layers only; 0: none, the global Newton may stall)
+    dv::V = [0.0, 1.0]
 end
 
 # Phase p is anisotropic: 2 virtual phases with their own old stresses (per-phase stress framework, Rheology_Voigt.jl)
 @inline is_anisotropic(::Isotropic, materials, p)   = false
-@inline is_anisotropic(a::Anisotropy, materials, p) = !(isone(a.mv[p]) && isone(a.me[p]))
+@inline is_anisotropic(a::Anisotropy, materials, p) = !(isone(a.mv[p]) && isone(a.me[p]) && a.n1[p] == a.n2[p])
 @inline is_anisotropic(materials, p) = hasproperty(materials, :anisotropy) && is_anisotropic(materials.anisotropy, materials, p)
 
 Base.@kwdef struct Materials{T,P<:AbstractPlasticity,A<:AbstractAnisotropy}
@@ -400,7 +405,8 @@ initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 
 initialize(::Type{Isotropic}, ::Integer) = Isotropic()
 
-initialize(::Type{Anisotropy}, n::Integer) = Anisotropy(mv = ones(n), me = ones(n), α = fill(0.5, n), δv = ones(n), δe = ones(n))
+initialize(::Type{Anisotropy}, n::Integer) = Anisotropy(mv = ones(n), me = ones(n), α = fill(0.5, n), δv = ones(n), δe = ones(n),
+                                                        n1 = ones(n), n2 = ones(n), r = fill(3.0, n), ϵv = fill(1e-2, n))
 
 function initialize_materials(nphases::Integer;
     plasticity         = NoPlasticity(),
@@ -579,6 +585,9 @@ preprocess!(::Isotropic, mat) = nothing
 function preprocess!(a::Anisotropy, mat)
     all(α -> 0 < α < 1, a.α) || error("Anisotropy: the strong-layer fractions α must be in (0, 1) (got $(a.α))")
     all(>(0), a.mv) && all(>(0), a.me) || error("Anisotropy: the contrasts mv, me must be > 0")
+    all(>(0), a.n1) && all(>(0), a.n2) || error("Anisotropy: the layer power-law exponents n1, n2 must be > 0")
+    all(r -> 0 < r <= 4, a.r) || error("Anisotropy: the shape exponent r must be in (0, 4] (got $(a.r))")
+    all(>=(0), a.ϵv) || error("Anisotropy: the regularisation ϵv must be ≥ 0 (got $(a.ϵv))")
     @. a.δv = (1 - a.α + a.α * a.mv) * (1 - a.α + a.α / a.mv)
     @. a.δe = (1 - a.α + a.α * a.me) * (1 - a.α + a.α / a.me)
     return nothing
