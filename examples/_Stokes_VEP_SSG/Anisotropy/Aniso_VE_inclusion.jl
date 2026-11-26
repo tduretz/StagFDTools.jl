@@ -4,47 +4,6 @@ using TimerOutputs, Interpolations, GridGeometryUtils, JLD2
 import CairoMakie as cm
 using DifferentiationInterface
 
-function build_anisotropy(materials)
-    # Give as input a material struct with two phases
-end
-
-# Stress, viscosity and strain rate invariants (centroids), inclusion outline and layer orientation (⟂ director) in the inclusion
-function plot_fields(a, materials, rad, t; step=3)
-    inx_c, iny_c = 2:size(a.τ.II, 1)-1, 2:size(a.τ.II, 2)-1
-    xc, yc = a.X.c.x, a.X.c.y
-    ϕ = LinRange(0, 2π, 100)
-
-    # Layer traces in the anisotropic phase (director field, or materials.anisotropy.dv where not set)
-    nd0 = materials.anisotropy.dv
-    px, py, tx, ty = Float64[], Float64[], Float64[], Float64[]
-    for j in iny_c[1:step:end], i in inx_c[1:step:end]
-        a.phases.c[i, j] == 2 || continue
-        nx, ny = a.τ0.nd.x_c[i, j], a.τ0.nd.y_c[i, j]
-        (iszero(nx) && iszero(ny)) && ((nx, ny) = (nd0[1], nd0[2]))
-        push!(px, xc[i-1]); push!(py, yc[j-1]); push!(tx, ny); push!(ty, -nx)
-    end
-
-    panels = (
-        (a.τ.II[inx_c, iny_c],         cm.L"$\tau_{II}$"),
-        (log10.(a.η.c[inx_c, iny_c]),  cm.L"$\log_{10}\, \eta$"),
-        (log10.(a.ε̇.II[inx_c, iny_c]), cm.L"$\log_{10}\, \dot{\varepsilon}_{II}$"),
-    )
-    fig = cm.with_theme(cm.theme_latexfonts()) do
-        fig = cm.Figure(size=(1500, 480))
-        cm.Label(fig[0, 1:6], @sprintf("t = %.3f", t), fontsize=20)
-        for (k, (field, lab)) in enumerate(panels)
-            ax = cm.Axis(fig[1, 2k-1], aspect=cm.DataAspect(), title=lab, titlesize=20, xlabel=cm.L"x", ylabel=k == 1 ? cm.L"y" : "")
-            hm = cm.heatmap!(ax, xc, yc, field, colormap=cm.cgrad(:vik))
-            cm.lines!(ax, rad .* cos.(ϕ), rad .* sin.(ϕ), color=:white, linewidth=1)
-            k == 1 && cm.arrows2d!(ax, px, py, tx, ty, lengthscale=0.03, tiplength=0, shaftwidth=1.5, align=:center, color=:white)
-            cm.Colorbar(fig[1, 2k], hm, height=cm.Relative(0.8))
-        end
-        fig
-    end
-    display(fig)
-    return fig
-end
-
 @views function main(BC_template, D_template)
     # Resolution
     nc = (x = 100, y = 100)
@@ -70,12 +29,12 @@ end
     # Anisotropy
     α  = 0.5   # volume fraction of the strong layer
     an = materials.anisotropy
-    an.mv .= [1., 1.]      # B in power law
-    an.me .= [1., 1.]
+    an.mv .= [4., 1.]      # B in power law
+    an.me .= [4., 1.]
     an.α  .= [0.5, α]
-    an.dv .= [-sind(0), cosd(0)]
-    an.n1 .= [1., 1.]
-    an.n2 .= [1., 1.]
+    an.dv .= [-sind(30), cosd(30)]
+    an.n1 .= [3., 1.]
+    an.n2 .= [2., 1.]
 
     preprocess!(materials)
 
