@@ -25,6 +25,7 @@ export SetBCPf1, SetBCPt1, SetBCVx1, SetBCVy1
 include("materials.jl")
 export Materials, Materials_TwoPhases, preprocess!, preprocess
 export AbstractPlasticity, VonMises, DruckerPrager, DruckerPragerCap, MohrCoulomb, DruckerPrager1, DruckerHyperbolic, DruckerAniso, Golchin2021, Kiss2023, Tensile, NoPlasticity, IterParams
+export AbstractAnisotropy, Isotropic, Anisotropy, is_anisotropic
 export initialize_materials, initialize_materials_TwoPhases, arrhenius_factor
 
 # module markers
@@ -67,6 +68,8 @@ export InitialiseMarkerField, FillPhaseRatios!, update_JustPIC!
 export Set_PhaseRatios!, InitialisePhaseRatios, compute_grid_fields!, Set_Grid_Phases!
 include("StressMarkers.jl")
 include("Rheology_Voigt.jl")
+include("Rheology_aniso.jl")
+export LocalRheology_aniso, DirectorVector, update_director!, has_anisotropy
 include("Rheology_IsoWork.jl")
 include("Rheology_Markers.jl")
 export phase_multipliers, marker_engine, stress_ToGrid_Markers!, stress_ToParticles_Markers!

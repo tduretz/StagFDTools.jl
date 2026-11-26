@@ -57,7 +57,9 @@ end
 
 # a: strain rate multiplier of phase p (its strain rate is a ε̇; 1: Voigt)
 # βbar: grid compressibility (harmonic average of the phase β, as compute_grid_fields!), for the per-phase pressure
-# T0 = (τ0xx, τ0yy, τ0xy, P0) per-phase old stresses and pressure
+# T0 = (τ0xx, τ0yy, τ0xy, P0[, V0, N]) per-phase old stresses and pressure; V0 = (τ0xx, τ0yy, τ0xy) per-phase, per-virtual-phase
+# old stresses (V0[c][p][k]), N = (nx, ny) fabric director field (only read for anisotropic phases)
+# Returns τp, Pp, λ̇p, η, ε̇plp, τv: τv = new stresses of the 2 virtual phases (anisotropic phases; τv = (τp, τp) otherwise)
 @inline function voigt_phase(ε̇, ε̇kk, P0, T0, I, materials, p, Δ, Tk, εp, Ω, eps0=1e-17, a=1.0, βbar=1.0)
     # Pressure: shared (trial = cell trial pressure ε̇[4]), or per phase (materials.pressure = :phase):
     # phase p has its own old pressure P0ₚ and the same volumetric strain rate as the cell:
@@ -69,6 +71,14 @@ end
         P0, ε̇[4]
     end
     G = materials.G[p]
+    if is_anisotropic(materials, p) # 2 virtual phases (layers), each with its own old stress: tensorial update (Rheology_aniso.jl)
+        V0  = T0[5]
+        τ0v = SVector(SVector(V0[1][p][1][I], V0[2][p][1][I], V0[3][p][1][I]),
+                      SVector(V0[1][p][2][I], V0[2][p][2][I], V0[3][p][2][I]))
+        τ0p = SVector(T0[1][p][I], T0[2][p][I], T0[3][p][I])
+        nd  = director(T0[6][1][I], T0[6][2][I], materials.anisotropy)
+        return LocalRheology_aniso(SVector(a * ε̇[1], a * ε̇[2], a * ε̇[3]), τ0p, τ0v, nd, Ptr, materials, p, Δ)
+    end
     _2GΔt = inv(2 * G * Δ.t)
     ϵ̇xx = a * ε̇[1] + T0[1][p][I] * _2GΔt
     ϵ̇yy = a * ε̇[2] + T0[2][p][I] * _2GΔt
@@ -76,11 +86,12 @@ end
     ϵ̇II = sqrt((ϵ̇xx^2 + ϵ̇yy^2 + (-ϵ̇xx - ϵ̇yy)^2) / 2 + ϵ̇xy^2 + eps0^2) # regularised inside: finite derivative at ϵ̇ = 0 (iso-work, a = 0)
     if materials.plasticity isa MohrCoulomb # stress not coaxial with ϵ̇ (Rheology_MohrCoulomb.jl)
         τp, Pp, λ̇p, ε̇plp, η = phase_vep_tensor(SVector(ϵ̇xx, ϵ̇yy, ϵ̇xy), Ptr, ε̇kk, P0p, G, materials, p, Δ, Tk, _εp(εp, p), Ω)
-        return τp, Pp, λ̇p, η, ε̇plp
+        return τp, Pp, λ̇p, η, ε̇plp, SVector(τp, τp)
     end
     τII, Pp, λ̇p, ε̇plp = phase_vep(ϵ̇II, Ptr, ε̇kk, P0p, G, materials, p, Δ, Tk, _εp(εp, p), Ω)
     η = τII / (2 * ϵ̇II)
-    return SVector{3}(2η * ϵ̇xx, 2η * ϵ̇yy, 2η * ϵ̇xy), Pp, λ̇p, η, ε̇plp
+    τp = SVector{3}(2η * ϵ̇xx, 2η * ϵ̇yy, 2η * ϵ̇xy)
+    return τp, Pp, λ̇p, η, ε̇plp, SVector(τp, τp)
 end
 
 # Called by TangentOperator! (Stokes.jl) at a centroid (loc = :c) or vertex (loc = :v) when materials.mixing is :voigt or :isowork.
@@ -88,7 +99,8 @@ end
 # ε̇plph: nothing, or per-phase fields receiving the per-phase plastic strain rates ε̇IIplᵢ (plastic strain accumulation)
 function TangentOperator_Voigt!(τ0, τ, i, j, loc::Symbol, ε̇vec, ε̇kk, P0, Ggrid, materials, phase_ratios, Δ, Tk, εp, Ω, ε̇plph=nothing)
     I = CartesianIndex(i, j)
-    T0 = loc === :c ? (τ0.ph.xx_c, τ0.ph.yy_c, τ0.ph.xy_c, τ0.ph.P_c) : (τ0.ph.xx_v, τ0.ph.yy_v, τ0.ph.xy_v, τ0.ph.P_v)
+    T0 = loc === :c ? (τ0.ph.xx_c, τ0.ph.yy_c, τ0.ph.xy_c, τ0.ph.P_c, (τ0.vph.xx_c, τ0.vph.yy_c, τ0.vph.xy_c), (τ0.nd.x_c, τ0.nd.y_c)) :
+                      (τ0.ph.xx_v, τ0.ph.yy_v, τ0.ph.xy_v, τ0.ph.P_v, (τ0.vph.xx_v, τ0.vph.yy_v, τ0.vph.xy_v), (τ0.nd.x_v, τ0.nd.y_v))
     τ_vec, η_local, λ̇_local, τII_local = StressVector_Voigt!(ε̇vec, ε̇kk, P0, T0, I, materials, phase_ratios, Δ, Tk, εp, Ω)
     _, jac = fd_jacobian_first(StressVector_Voigt!, ε̇vec, ε̇kk, P0, T0, I, materials, phase_ratios, Δ, Tk, εp, Ω)
 
@@ -103,24 +115,73 @@ function TangentOperator_Voigt!(τ0, τ, i, j, loc::Symbol, ε̇vec, ε̇kk, P0,
 
     # Per-phase stresses (all phases, also absent ones: a = 1), for the markers
     Tn = loc === :c ? (τ.ph.xx_c, τ.ph.yy_c, τ.ph.xy_c, τ.ph.η_c, τ.ph.P_c) : (τ.ph.xx_v, τ.ph.yy_v, τ.ph.xy_v, τ.ph.η_v, τ.ph.P_v)
+    Tv = loc === :c ? (τ.vph.xx_c, τ.vph.yy_c, τ.vph.xy_c) : (τ.vph.xx_v, τ.vph.yy_v, τ.vph.xy_v)
     A = phase_multipliers(ε̇vec, ε̇kk, P0, T0, I, materials, phase_ratios, Δ, Tk, εp, Ω)
     βbar = grid_β(materials, phase_ratios)
     for p in eachindex(materials.n)
-        τp, Pp, _, ηp, ε̇plp = voigt_phase(ε̇vec, ε̇kk, P0, T0, I, materials, p, Δ, Tk, εp, Ω, 1e-17, phase_ratios[p] > eps() ? A[p] : 1.0, βbar)
+        τp, Pp, _, ηp, ε̇plp, τv = voigt_phase(ε̇vec, ε̇kk, P0, T0, I, materials, p, Δ, Tk, εp, Ω, 1e-17, phase_ratios[p] > eps() ? A[p] : 1.0, βbar)
         ε̇plph === nothing || (ε̇plph[p][I] = phase_ratios[p] > eps() ? ε̇plp : 0.0)
         Tn[1][p][I] = τp[1]
         Tn[2][p][I] = τp[2]
         Tn[3][p][I] = τp[3]
         Tn[4][p][I] = ηp
         Tn[5][p][I] = Pp
+        # Virtual-phase stresses of the anisotropic phases
+        if is_anisotropic(materials, p)
+            for k in 1:2, c in 1:3
+                Tv[c][p][k][I] = τv[k][c]
+            end
+        end
     end
     return τ_vec, jac, η_local, λ̇_local, τII_local
 end
 
-# Grid-only runs (no stress markers): per-phase old stresses = per-phase new stresses of the last step
+# Grid-only runs (no stress markers): per-phase old stresses = per-phase new stresses of the last step, then the components
+# that are not carried by the momentum equations at a location (xy at centroids, xx and yy at vertices) are re-interpolated
+# from the neighbouring locations where they are (sync_old_stress_phase!). Otherwise these components keep their own history
+# at each location: next to a strong viscosity contrast, e.g. the centroid xy of a stiff phase (its η times the vertex-averaged
+# ε̇xy, partly from the soft phase) accumulates elastically into spurious values, which show in τII and, for anisotropic
+# phases, leak into the normal components through the rotation to the layer frame.
 function update_old_stress_Voigt!(a)
     for k in (:xx_c, :yy_c, :xy_c, :xx_v, :yy_v, :xy_v, :P_c, :P_v), p in eachindex(a.τ0.ph[k])
         a.τ0.ph[k][p] .= a.τ.ph[k][p]
+    end
+    for k in (:xx_c, :yy_c, :xy_c, :xx_v, :yy_v, :xy_v), p in eachindex(a.τ0.vph[k]), v in eachindex(a.τ0.vph[k][p])
+        a.τ0.vph[k][p][v] .= a.τ.vph[k][p][v]
+    end
+    T, V = a.τ0.ph, a.τ0.vph
+    for p in eachindex(T.xx_c)
+        sync_old_stress_phase!(T.xx_c[p], T.yy_c[p], T.xy_c[p], T.xx_v[p], T.yy_v[p], T.xy_v[p], a.phase_ratios, p)
+        for v in eachindex(V.xx_c[p])
+            sync_old_stress_phase!(V.xx_c[p][v], V.yy_c[p][v], V.xy_c[p][v], V.xx_v[p][v], V.yy_v[p][v], V.xy_v[p][v], a.phase_ratios, p)
+        end
+    end
+    return nothing
+end
+
+# Old stress of phase p: centroid xy from the 4 vertices, vertex xx, yy from the 4 centroids, weighted by the volume fraction
+# of phase p (the per-phase stresses are also stored where the phase is absent and must not contribute); the own value is
+# kept where phase p is absent from the 4 neighbours
+function sync_old_stress_phase!(xx_c, yy_c, xy_c, xx_v, yy_v, xy_v, phase_ratios, p)
+    prc, prv = phase_ratios.c, phase_ratios.v
+    for j in axes(xy_c, 2), i in axes(xy_c, 1)
+        sw = s = 0.0
+        for (iv, jv) in ((i, j), (i+1, j), (i, j+1), (i+1, j+1))
+            w   = prv[iv, jv][p]
+            sw += w
+            s  += w * xy_v[iv, jv]
+        end
+        sw > 0 && (xy_c[i, j] = s / sw)
+    end
+    for j in axes(xx_v, 2)[2:end-1], i in axes(xx_v, 1)[2:end-1]
+        sw = sx = sy = 0.0
+        for (ic, jc) in ((i-1, j-1), (i, j-1), (i-1, j), (i, j))
+            w   = prc[ic, jc][p]
+            sw += w
+            sx += w * xx_c[ic, jc]
+            sy += w * yy_c[ic, jc]
+        end
+        sw > 0 && (xx_v[i, j] = sx / sw; yy_v[i, j] = sy / sw)
     end
     return nothing
 end

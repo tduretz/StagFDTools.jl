@@ -179,23 +179,42 @@ Base.@kwdef struct Kiss2023{T} <: AbstractPlasticity
     τ2::T   = Float64[]
 end
 
-Base.@kwdef struct Materials{T,P<:AbstractPlasticity}
-    g::T = [0.0, 0.0]
-    ρ::T = Float64[]
-    n::T = Float64[]
-    η0::T = Float64[]
-    Ea::T = Float64[]   # activation energy [J/mol], 0: no temperature dependence
-    Tref::T = Float64[] # reference temperature [K] at which η = η0
-    ξ0::T = Float64[]
-    G::T = Float64[]
-    β::T = Float64[]
-    B::T = Float64[]
-    plasticity::P = NoPlasticity()
-    compressible::Bool = false
-    phase_avg::Symbol  = :harmonic
-    mixing::Symbol     = :default # interface cells: :default (each phase sees the cell strain rate, shared τ0), :voigt (iso-strain rate, τ0 per phase), :reuss (iso-stress), :isowork (iso-work rate), :markers, :markers_stress, :markers_work (rheology on the markers: iso-strain, iso-stress, iso-work between phases; needs TensorMarkers)
-    plastic_strain::Symbol = :mixed # strain hardening: :mixed (one εp per cell, += Δt Σφᵢλ̇ᵢ, seen by all phases), :phase (εpᵢ += Δt λ̇ᵢ per phase)
-    pressure::Symbol   = :shared # old pressure: :shared (one P0 per cell), :phase (P0ᵢ per phase; only with mixing = :voigt or :isowork)
+abstract type AbstractAnisotropy end
+
+struct Isotropic <: AbstractAnisotropy end   # default: anisotropy off
+
+Base.@kwdef struct Anisotropy{T,V} <: AbstractAnisotropy
+    mv::T = Float64[]   # viscosity contrast η₂/η₁ (1: isotropic)
+    me::T = Float64[]   # shear modulus contrast G₂/G₁ (1: isotropic)
+    α::T  = Float64[]   # volume fraction of the strong layer, 0 < α < 1
+    δv::T = Float64[]   # viscous anisotropy factor ηn/ηs = (1-α+α mv)(1-α+α/mv), output of preprocess!
+    δe::T = Float64[]   # elastic anisotropy factor (1-α+α me)(1-α+α/me), output of preprocess!
+    dv::V = [0.0, 1.0]  
+end
+
+# Phase p is anisotropic: 2 virtual phases with their own old stresses (per-phase stress framework, Rheology_Voigt.jl)
+@inline is_anisotropic(::Isotropic, materials, p)   = false
+@inline is_anisotropic(a::Anisotropy, materials, p) = !(isone(a.mv[p]) && isone(a.me[p]))
+@inline is_anisotropic(materials, p) = hasproperty(materials, :anisotropy) && is_anisotropic(materials.anisotropy, materials, p)
+
+Base.@kwdef struct Materials{T,P<:AbstractPlasticity,A<:AbstractAnisotropy}
+    g::T    = [0.0, 0.0]
+    ρ::T    = Float64[]
+    n::T    = Float64[]
+    η0::T   = Float64[]
+    Ea::T   = Float64[]   # activation energy [J/mol], 0: no temperature dependence
+    Tref::T = Float64[]   # reference temperature [K] at which η = η0
+    ξ0::T   = Float64[]
+    G::T    = Float64[]
+    β::T    = Float64[]
+    B::T    = Float64[]
+    plasticity::P          = NoPlasticity()
+    anisotropy::A          = Isotropic()
+    compressible::Bool     = false
+    phase_avg::Symbol      = :harmonic
+    mixing::Symbol         = :default        # interface cells: :default (each phase sees the cell strain rate, shared τ0), :voigt (iso-strain rate, τ0 per phase), :reuss (iso-stress), :isowork (iso-work rate), :markers, :markers_stress, :markers_work (rheology on the markers: iso-strain, iso-stress, iso-work between phases; needs TensorMarkers)
+    plastic_strain::Symbol = :mixed          # strain hardening: :mixed (one εp per cell, += Δt Σφᵢλ̇ᵢ, seen by all phases), :phase (εpᵢ += Δt λ̇ᵢ per phase)
+    pressure::Symbol       = :shared         # old pressure: :shared (one P0 per cell), :phase (P0ᵢ per phase; only with mixing = :voigt or :isowork)
 end
 
 Base.@kwdef struct Materials_TwoPhases{T,P<:AbstractPlasticity}
@@ -379,8 +398,13 @@ initialize(::Type{Tensile}, n::Integer) = Tensile(
 
 initialize(::Type{NoPlasticity}, ::Integer) = NoPlasticity()
 
+initialize(::Type{Isotropic}, ::Integer) = Isotropic()
+
+initialize(::Type{Anisotropy}, n::Integer) = Anisotropy(mv = ones(n), me = ones(n), α = fill(0.5, n), δv = ones(n), δe = ones(n))
+
 function initialize_materials(nphases::Integer;
     plasticity         = NoPlasticity(),
+    anisotropy         = Isotropic(),
     compressible::Bool = false,
     phase_avg::Symbol  = :harmonic,
     mixing::Symbol     = :default,
@@ -394,6 +418,9 @@ function initialize_materials(nphases::Integer;
     pressure in (:shared, :phase) || error("pressure must be :shared or :phase (got :$pressure)")
     pressure === :phase && !(mixing in (:voigt, :isowork)) && error("pressure = :phase requires mixing = :voigt or :isowork")
     P = plasticity isa Type ? plasticity : typeof(plasticity)
+    A = anisotropy isa Type ? anisotropy : typeof(anisotropy)
+    A <: Anisotropy && !(mixing in (:voigt, :isowork)) &&
+        error("anisotropy = Anisotropy requires mixing = :voigt or :isowork (per-phase old stresses, got :$mixing)")
     return Materials(
         ρ            = ones(nphases),
         n            = ones(nphases),
@@ -405,6 +432,7 @@ function initialize_materials(nphases::Integer;
         β            = 1e-50 * ones(nphases),
         B            = ones(nphases),
         plasticity   = initialize(P, nphases),
+        anisotropy   = initialize(A, nphases),
         compressible = compressible,
         phase_avg    = phase_avg,
         mixing       = mixing,
@@ -533,6 +561,7 @@ end
 function preprocess!(mat::Materials)
     @. mat.B = (2 * mat.η0)^(-mat.n)
     preprocess!(mat.plasticity)
+    preprocess!(mat.anisotropy, mat)
 end
 
   # This is same as above, could be Union ? 
@@ -544,5 +573,15 @@ end
 preprocess!(::VonMises) = nothing
 
 preprocess!(::NoPlasticity) = nothing
+
+preprocess!(::Isotropic, mat) = nothing
+
+function preprocess!(a::Anisotropy, mat)
+    all(α -> 0 < α < 1, a.α) || error("Anisotropy: the strong-layer fractions α must be in (0, 1) (got $(a.α))")
+    all(>(0), a.mv) && all(>(0), a.me) || error("Anisotropy: the contrasts mv, me must be > 0")
+    @. a.δv = (1 - a.α + a.α * a.mv) * (1 - a.α + a.α / a.mv)
+    @. a.δe = (1 - a.α + a.α * a.me) * (1 - a.α + a.α / a.me)
+    return nothing
+end
 
 preprocess(x) = (preprocess!(x); x)

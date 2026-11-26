@@ -183,6 +183,11 @@ function fill_solution_ghosts!(a)
             fill_centroid_ghosts!(A, t)
         end
     end
+    if hasproperty(a.τ, :vph)
+        for k in (:xx_c, :yy_c, :xy_c), Ap in getproperty(a.τ.vph, k), A in Ap
+            fill_centroid_ghosts!(A, t)
+        end
+    end
     foreach(A -> fill_centroid_ghosts!(A, t), a.εp_ph.ε̇pl.c)
     return nothing
 end
@@ -201,7 +206,9 @@ main_loop(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err) = m
 function main_loop(a::Allocs, adv::Nothing, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
     update_old_stress!(a)
     _per_phase_stress(materials) && update_old_stress_Voigt!(a)
-    return main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    out = main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    # has_anisotropy(materials) && update_director!(a, materials, Δ) # fabric rotation (Rheology_aniso.jl), deactivated
+    return out
 end
 
 # Marker advection with JustPIC: velocity interpolation to the markers, RK4 along the path in the velocity of the step vⁿ⁺¹,
@@ -235,6 +242,7 @@ function main_loop(a::Allocs, adv::Markers, it, materials, BC, nc, Δ, to, nphas
 
     # Solve
     main_solver!(a, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err)
+    # has_anisotropy(materials) && update_director!(a, materials, Δ) # fabric rotation (Eulerian director field, not advected), deactivated
 
     @views V = (a.V.x[2:(end-1), 2:(end-1)], a.V.y[2:(end-1), 2:(end-1)])
 
@@ -249,6 +257,10 @@ end
 
 # Advect and rotate stresses
 function main_loop(a::Allocs, adv::Markers, tm::TensorMarkers, it, materials, BC, nc, Δ, to, nphases, iter_params, rvec, err; advection::Symbol=:standard, subgrid=1.0, rotation::Symbol=:upper_convected)
+
+    # Virtual-phase stresses of anisotropic phases are not carried by the markers yet (grid-only or Markers runs only)
+    has_anisotropy(materials) &&
+        error("anisotropic phases are not supported with TensorMarkers yet (virtual-phase stresses not transferred)")
 
     # Rheology on the markers (mixing = :markers): old pressure of the cells = mean of their markers (also after a restart)
     onmk = _mixing(materials) in (:markers, :markers_stress, :markers_work)

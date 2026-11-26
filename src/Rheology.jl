@@ -709,6 +709,8 @@ function StressVector!(ε̇::SVector{N,T}, ε̇kk, P0, G, materials, phase_ratio
         return _mixing(materials) === :reuss ? StressVector_MC_Reuss(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp) :
                                               StressVector_MC(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp)
     end
+    materials.anisotropy isa Anisotropy &&
+        return StressVector_aniso(ε̇, ε̇kk, P0, materials, phase_ratios, Δ)
     η, λ̇, P, τII = _mixing(materials) === :reuss ?
         LocalRheology_Reuss(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω) :
         LocalRheology(ε̇, ε̇kk, P0, G, materials, phase_ratios, Δ, Tk, εp, Ω)

@@ -43,7 +43,7 @@ end
     # Material parameters
     nphases = 2
     # materials = initialize_materials(nphases; plasticity=VonMises, compressible=false)
-    materials = initialize_materials(nphases; compressible=false)
+    materials = initialize_materials(nphases; compressible=false, mixing=:voigt)
     materials.η0 .= [η1, η2]
     materials.n .= [n_w, n_s]
     materials.G .= [G1, G2]
@@ -339,7 +339,7 @@ let
     δ = (α1 + α2 * m) * (α1 + α2 / m)
 
     n_ran = 1:20
-    n1s = [1]
+    n1s = [4]
     n2s = [1]
     @assert length(n1s) == length(n2s)
 

@@ -43,10 +43,10 @@ end
     # Material parameters
     nphases = 2
     # materials = initialize_materials(nphases; plasticity=VonMises, compressible=false)
-    materials = initialize_materials(nphases; compressible=false)
+    materials = initialize_materials(nphases; compressible=false, mixing=:reuss)
     materials.η0 .= [η1, η2]
-    materials.n .= [n_w, n_s]
-    materials.G .= [G1, G2]
+    materials.n  .= [n_w, n_s]
+    materials.G  .= [G1, G2]
 
     preprocess!(materials)
 
@@ -256,7 +256,7 @@ let
 
     # Discretise angle of layer 
     # nθ = 2
-    nθ = 3
+    nθ = 9
     θ = LinRange(0, π/4, nθ)
     # θ = LinRange(π / 8, π / 8, nθ)
     τ_cart = zeros(nθ)
@@ -265,8 +265,8 @@ let
     Τ = (II_mean=zeros(nθ), II_macro=zeros(nθ), xx=zeros(nθ), yy=zeros(nθ), xy=zeros(nθ))
 
     #  Composite parameters
-    m = 1
-    me = 1
+    m = 4.
+    me = 4.
     # η2 = 1e10
     # η1 = η2
     η2 = 10
@@ -289,12 +289,12 @@ let
     δ = (α1 + α2 * m) * (α1 + α2 / m)
 
     n_ran = 1:20
-    n1s = [1]
-    n2s = [1]
+    n1s = [1, 2, 3, 4, 4, 7]
+    n2s = [1, 1, 1, 1, 2, 4]
     @assert length(n1s) == length(n2s)
 
     # Single output file 
-    jld2path = joinpath(@__DIR__, "Layered_VEpwl_n1_nc150_astrong050_isotropic.jld2")
+    jld2path = joinpath(@__DIR__, "Layered_VEpwl_dn_nc150_astrong050_reuss.jld2")
     jld2file = save ? jldopen(jld2path, "w") : nothing
 
     try

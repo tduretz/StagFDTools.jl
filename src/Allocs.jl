@@ -115,7 +115,8 @@ function TensorMarkers(backend, a::Allocs, nxcell::Union{Number,NTuple{N,Integer
     return particles, tm
 end
 
-function allocate(nc, config, x, y, Δ, nphases)
+# nv[p]: number of virtual phases of phase p (anisotropic phases: 2, see is_anisotropic), sizes the per-virtual-phase stresses vph
+function allocate(nc, config, x, y, Δ, nphases; nv=fill(2, nphases))
     inx_Vx, iny_Vx, inx_Vy, iny_Vy, inx_c, iny_c,
     inx_v, iny_v, size_x, size_y, size_c, size_v = Ranges(nc)
 
@@ -159,11 +160,18 @@ function allocate(nc, config, x, y, Δ, nphases)
     # ph: per-phase stresses (and pressures P_c, P_v) at centroids (_c) and vertices (_v), only used by materials.mixing = :voigt, :isowork (see Rheology_Voigt.jl)
     phc() = [zeros(size_c...) for _ in 1:nphases]
     phv() = [zeros(size_v...) for _ in 1:nphases]
+    vphc() = [[zeros(size_c...) for _ in 1:nv[p]] for p in 1:nphases]
+    vphv() = [[zeros(size_v...) for _ in 1:nv[p]] for p in 1:nphases]
     τ0 = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...),
-        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), P_c=phc(), P_v=phv()))
+        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), P_c=phc(), P_v=phv()),
+        vph = (xx_c=vphc(), yy_c=vphc(), xy_c=vphc(), xx_v=vphv(), yy_v=vphv(), xy_v=vphv()),
+        # nd: fabric director (unit normal to the layers of the anisotropic phases) at centroids and vertices, rotated with the
+        # flow after each step (update_director!, Rheology_aniso.jl); 0: not set, materials.anisotropy.dv is used
+        nd = (x_c=zeros(size_c...), y_c=zeros(size_c...), x_v=zeros(size_v...), y_v=zeros(size_v...)))
     τ = (xx=zeros(size_c...), yy=zeros(size_c...), xy=zeros(size_v...), xy_c=zeros(size_c...),
         II=zeros(size_c...), θ=zeros(size_c...),
-        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), η_c=phc(), η_v=phv(), P_c=phc(), P_v=phv()))
+        ph=(xx_c=phc(), yy_c=phc(), xy_c=phc(), xx_v=phv(), yy_v=phv(), xy_v=phv(), η_c=phc(), η_v=phv(), P_c=phc(), P_v=phv()),
+        vph = (xx_c=vphc(), yy_c=vphc(), xy_c=vphc(), xx_v=vphv(), yy_v=vphv(), xy_v=vphv()))
     D = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
         Pt=zeros(size_c...))
     D_sub = (τxx=zeros(size_c...), τyy=zeros(size_c...), τxy=zeros(size_v...),
@@ -206,11 +214,11 @@ function allocate_matrices(nVx, nVy, nPt)
     return M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r
 end
 
-function Allocs(nc, config, x, y, Δ, nphases)
+function Allocs(nc, config, x, y, Δ, nphases; nv=fill(2, nphases))
     type, number, pattern, nVx, nVy, nPt,
     R, V, Vi, η, ξ, λ̇, G, β, ρ, ε̇, τ0, τ, D, D_sub, ω,
     Pt, Pti, Pt0, ΔPt, Dc, Dv, 𝐷, D_ctl_c, D_ctl_v, 𝐷_ctl, phases, phase_ratios, X =
-        allocate(nc, config, x, y, Δ, nphases)
+        allocate(nc, config, x, y, Δ, nphases; nv)
 
     M, 𝐊, 𝐐, 𝐐ᵀ, 𝐏, dx, r = allocate_matrices(nVx, nVy, nPt)
     M_PC, 𝐊_PC, 𝐐_PC, 𝐐ᵀ_PC, 𝐏_PC, _, _ = allocate_matrices(nVx, nVy, nPt)
